@@ -170,7 +170,7 @@ async function save() {
         <template v-else-if="tab === 'targets'">
           <span class="hint">
             Each target is a shell command run in your login shell.
-            <code>{path}</code> <code>{branch}</code> <code>{project}</code> <code>{prUrl}</code>
+            <code>{path}</code> <code>{branch}</code> <code>{primary}</code> <code>{prUrl}</code>
             are substituted and shell-quoted.
           </span>
           <template v-for="group in targetGroups" :key="group.key">

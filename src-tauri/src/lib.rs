@@ -455,7 +455,7 @@ struct OpenContext {
     #[serde(default)]
     branch: String,
     #[serde(default)]
-    repo: String,
+    primary: String,
     #[serde(default)]
     pr_url: String,
 }
@@ -481,7 +481,7 @@ fn open_in(state: State<AppState>, target_id: String, ctx: OpenContext) -> Resul
     let project_targets = cfg
         .projects
         .iter()
-        .find(|r| r.path == ctx.repo)
+        .find(|p| p.path == ctx.primary)
         .map(|r| r.resolved().open_targets)
         .unwrap_or_default();
     let target = project_targets
@@ -496,7 +496,7 @@ fn open_in(state: State<AppState>, target_id: String, ctx: OpenContext) -> Resul
         .command
         .replace("{path}", &proc::sh_quote(&ctx.path))
         .replace("{branch}", &proc::sh_quote(&ctx.branch))
-        .replace("{repo}", &proc::sh_quote(&ctx.repo))
+        .replace("{primary}", &proc::sh_quote(&ctx.primary))
         .replace("{prUrl}", &proc::sh_quote(&ctx.pr_url));
 
     let cwd = PathBuf::from(&ctx.path);

@@ -141,8 +141,11 @@ access and fails without it. The `.app` is the deliverable.
 - App config: `~/Library/Application Support/com.jmversteeg.switcheroo/config.json`
 - Per-project override: `.switcheroo.json` committed at a project's root, which
   wins field by field over the app config.
-- "Open in" targets are user-editable shell templates (`{path}`, `{branch}`,
-  `{repo}`, `{prUrl}`, substituted and shell-quoted) run through the login shell.
+- "Open in" targets and setup steps are user-editable shell templates run
+  through the login shell. `{path}` is the checkout being acted on and
+  `{primary}` the primary clone, in both. Path templates use `{project}` for
+  the project's directory name. All substituted values are shell-quoted, so a
+  template must not add quotes of its own.
 
 ## Open items
 

@@ -57,7 +57,7 @@ pub struct ProjectConfig {
     pub path: String,
     /// Falls back to `origin/HEAD` when unset.
     pub base_branch: Option<String>,
-    /// Supports `{parent}`, `{repo}`, `{slug}`, `{branch}`, `{pr}`.
+    /// Supports `{parent}`, `{project}`, `{slug}`, `{branch}`, `{pr}`.
     pub path_template: String,
     pub setup_steps: Vec<SetupStep>,
     /// Extra "open in" targets for this project only, appended to the global
@@ -281,7 +281,7 @@ impl ProjectConfig {
             setup_steps: sniff_setup_steps(&path),
             path: path.to_string_lossy().to_string(),
             base_branch: None,
-            path_template: "{parent}/{repo}-{slug}".into(),
+            path_template: "{parent}/{project}-{slug}".into(),
             open_targets: Vec::new(),
         }
     }

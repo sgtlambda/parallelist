@@ -131,7 +131,7 @@ export interface RemovalResult {
 export interface OpenContext {
   path: string
   branch: string
-  repo: string
+  primary: string
   prUrl: string
 }
 

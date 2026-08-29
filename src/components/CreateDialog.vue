@@ -119,7 +119,7 @@ async function openCreated(targetId: string) {
   await api.openIn(targetId, {
     path: createdPath.value,
     branch: branch.value.trim(),
-    repo: project.value?.path ?? '',
+    primary: project.value?.path ?? '',
     prUrl: selectedRow.value?.pr?.url ?? '',
   })
 }

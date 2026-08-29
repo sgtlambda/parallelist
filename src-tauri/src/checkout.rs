@@ -198,7 +198,7 @@ pub fn suggest_path(project: &ProjectConfig, branch: &str, pr: Option<u64>) -> S
         .parent()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
-    let repo_dir = primary
+    let project_dir = primary
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| project.name.clone());
@@ -206,7 +206,7 @@ pub fn suggest_path(project: &ProjectConfig, branch: &str, pr: Option<u64>) -> S
     let base = project
         .path_template
         .replace("{parent}", &parent)
-        .replace("{repo}", &repo_dir)
+        .replace("{project}", &project_dir)
         .replace("{slug}", &slugify(branch, pr))
         .replace("{branch}", branch)
         .replace("{pr}", &pr.map(|n| n.to_string()).unwrap_or_default());

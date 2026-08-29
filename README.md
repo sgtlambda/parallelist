@@ -67,7 +67,7 @@ when its branch exists nowhere else.
 ## Creating a checkout
 
 The dialog suggests a directory from the repo's path template
-(`{parent}/{repo}-{slug}`, where the slug is the branch's last segment prefixed
+(`{parent}/{project}-{slug}`, where the slug is the branch's last segment prefixed
 with its PR number) and lets you edit it. Setup steps are offered as
 checkboxes, so each one is a per-checkout decision rather than a policy:
 
@@ -100,7 +100,7 @@ root, which wins field by field:
 ```json
 {
   "baseBranch": "main",
-  "pathTemplate": "{parent}/{repo}-{slug}",
+  "pathTemplate": "{parent}/{project}-{slug}",
   "setupSteps": [
     {
       "id": "copy-env",
@@ -114,7 +114,7 @@ root, which wins field by field:
 ```
 
 **Open in** targets are shell templates run through your login shell, with
-`{path}`, `{branch}`, `{repo}` and `{prUrl}` substituted and shell-quoted. Add,
+`{path}`, `{branch}`, `{primary}` and `{prUrl}` substituted and shell-quoted. Add,
 edit or remove as many as you like:
 
 ```

@@ -33,13 +33,6 @@ roughly 75%.
 Not urgent: measured usage is ~11 points per refresh against a 5000/hour
 budget, so a normal day sits near 12% of one hour's allowance.
 
-## `{repo}` means two different things
-
-In a path template it is the repository's *directory name*
-(`checkout::suggest_path`). In an "open in" target it is the primary clone's
-*full path* (`open_in`). Both are documented as `{repo}`. Worth unifying, but it
-is a user-visible config change, so it needs a migration or an alias.
-
 ## Exercise the write paths
 
 Everything verified so far reads: the `probe` example, the unit tests, the
