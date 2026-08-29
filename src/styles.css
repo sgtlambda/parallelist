@@ -13,6 +13,8 @@
   --accent-fg: #ffffff;
   --green: #1a7f37;
   --red: #c93c37;
+  --danger-bg: #c93c37;
+  --danger-fg: #ffffff;
   --amber: #9a6700;
   --purple: #7b47c4;
   --skeleton: rgba(0, 0, 0, 0.07);
@@ -40,6 +42,8 @@
     --accent-fg: #ffffff;
     --green: #4ac26b;
     --red: #f2695f;
+    --danger-bg: #c4423a;
+    --danger-fg: #ffffff;
     --amber: #d4a72c;
     --purple: #b585f5;
     --skeleton: rgba(255, 255, 255, 0.07);
@@ -243,6 +247,15 @@ code,
 
 .btn.danger {
   color: var(--red);
+}
+
+/* Destructive and primary: the button itself carries the warning so the label
+   stays legible. `.danger` on its own is a text button and keeps red text —
+   stacking them previously put red text on the blue primary background. */
+.btn.primary.danger {
+  background: var(--danger-bg);
+  border-color: transparent;
+  color: var(--danger-fg);
 }
 
 .btn.ghost {
