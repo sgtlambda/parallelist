@@ -19,6 +19,7 @@ export interface RepoConfig {
   baseBranch: string | null
   pathTemplate: string
   setupSteps: SetupStep[]
+  openTargets: OpenTarget[]
 }
 
 export interface OpenTarget {

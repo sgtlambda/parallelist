@@ -10,6 +10,7 @@ import {
   cleanupOpen,
   copyToClipboard,
   counts,
+  openTargets,
   repo,
   describeProgress,
   refresh,
@@ -123,7 +124,7 @@ const menuItems = computed<MenuItem[]>(() => {
 
   // One flyout per checkout, so a branch with two of them can send each
   // somewhere different.
-  const targets = (state.config?.openTargets ?? []).filter((t) => !t.requiresPr || row.pr)
+  const targets = openTargets.value.filter((t) => !t.requiresPr || row.pr)
   row.checkouts.forEach((c: Checkout, i: number) => {
     items.push({
       id: `open:${i}`,

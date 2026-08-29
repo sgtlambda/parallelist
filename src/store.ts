@@ -90,6 +90,14 @@ export const repo = computed(
   () => state.config?.repos.find((r) => r.id === repoId.value) ?? null,
 )
 
+/** Global targets plus this project's own; a project id wins on a clash. */
+export const openTargets = computed(() => {
+  const global = state.config?.openTargets ?? []
+  const project = repo.value?.openTargets ?? []
+  const ids = new Set(project.map((t) => t.id))
+  return [...project, ...global.filter((t) => !ids.has(t.id))]
+})
+
 /** The logged-in GitHub user, when `gh` could tell us. */
 export const viewer = computed(() => state.overview?.viewer ?? null)
 

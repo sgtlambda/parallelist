@@ -41,6 +41,7 @@ pub struct RepoOverrides {
     pub base_branch: Option<String>,
     pub path_template: Option<String>,
     pub setup_steps: Option<Vec<SetupStep>>,
+    pub open_targets: Option<Vec<OpenTarget>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +58,11 @@ pub struct RepoConfig {
     /// Supports `{parent}`, `{repo}`, `{slug}`, `{branch}`, `{pr}`.
     pub path_template: String,
     pub setup_steps: Vec<SetupStep>,
+    /// Extra "open in" targets for this project only, appended to the global
+    /// ones. A monolith that wants a Docker shell shouldn't force that entry
+    /// onto every other project.
+    #[serde(default)]
+    pub open_targets: Vec<OpenTarget>,
 }
 
 /// A user-defined "open in" action. `command` is a shell template; the
@@ -274,6 +280,7 @@ impl RepoConfig {
             path: path.to_string_lossy().to_string(),
             base_branch: None,
             path_template: "{parent}/{repo}-{slug}".into(),
+            open_targets: Vec::new(),
         }
     }
 
@@ -295,6 +302,9 @@ impl RepoConfig {
         }
         if let Some(v) = over.setup_steps {
             out.setup_steps = v;
+        }
+        if let Some(v) = over.open_targets {
+            out.open_targets = v;
         }
         out
     }

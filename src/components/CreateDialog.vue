@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { api, onSetupLog, type CreateRequest } from '../api'
 import { shortPath } from '../format'
-import { refresh, repo, repoId, selectedRow, state } from '../store'
+import { openTargets, refresh, repo, repoId, selectedRow, state } from '../store'
 import { useEscape } from '../useEscape'
 
 const props = defineProps<{ open: boolean }>()
@@ -208,7 +208,7 @@ async function openCreated(targetId: string) {
             <code class="selectable">{{ shortPath(createdPath) }}</code>
             <div class="actions" style="margin-top: 6px">
               <button
-                v-for="target in (state.config?.openTargets ?? []).filter((t) => !t.requiresPr)"
+                v-for="target in openTargets.filter((t) => !t.requiresPr)"
                 :key="target.id"
                 class="btn small"
                 @click="openCreated(target.id)"

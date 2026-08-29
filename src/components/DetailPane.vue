@@ -4,7 +4,7 @@ import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
 import { api, type Checkout } from '../api'
 import { CHECKOUT_LABELS, basename, relativeTime, shortPath } from '../format'
-import { repo, selectedRow, state } from '../store'
+import { openTargets, repo, selectedRow, state } from '../store'
 
 const emit = defineEmits<{
   (e: 'create'): void
@@ -16,14 +16,12 @@ const showAllTargets = ref(false)
 const row = selectedRow
 
 const targets = computed(() => {
-  const all = state.config?.openTargets ?? []
-  const usable = all.filter((t) => !t.requiresPr || row.value?.pr)
+  const usable = openTargets.value.filter((t) => !t.requiresPr || row.value?.pr)
   return showAllTargets.value ? usable : usable.filter((t) => t.primary)
 })
 
 const hiddenCount = computed(() => {
-  const all = state.config?.openTargets ?? []
-  return all.filter((t) => (!t.requiresPr || row.value?.pr) && !t.primary).length
+  return openTargets.value.filter((t) => (!t.requiresPr || row.value?.pr) && !t.primary).length
 })
 
 const reviewLabel: Record<string, string> = {

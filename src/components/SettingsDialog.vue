@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { AppConfig } from '../api'
+import type { AppConfig, OpenTarget } from '../api'
 import { refresh, saveConfig, state } from '../store'
 import { useEscape } from '../useEscape'
 
@@ -39,8 +39,21 @@ function addStep() {
   })
 }
 
-function addTarget() {
-  draft.value?.openTargets.push({
+const targetGroups = computed(() => [
+  {
+    key: 'global' as const,
+    title: 'Every project',
+    items: draft.value?.openTargets ?? [],
+  },
+  {
+    key: 'project' as const,
+    title: repo.value ? `Only ${repo.value.name}` : 'This project',
+    items: repo.value?.openTargets ?? [],
+  },
+])
+
+function addTarget(items: OpenTarget[]) {
+  items.push({
     id: `target-${Date.now()}`,
     label: 'New target',
     icon: '▸',
@@ -71,7 +84,7 @@ async function save() {
         <span class="spacer" />
         <div class="tabs" style="padding: 0; border: none">
           <button class="tab" :class="{ active: tab === 'repo' }" @click="tab = 'repo'">
-            Project
+            {{ repo?.name ?? 'Project' }}
           </button>
           <button class="tab" :class="{ active: tab === 'targets' }" @click="tab = 'targets'">
             Open in
@@ -160,13 +173,18 @@ async function save() {
             <code>{path}</code> <code>{branch}</code> <code>{repo}</code> <code>{prUrl}</code>
             are substituted and shell-quoted.
           </span>
-          <div v-for="target in draft.openTargets" :key="target.id" class="card" style="gap: 6px">
+          <template v-for="group in targetGroups" :key="group.key">
+          <div class="card-title" style="margin-top: 4px">{{ group.title }}</div>
+          <p v-if="group.key === 'project' && !repo" class="hint">
+            Select a project to add targets that only apply to it.
+          </p>
+          <div v-for="target in group.items" :key="target.id" class="card" style="gap: 6px">
             <div class="row">
               <input v-model="target.icon" style="width: 52px; text-align: center" />
               <input v-model="target.label" style="flex: 1" placeholder="Label" />
               <button
                 class="btn ghost small danger"
-                @click="draft.openTargets = draft.openTargets.filter((t) => t.id !== target.id)"
+                @click="group.items.splice(group.items.indexOf(target), 1)"
               >
                 ✕
               </button>
@@ -183,9 +201,15 @@ async function save() {
               </label>
             </div>
           </div>
-          <button class="btn small" style="align-self: flex-start" @click="addTarget">
+          <button
+            v-if="group.key === 'global' || repo"
+            class="btn small"
+            style="align-self: flex-start"
+            @click="addTarget(group.items)"
+          >
             + Add target
           </button>
+          </template>
         </template>
 
         <!-- General -->
