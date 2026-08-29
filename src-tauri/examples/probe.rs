@@ -85,7 +85,7 @@ fn main() {
                 b,
                 if listed.is_some() { "yes" } else { "MISSING" },
                 listed
-                    .map(|x| format!("(onOrigin={})", x.has_remote))
+                    .map(|x| format!("(onOrigin={} wasPushed={} merged={})", x.has_remote, x.was_pushed, x.merged))
                     .unwrap_or_default()
             );
         }

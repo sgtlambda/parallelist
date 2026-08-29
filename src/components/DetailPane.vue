@@ -69,6 +69,13 @@ const originState = computed(() => {
       title: `Merged into ${base}, then deleted on origin. The checkout can be removed.`,
     }
   }
+  if (!branch.hasRemote && branch.wasPushed) {
+    return {
+      text: 'gone from origin',
+      cls: '',
+      title: `Pushed at some point, then deleted on origin, and not merged into ${base}.`,
+    }
+  }
   if (!branch.hasRemote) {
     return {
       text: 'local only · never pushed',

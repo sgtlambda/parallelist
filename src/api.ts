@@ -52,6 +52,8 @@ export interface BranchInfo {
   author: string
   subject: string
   merged: boolean
+  /** Existed on origin at some point, even if deleted there since. */
+  wasPushed: boolean
 }
 
 export interface Checkout {

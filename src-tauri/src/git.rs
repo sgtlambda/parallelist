@@ -24,6 +24,10 @@ pub struct BranchInfo {
     pub subject: String,
     /// Reachable from the base branch, i.e. already merged.
     pub merged: bool,
+    /// Existed on origin at some point, even if it has since been deleted
+    /// there. Distinguishes "merged and cleaned up" from "never pushed",
+    /// which otherwise look identical: both are simply absent from origin.
+    pub was_pushed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,6 +163,7 @@ pub fn branches(repo: &Path, base: &str) -> Result<Vec<BranchInfo>, String> {
     }
 
     let merged = merged_branches(repo, base).unwrap_or_default();
+    let pushed = branches_with_upstream(repo);
     let mut map: HashMap<String, BranchInfo> = HashMap::new();
 
     for line in out.lines() {
@@ -191,10 +196,12 @@ pub fn branches(repo: &Path, base: &str) -> Result<Vec<BranchInfo>, String> {
             author: String::new(),
             subject: String::new(),
             merged: merged.contains(name),
+            was_pushed: pushed.contains(name),
         });
 
         if remote {
             entry.has_remote = true;
+            entry.was_pushed = true;
         } else {
             entry.has_local = true;
         }
@@ -290,6 +297,24 @@ pub fn head_commit(path: &Path) -> Option<(String, i64, String, String)> {
     let author = parts.next()?.to_string();
     let subject = parts.next().unwrap_or("").to_string();
     Some((sha, when, author, subject))
+}
+
+/// Branch names with an upstream configured, which git records on the first
+/// `push -u`. One call for all of them.
+fn branches_with_upstream(repo: &Path) -> std::collections::HashSet<String> {
+    git(&["config", "--get-regexp", r"^branch\..*\.merge"], repo)
+        .map(|out| {
+            out.lines()
+                .into_iter()
+                .filter_map(|line| {
+                    let key = line.split_whitespace().next()?;
+                    key.strip_prefix("branch.")?
+                        .strip_suffix(".merge")
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub fn ahead_behind(repo: &Path, base: &str, branch: &str) -> Option<AheadBehind> {

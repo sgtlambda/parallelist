@@ -246,10 +246,27 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
                 else {
                     continue;
                 };
+                // A clone keeps its own remote-tracking ref, which survives the
+                // branch being deleted on origin — the only evidence left that
+                // it was ever pushed.
+                let was_pushed = crate::proc::run(
+                    "git",
+                    &[
+                        "show-ref",
+                        "--verify",
+                        "--quiet",
+                        &format!("refs/remotes/origin/{name}"),
+                    ],
+                    Some(&PathBuf::from(&checkout.path)),
+                )
+                .map(|out| out.ok())
+                .unwrap_or(false);
+
                 extra.push(BranchInfo {
                     name: name.to_string(),
                     has_remote: false,
                     has_local: true,
+                    was_pushed,
                     sha,
                     committed_at: when,
                     author,
