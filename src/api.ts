@@ -155,6 +155,7 @@ export const api = {
     items: { path: string; kind: CheckoutKind; deleteBranch: string | null }[],
   ) => invoke<RemovalResult[]>('remove_checkouts', { id, items }),
   openIn: (targetId: string, ctx: OpenContext) => invoke<void>('open_in', { targetId, ctx }),
+  copyText: (text: string) => invoke<void>('copy_text', { text }),
 }
 
 export interface ProgressEvent {

@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import Icon from './Icon.vue'
-import type { CheckoutKind } from '../api'
+import type { Checkout, CheckoutKind } from '../api'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import { CHECKOUT_LABELS, basename } from '../format'
 import type { Row } from '../store'
 import {
   cleanupOpen,
+  copyToClipboard,
   counts,
   describeProgress,
   refresh,
@@ -290,5 +293,23 @@ function dirty(row: Row): boolean {
       <span class="spin" />
       <span>{{ describeProgress() }}…</span>
     </div>
+    <ContextMenu
+      :open="actions.open"
+      :x="actions.x"
+      :y="actions.y"
+      :items="actionItems"
+      align="right"
+      @close="actions.open = false"
+      @select="onActionSelect"
+    />
+
+    <ContextMenu
+      :open="menu.open"
+      :x="menu.x"
+      :y="menu.y"
+      :items="menuItems"
+      @close="menu.open = false"
+      @select="onMenuSelect"
+    />
   </section>
 </template>

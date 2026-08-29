@@ -104,5 +104,7 @@ onUnmounted(() => {
       @close="cleanupOpen = false"
     />
     <SettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
+
+    <div v-if="state.toast" class="toast">{{ state.toast }}</div>
   </div>
 </template>

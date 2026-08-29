@@ -159,6 +159,44 @@ fn kill_group(child: &mut Child) {
     }
 }
 
+/// Run a program, writing `input` to its stdin.
+///
+/// stdin is written on its own thread: a program that emits more than a pipe
+/// buffer's worth before finishing its read would otherwise deadlock against
+/// our write.
+pub fn run_with_input(
+    program: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+    input: &str,
+) -> Result<Output, String> {
+    use std::io::Write;
+
+    let mut child = build(program, args, cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to run {program}: {e}"))?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let payload = input.to_string();
+        std::thread::spawn(move || {
+            let _ = stdin.write_all(payload.as_bytes());
+        });
+    }
+
+    let stdout = child.stdout.take().map(drain);
+    let stderr = child.stderr.take().map(drain);
+    let status = wait_until(&mut child, DEFAULT_TIMEOUT);
+
+    Ok(Output {
+        status: status.and_then(|s| s.code()).unwrap_or(-1),
+        stdout: stdout.and_then(|h| h.join().ok()).unwrap_or_default(),
+        stderr: stderr.and_then(|h| h.join().ok()).unwrap_or_default(),
+    })
+}
+
 fn drain<R: Read + Send + 'static>(mut pipe: R) -> std::thread::JoinHandle<String> {
     std::thread::spawn(move || {
         let mut buf = Vec::new();
@@ -296,6 +334,13 @@ mod tests {
         let out = run_timeout("echo", &["hello"], None, Duration::from_secs(10)).unwrap();
         assert!(out.ok());
         assert_eq!(out.stdout.trim(), "hello");
+    }
+
+    #[test]
+    fn writes_stdin_through_to_the_child() {
+        let out = run_with_input("cat", &[], None, "branch/name with spaces").unwrap();
+        assert!(out.ok());
+        assert_eq!(out.stdout, "branch/name with spaces");
     }
 
     #[test]

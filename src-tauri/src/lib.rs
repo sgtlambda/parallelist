@@ -432,6 +432,20 @@ fn sh_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
+/// Put text on the system clipboard.
+///
+/// `pbcopy` rather than a clipboard plugin: the app is macOS-only, it is always
+/// present, and it leaves the dependency and permission surface unchanged.
+#[tauri::command]
+fn copy_text(text: String) -> Result<(), String> {
+    let out = proc::run_with_input("pbcopy", &[], None, &text)?;
+    if out.ok() {
+        Ok(())
+    } else {
+        Err(format!("could not copy: {}", out.stderr.trim()))
+    }
+}
+
 #[tauri::command]
 fn open_in(state: State<AppState>, target_id: String, ctx: OpenContext) -> Result<(), String> {
     let cfg = state.config();
@@ -497,6 +511,7 @@ pub fn run() {
             removal_impacts,
             remove_checkouts,
             open_in,
+            copy_text,
         ])
         .run(tauri::generate_context!())
         .expect("error while running switcheroo");

@@ -40,6 +40,7 @@ export const state = reactive({
   /** When the current phase started, so a slow one can say how slow. */
   progressSince: 0,
   now: Date.now(),
+  toast: null as string | null,
 })
 
 const PHASE_LABELS: Record<string, string> = {
@@ -405,6 +406,26 @@ watch(
   () => [state.filter, state.search] as const,
   () => void loadAheadBehind(),
 )
+
+let toastTimer = 0
+
+/** Brief confirmation for actions with no visible result, like copying. */
+export function showToast(message: string) {
+  state.toast = message
+  window.clearTimeout(toastTimer)
+  toastTimer = window.setTimeout(() => {
+    state.toast = null
+  }, 1800)
+}
+
+export async function copyToClipboard(text: string, what: string) {
+  try {
+    await api.copyText(text)
+    showToast(`Copied ${what}`)
+  } catch (e) {
+    state.error = String(e)
+  }
+}
 
 export const settingsOpen = ref(false)
 export const cleanupOpen = ref(false)
