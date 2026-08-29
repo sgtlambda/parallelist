@@ -3,12 +3,13 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { api } from '../api'
 import { basename } from '../format'
 import { ref } from 'vue'
+import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import {
   dropCached,
   loadConfig,
   refresh,
   saveConfig,
-  selectRepo,
+  selectProject,
   settingsOpen,
   state,
 } from '../store'
@@ -41,32 +42,60 @@ async function onDrop() {
   dropAt.value = null
   if (from === null || to === null || !state.config) return
 
-  const repos = [...state.config.repos]
-  const [moved] = repos.splice(from, 1)
+  const projects = [...state.config.projects]
+  const [moved] = projects.splice(from, 1)
   // Removing the dragged row shifts everything after it up by one.
-  repos.splice(to > from ? to - 1 : to, 0, moved)
-  if (repos.every((r, i) => r.id === state.config!.repos[i].id)) return
+  projects.splice(to > from ? to - 1 : to, 0, moved)
+  if (projects.every((r, i) => r.id === state.config!.projects[i].id)) return
 
-  await saveConfig({ ...state.config, repos })
+  await saveConfig({ ...state.config, projects })
 }
 
 async function addRepo() {
   const picked = await open({ directory: true, multiple: false, title: "Choose the project's main clone" })
   if (typeof picked !== 'string') return
   try {
-    const repo = await api.addRepo(picked)
+    const repo = await api.addProject(picked)
     await loadConfig()
-    await selectRepo(repo.id)
+    await selectProject(repo.id)
   } catch (e) {
     emit('error', String(e))
   }
 }
 
 async function forget(id: string) {
-  await api.removeRepo(id)
+  await api.removeProject(id)
   dropCached(id)
   await loadConfig()
   await refresh({ fetch: false })
+}
+
+const menu = ref<{ open: boolean; x: number; y: number; id: string | null }>({
+  open: false,
+  x: 0,
+  y: 0,
+  id: null,
+})
+
+const menuItems: MenuItem[] = [
+  { id: 'settings', label: 'Project settings…' },
+  { id: 'remove', label: 'Remove project', separator: true, danger: true },
+]
+
+function openMenu(id: string, event: MouseEvent) {
+  menu.value = { open: true, x: event.clientX, y: event.clientY, id }
+}
+
+async function onMenuSelect(action: string) {
+  const id = menu.value.id
+  if (!id) return
+  if (action === 'settings') {
+    await selectProject(id)
+    settingsOpen.value = true
+  } else if (action === 'remove') {
+    // Only un-manages it; nothing on disk is touched.
+    await forget(id)
+  }
 }
 </script>
 
@@ -75,28 +104,28 @@ async function forget(id: string) {
     <div class="pane-body">
       <div class="section-title">Projects</div>
       <button
-        v-for="(repo, index) in state.config?.repos ?? []"
+        v-for="(repo, index) in state.config?.projects ?? []"
         :key="repo.id"
-        class="repo-item"
+        class="project-item"
         :class="{
-          selected: repo.id === state.config?.selectedRepoId,
+          selected: repo.id === state.config?.selectedProjectId,
           dragging: dragging === index,
           'drop-before': dropAt === index,
-          'drop-after': dropAt === index + 1 && index === (state.config?.repos.length ?? 0) - 1,
+          'drop-after': dropAt === index + 1 && index === (state.config?.projects.length ?? 0) - 1,
         }"
         draggable="true"
-        @click="selectRepo(repo.id)"
-        @contextmenu.prevent="forget(repo.id)"
+        @click="selectProject(repo.id)"
+        @contextmenu.prevent="openMenu(repo.id, $event)"
         @dragstart="onDragStart(index, $event)"
         @dragover="onDragOver(index, $event)"
         @drop.prevent="onDrop"
         @dragend="dragging = null; dropAt = null"
       >
-        <span class="repo-name truncate">{{ repo.name }}</span>
-        <span class="repo-sub truncate">{{ basename(repo.path) }}</span>
+        <span class="project-name truncate">{{ repo.name }}</span>
+        <span class="project-sub truncate">{{ basename(repo.path) }}</span>
       </button>
 
-      <p v-if="!state.config?.repos.length" class="empty" style="padding: 20px 14px">
+      <p v-if="!state.config?.projects.length" class="empty" style="padding: 20px 14px">
         Add the main clone of a project to get started.
       </p>
     </div>
@@ -106,5 +135,13 @@ async function forget(id: string) {
       <span class="spacer" />
       <button class="btn ghost small" title="Settings" @click="settingsOpen = true">⚙</button>
     </div>
+    <ContextMenu
+      :open="menu.open"
+      :x="menu.x"
+      :y="menu.y"
+      :items="menuItems"
+      @close="menu.open = false"
+      @select="onMenuSelect"
+    />
   </aside>
 </template>
