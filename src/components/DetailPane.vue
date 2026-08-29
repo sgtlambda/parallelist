@@ -180,7 +180,7 @@ async function openPullRequest() {
             v-for="checkout in row.checkouts"
             :key="checkout.path"
             class="card checkout"
-            :class="{ stale: checkout.branchGone }"
+            :class="{ stale: row.stale && checkout.kind !== 'primary' }"
           >
             <div class="card-title">Checkout</div>
             <div

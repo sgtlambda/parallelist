@@ -18,7 +18,7 @@ export interface Row {
   pr: PullRequest | null
   checkouts: Checkout[]
   aheadBehind: AheadBehind | null
-  /** Merged, or gone from origin, with a checkout still sitting on disk. */
+  /** Finished work — merged or closed — with a checkout still on disk. */
   stale: boolean
 }
 
@@ -134,9 +134,12 @@ const rows = computed<Row[]>(() => {
       pr,
       checkouts,
       aheadBehind: state.aheadBehind[branch.name] ?? null,
+      // Finished work, not merely absent from origin. A branch that was
+      // never pushed is also "not on origin", and treating that as stale
+      // offered unpushed commits up for deletion.
       stale:
         checkouts.some((c) => c.kind !== 'primary') &&
-        (branch.merged || !branch.hasRemote || pr?.state === 'merged' || pr?.state === 'closed'),
+        (branch.merged || pr?.state === 'merged' || pr?.state === 'closed'),
     }
   })
 })
@@ -170,6 +173,17 @@ function haystack(row: Row): string {
     .toLowerCase()
 }
 
+/** Checkout directories that can go: finished work, plus orphaned folders. */
+export const staleCheckoutPaths = computed(() => {
+  const finished = rows.value
+    .filter((r) => r.stale)
+    .flatMap((r) => r.checkouts)
+    .filter((c) => c.kind !== 'primary')
+    .map((c) => c.path)
+  const orphans = looseCheckouts.value.filter((c) => c.kind === 'orphan').map((c) => c.path)
+  return [...new Set([...finished, ...orphans])]
+})
+
 function isActive(row: Row, activeDays: number): boolean {
   if (row.pr?.state === 'open') return true
   // Anything on disk is active by definition — it's occupying a directory.
@@ -193,7 +207,8 @@ export const counts = computed(() => {
     assigned: all.filter((r) => r.pr?.state === 'open' && assignedToMe(r)).length,
     checkedOut: all.filter((r) => r.checkouts.length > 0).length,
     all: all.length,
-    stale: all.filter((r) => r.stale).length + looseCheckouts.value.length,
+    // Counted in directories, so the badge matches what Cleanup lists.
+    stale: staleCheckoutPaths.value.length,
   }
 })
 

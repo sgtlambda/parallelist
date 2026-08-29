@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { api, type RemovalImpact } from '../api'
 import Icon from './Icon.vue'
 import { CHECKOUT_LABELS, bytes, shortPath } from '../format'
-import { looseCheckouts, refresh, projectId, state } from '../store'
+import { refresh, projectId, staleCheckoutPaths } from '../store'
 import { useEscape } from '../useEscape'
 
 const props = defineProps<{
@@ -22,14 +22,7 @@ const loading = ref(false)
 const working = ref(false)
 const failures = ref<{ path: string; error: string }[]>([])
 
-/** Everything the app would suggest removing: checkouts of merged or deleted
- *  branches, plus directories that aren't git checkouts at all. */
-const staleCandidates = computed(() => {
-  const rows = state.overview?.checkouts ?? []
-  const stale = rows.filter((c) => c.kind !== 'primary' && c.branchGone)
-  const orphans = looseCheckouts.value.filter((c) => c.kind === 'orphan')
-  return [...new Set([...stale, ...orphans].map((c) => c.path))]
-})
+const staleCandidates = staleCheckoutPaths
 
 watch(
   () => props.open,
