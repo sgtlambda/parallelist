@@ -1,0 +1,838 @@
+:root {
+  --bg: #f6f6f7;
+  --bg-raised: #ffffff;
+  --bg-sidebar: #ececee;
+  --bg-hover: rgba(0, 0, 0, 0.045);
+  --bg-active: rgba(0, 0, 0, 0.075);
+  --border: rgba(0, 0, 0, 0.11);
+  --border-soft: rgba(0, 0, 0, 0.06);
+  --text: #1c1c1e;
+  --text-dim: #6d6d72;
+  --text-faint: #96969c;
+  --accent: #2f6fed;
+  --accent-fg: #ffffff;
+  --green: #1a7f37;
+  --red: #c93c37;
+  --amber: #9a6700;
+  --purple: #7b47c4;
+  --skeleton: rgba(0, 0, 0, 0.07);
+  --skeleton-hi: rgba(0, 0, 0, 0.13);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  --radius: 7px;
+  --titlebar-h: 32px;
+  --sidebar-w: 216px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1c1e;
+    --bg-raised: #262629;
+    --bg-sidebar: #202022;
+    --bg-hover: rgba(255, 255, 255, 0.055);
+    --bg-active: rgba(255, 255, 255, 0.09);
+    --border: rgba(255, 255, 255, 0.12);
+    --border-soft: rgba(255, 255, 255, 0.07);
+    --text: #f2f2f4;
+    --text-dim: #9e9ea5;
+    --text-faint: #6f6f77;
+    --accent: #4b8bff;
+    --accent-fg: #ffffff;
+    --green: #4ac26b;
+    --red: #f2695f;
+    --amber: #d4a72c;
+    --purple: #b585f5;
+    --skeleton: rgba(255, 255, 255, 0.07);
+    --skeleton-hi: rgba(255, 255, 255, 0.15);
+    --shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  /* Native apps don't let you drag-select their chrome, and an I-beam cursor
+     over a list row is the clearest tell that something is a web page. */
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Opt back in wherever the text is genuinely worth copying: paths, hashes,
+   and anything editable. */
+input,
+textarea,
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 8px;
+}
+
+input[type='search'] {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+input[type='search']::-webkit-search-decoration,
+input[type='search']::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+.icon {
+  flex: none;
+  display: block;
+}
+
+code,
+.mono {
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+/* ---------- shell ---------- */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(300px, 1fr) minmax(320px, 400px);
+  height: 100%;
+}
+
+.pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.pane + .pane {
+  border-left: 1px solid var(--border);
+}
+
+.pane-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  height: 44px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.pane-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.sidebar {
+  background: var(--bg-sidebar);
+  padding-top: var(--titlebar-h);
+}
+
+/* The window has an overlay title bar, so the top strip is ours to manage: it
+   has to clear the traffic lights and stay draggable across the full width.
+   Panes pad past it rather than the grid, so their backgrounds and dividers
+   still run to the top edge of the window. */
+/* Spans only the sidebar: that strip holds the traffic lights and nothing
+   clickable, so it can sit above the content. The other two columns are
+   dragged by their own headers, which start at the top edge now. */
+.titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--sidebar-w);
+  height: var(--titlebar-h);
+  z-index: 30;
+}
+
+/* ---------- generic bits ---------- */
+
+.btn {
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  border-radius: 5px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  background: var(--bg-hover);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-fg);
+}
+
+.btn.primary:hover {
+  filter: brightness(1.08);
+}
+
+.btn.danger {
+  color: var(--red);
+}
+
+.btn.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn.ghost:hover {
+  background: var(--bg-hover);
+}
+
+/* Square icon button: keeps its size whether it holds a glyph or a spinner,
+   so swapping between them can't nudge the header around. */
+.btn.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+}
+
+.btn.small {
+  padding: 2px 7px;
+  font-size: 11.5px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.muted {
+  color: var(--text-dim);
+}
+
+.faint {
+  color: var(--text-faint);
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.section-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  padding: 14px 14px 6px;
+}
+
+.empty {
+  padding: 40px 24px;
+  text-align: center;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+.banner {
+  margin: 8px 12px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.banner.error {
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+}
+
+/* ---------- badges ---------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 20px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.55;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.badge.open {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+}
+
+.badge.merged {
+  color: var(--purple);
+  border-color: color-mix(in srgb, var(--purple) 40%, transparent);
+}
+
+.badge.closed {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+}
+
+.badge.draft {
+  color: var(--text-faint);
+}
+
+.badge.kind {
+  gap: 3px;
+  padding: 3px 5px;
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  border-radius: 5px;
+  background: var(--bg-hover);
+  border-color: transparent;
+  color: var(--text-dim);
+}
+
+.badge.path {
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 10px;
+  border-style: dashed;
+}
+
+.badge.warn {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-faint);
+}
+
+.dot.green {
+  background: var(--green);
+}
+.dot.red {
+  background: var(--red);
+}
+.dot.amber {
+  background: var(--amber);
+}
+.dot.purple {
+  background: var(--purple);
+}
+
+/* ---------- sidebar ---------- */
+
+.repo-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: calc(100% - 16px);
+  margin: 1px 8px;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  text-align: left;
+}
+
+.repo-item:hover {
+  background: var(--bg-hover);
+}
+
+.repo-item.selected {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.repo-item.selected .repo-sub {
+  color: color-mix(in srgb, var(--accent-fg) 78%, transparent);
+}
+
+.repo-name {
+  font-weight: 550;
+}
+
+.repo-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* ---------- branch list ---------- */
+
+.tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: none;
+  border: none;
+  background: none;
+  border-radius: 5px;
+  padding: 3px 9px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.tab:hover {
+  background: var(--bg-hover);
+}
+
+.tab.active {
+  background: var(--bg-active);
+  color: var(--text);
+  font-weight: 550;
+}
+
+.tab .count {
+  color: var(--text-faint);
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-line {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px 11px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  background: var(--bg-hover);
+  border-top: 1px solid var(--border-soft);
+}
+
+.branch {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  border-bottom: 1px solid var(--border-soft);
+  padding: 8px 14px;
+}
+
+.branch:hover {
+  background: var(--bg-hover);
+}
+
+.branch.selected {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.branch.selected .muted,
+.branch.selected .faint,
+.branch.selected .badge {
+  color: color-mix(in srgb, var(--accent-fg) 80%, transparent);
+  border-color: color-mix(in srgb, var(--accent-fg) 35%, transparent);
+}
+
+.branch.selected .badge.kind {
+  background: color-mix(in srgb, var(--accent-fg) 18%, transparent);
+}
+
+.branch-name {
+  font-weight: 550;
+  font-size: 12.5px;
+}
+
+.branch-meta {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 3px;
+  font-size: 11.5px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Badges and counts keep their natural width — flex would otherwise shrink
+   them below their content and wrap "↑0 ↓0" onto two lines. The commit
+   subject is the only thing that gives, and it ellipsises. */
+.branch-meta > * {
+  flex: none;
+}
+
+.branch-meta > .truncate {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.counts {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* ---------- detail ---------- */
+
+.detail {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.card-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* The pull request card is a button: clicking anywhere on it opens the PR. */
+.card.pr-card {
+  width: 100%;
+  text-align: left;
+}
+
+.card.pr-card:hover {
+  background: var(--bg-hover);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.card.pr-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.open-hint {
+  color: var(--text-faint);
+  opacity: 0.5;
+  transition: opacity 0.12s ease;
+}
+
+.card.pr-card:hover .open-hint {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.checkout {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  background: var(--bg-raised);
+}
+
+.checkout.stale {
+  border-color: color-mix(in srgb, var(--amber) 50%, transparent);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* ---------- modal ---------- */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  z-index: 40;
+}
+
+.modal {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  box-shadow: var(--shadow);
+  width: 100%;
+  max-width: 620px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal.wide {
+  max-width: 820px;
+}
+
+.modal-header {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-footer {
+  padding: 11px 16px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field label {
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--text-dim);
+}
+
+.field .hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.choice {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  cursor: pointer;
+}
+
+.choice.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.choice.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 0;
+}
+
+.log {
+  background: #0d0d0f;
+  color: #d8d8dc;
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  max-height: 260px;
+  overflow-y: auto;
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log .err {
+  color: #ff9d92;
+}
+
+.log .step {
+  color: #8ab4ff;
+}
+
+/* Placeholder rows shaped like real branch rows, so the list doesn't jump
+   when the real data lands. Each bar carries its own sweep, delayed by row so
+   the highlight cascades down the list instead of pulsing in unison. */
+.skeleton-row {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  animation: fade-in 0.4s ease both;
+  animation-delay: calc(var(--i) * 40ms);
+}
+
+.skeleton-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.shimmer {
+  border-radius: 20px;
+  /* Solid endpoints rather than `transparent`, so nothing depends on how the
+     gradient interpolates alpha. The tile is 2.2x the element, so the repeat
+     can never put two highlights on screen at once. */
+  background-image: linear-gradient(
+    90deg,
+    var(--skeleton) 0%,
+    var(--skeleton-hi) 45%,
+    var(--skeleton-hi) 55%,
+    var(--skeleton) 100%
+  );
+  background-size: 220% 100%;
+  background-repeat: repeat-x;
+  animation: shimmer 1.6s ease-in-out infinite;
+  animation-delay: calc(var(--i) * 110ms);
+}
+
+.shimmer.bar {
+  height: 11px;
+}
+
+.shimmer.pill {
+  height: 10px;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 160% 0;
+  }
+  to {
+    background-position: -160% 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Motion here is decorative; the status line already says what is happening. */
+@media (prefers-reduced-motion: reduce) {
+  .shimmer,
+  .skeleton-row,
+  .spin {
+    animation: none;
+  }
+}
+
+.spin {
+  /* Explicit, because a bare inline span ignores width/height — everywhere
+     else this sits in a flex container and gets blockified for free. */
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+table.list {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table.list td,
+table.list th {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border-soft);
+  text-align: left;
+  vertical-align: middle;
+}
+
+table.list th {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+  font-weight: 600;
+}

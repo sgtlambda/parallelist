@@ -1,0 +1,199 @@
+<script setup lang="ts">
+import { openUrl } from '@tauri-apps/plugin-opener'
+import { computed, ref } from 'vue'
+import Icon from './Icon.vue'
+import { api, type Checkout } from '../api'
+import { CHECKOUT_LABELS, basename, relativeTime, shortPath } from '../format'
+import { repo, selectedRow, state } from '../store'
+
+const emit = defineEmits<{
+  (e: 'create'): void
+  (e: 'remove', paths: string[]): void
+  (e: 'error', message: string): void
+}>()
+
+const showAllTargets = ref(false)
+const row = selectedRow
+
+const targets = computed(() => {
+  const all = state.config?.openTargets ?? []
+  const usable = all.filter((t) => !t.requiresPr || row.value?.pr)
+  return showAllTargets.value ? usable : usable.filter((t) => t.primary)
+})
+
+const hiddenCount = computed(() => {
+  const all = state.config?.openTargets ?? []
+  return all.filter((t) => (!t.requiresPr || row.value?.pr) && !t.primary).length
+})
+
+const reviewLabel: Record<string, string> = {
+  APPROVED: 'approved',
+  CHANGES_REQUESTED: 'changes requested',
+  REVIEW_REQUIRED: 'review required',
+}
+
+async function openIn(targetId: string, checkout: Checkout) {
+  try {
+    await api.openIn(targetId, {
+      path: checkout.path,
+      branch: checkout.branch ?? '',
+      repo: repo.value?.path ?? '',
+      prUrl: row.value?.pr?.url ?? '',
+    })
+  } catch (e) {
+    emit('error', String(e))
+  }
+}
+
+/** Which clone a worktree belongs to, when it isn't the primary one. With two
+ *  clones of the same repo around, that distinction is the whole story. */
+function ownerLabel(checkout: Checkout): string | null {
+  if (!checkout.owner || checkout.owner === repo.value?.path) return null
+  return basename(checkout.owner)
+}
+
+async function openPullRequest() {
+  const pr = row.value?.pr
+  if (!pr) return
+  try {
+    await openUrl(pr.url)
+  } catch (e) {
+    emit('error', String(e))
+  }
+}
+
+
+</script>
+
+<template>
+  <section class="pane">
+    <div class="pane-header" data-tauri-drag-region="deep">
+      <span class="truncate" style="font-weight: 600">
+        {{ row ? row.branch.name : 'No branch selected' }}
+      </span>
+      <span class="spacer" />
+      <button v-if="row" class="btn primary small" @click="emit('create')">
+        + New checkout
+      </button>
+    </div>
+
+    <div v-if="!row" class="pane-body">
+      <p class="empty">
+        Pick a branch to see its pull request, how far it has drifted from
+        <code>{{ state.overview?.baseBranch ?? 'the base branch' }}</code
+        >, and where it is checked out.
+      </p>
+    </div>
+
+    <div v-else class="pane-body detail">
+      <div class="card">
+        <div class="card-title">Commit</div>
+        <div>{{ row.branch.subject || '—' }}</div>
+        <div class="muted" style="font-size: 11.5px">
+          {{ row.branch.author }} · {{ relativeTime(row.branch.committedAt) }} ago ·
+          <code class="selectable">{{ row.branch.sha.slice(0, 8) }}</code>
+        </div>
+        <div class="row" style="flex-wrap: wrap">
+          <span v-if="!row.branch.hasRemote" class="badge warn">not on origin</span>
+          <span v-if="!row.branch.hasLocal" class="badge">remote only</span>
+          <span v-if="row.branch.merged" class="badge merged">merged into {{ state.overview?.baseBranch }}</span>
+          <span v-if="row.aheadBehind" class="badge">
+            ↑{{ row.aheadBehind.ahead }} ahead · ↓{{ row.aheadBehind.behind }} behind
+          </span>
+        </div>
+      </div>
+
+      <button
+        v-if="row.pr"
+        class="card pr-card"
+        :title="row.pr.url"
+        @click="openPullRequest"
+      >
+        <div class="row">
+          <span class="card-title">Pull request</span>
+          <span class="spacer" />
+          <span class="open-hint" aria-hidden="true">↗</span>
+        </div>
+        <div class="row">
+          <span class="badge" :class="row.pr.isDraft && row.pr.state === 'open' ? 'draft' : row.pr.state">
+            #{{ row.pr.number }} {{ row.pr.isDraft && row.pr.state === 'open' ? 'draft' : row.pr.state }}
+          </span>
+          <span v-if="row.pr.state === 'open' && row.pr.checks !== 'none'" class="badge">
+            <span
+              class="dot"
+              :class="{
+                green: row.pr.checks === 'passing',
+                red: row.pr.checks === 'failing',
+                amber: row.pr.checks === 'pending',
+              }"
+            />
+            checks {{ row.pr.checks }}
+          </span>
+          <span v-if="reviewLabel[row.pr.reviewDecision]" class="badge">
+            {{ reviewLabel[row.pr.reviewDecision] }}
+          </span>
+        </div>
+        <div>{{ row.pr.title }}</div>
+        <div class="muted" style="font-size: 11.5px">by {{ row.pr.author }}</div>
+      </button>
+
+      <div>
+        <div class="card-title" style="padding: 0 0 7px">
+          Checkouts
+          <span v-if="row.checkouts.length" class="faint">({{ row.checkouts.length }})</span>
+        </div>
+
+        <p v-if="!row.checkouts.length" class="muted" style="font-size: 12px; line-height: 1.5">
+          Not checked out anywhere. Create one to work on this branch.
+        </p>
+
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div
+            v-for="checkout in row.checkouts"
+            :key="checkout.path"
+            class="checkout"
+            :class="{ stale: checkout.branchGone }"
+          >
+            <div class="row">
+              <span class="badge kind" :title="CHECKOUT_LABELS[checkout.kind]">
+                <Icon :name="checkout.kind" />
+              </span>
+              <span v-if="checkout.dirty" class="badge warn">{{ checkout.dirty }} changed</span>
+              <span v-if="checkout.unpushed" class="badge warn">{{ checkout.unpushed }} unpushed</span>
+            </div>
+            <code class="truncate selectable" :title="checkout.path">{{ shortPath(checkout.path) }}</code>
+            <div v-if="ownerLabel(checkout)" class="faint" style="font-size: 11px">
+              worktree of {{ ownerLabel(checkout) }}
+            </div>
+
+            <div class="actions">
+              <button
+                v-for="target in targets"
+                :key="target.id"
+                class="btn small"
+                @click="openIn(target.id, checkout)"
+              >
+                {{ target.icon }} {{ target.label }}
+              </button>
+              <button
+                v-if="hiddenCount && !showAllTargets"
+                class="btn ghost small"
+                @click="showAllTargets = true"
+              >
+                +{{ hiddenCount }} more
+              </button>
+              <span class="spacer" />
+              <button
+                v-if="checkout.kind !== 'primary'"
+                class="btn ghost small danger"
+                @click="emit('remove', [checkout.path])"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</template>
