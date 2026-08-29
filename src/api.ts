@@ -122,7 +122,6 @@ export interface RemovalImpact {
   untracked: number
   unpushed: number
   stashes: number
-  sizeBytes: number
 }
 
 export interface RemovalResult {
@@ -152,6 +151,8 @@ export const api = {
     invoke<string>('create_workspace', { jobId, request }),
   removalImpacts: (id: string, paths: string[]) =>
     invoke<RemovalImpact[]>('removal_impacts', { id, paths }),
+  workspaceSizes: (paths: string[]) =>
+    invoke<Record<string, number>>('workspace_sizes', { paths }),
   removeWorkspaces: (
     id: string,
     items: { path: string; kind: WorkspaceKind; deleteBranch: string | null }[],

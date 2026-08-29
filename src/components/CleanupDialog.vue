@@ -16,6 +16,9 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 useEscape(() => props.open && !working.value, () => emit('close'))
 
 const impacts = ref<RemovalImpact[]>([])
+/** Filled in after the list is already on screen; `du` is slow. */
+const sizes = ref<Record<string, number>>({})
+const measuring = ref(false)
 const selected = ref<Set<string>>(new Set())
 const deleteBranches = ref(true)
 const loading = ref(false)
@@ -34,11 +37,22 @@ watch(
     impacts.value = []
     const id = projectId.value
     if (!id || targets.length === 0) return
+    sizes.value = {}
     loading.value = true
     try {
       impacts.value = await api.removalImpacts(id, targets)
     } finally {
       loading.value = false
+    }
+
+    // Sizes arrive separately so the list is usable immediately.
+    measuring.value = true
+    try {
+      const measured = await api.workspaceSizes(targets)
+      // The dialog may have been closed and reopened meanwhile.
+      if (props.open) sizes.value = measured
+    } finally {
+      measuring.value = false
     }
   },
 )
@@ -52,7 +66,7 @@ function toggle(path: string) {
 const chosen = computed(() => impacts.value.filter((i) => selected.value.has(i.path)))
 
 const totals = computed(() => ({
-  size: chosen.value.reduce((sum, i) => sum + i.sizeBytes, 0),
+  size: chosen.value.reduce((sum, i) => sum + (sizes.value[i.path] ?? 0), 0),
   modified: chosen.value.reduce((sum, i) => sum + i.modified, 0),
   unpushed: chosen.value.reduce((sum, i) => sum + i.unpushed, 0),
   stashes: chosen.value.reduce((sum, i) => sum + i.stashes, 0),
@@ -92,7 +106,8 @@ async function remove() {
         <span>{{ paths ? 'Remove workspace' : 'Cleanup' }}</span>
         <span class="spacer" />
         <span class="faint" style="font-weight: 400">
-          {{ chosen.length }} selected · {{ bytes(totals.size) }}
+          {{ chosen.length }} selected
+          <template v-if="!measuring"> · {{ bytes(totals.size) }}</template>
         </span>
       </div>
 
@@ -133,7 +148,8 @@ async function remove() {
               </td>
               <td class="truncate" style="max-width: 160px">{{ impact.branch ?? '—' }}</td>
               <td style="text-align: right; font-variant-numeric: tabular-nums">
-                {{ bytes(impact.sizeBytes) }}
+                <span v-if="sizes[impact.path] !== undefined">{{ bytes(sizes[impact.path]) }}</span>
+                <span v-else class="faint">measuring…</span>
               </td>
               <td>
                 <span v-if="impact.modified" class="badge warn">{{ impact.modified }} changed</span>

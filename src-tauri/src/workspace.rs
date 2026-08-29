@@ -468,7 +468,6 @@ pub struct RemovalImpact {
     pub untracked: u32,
     pub unpushed: u32,
     pub stashes: u32,
-    pub size_bytes: u64,
 }
 
 pub fn removal_impact(path: &Path, kind: WorkspaceKind, branch: Option<String>) -> RemovalImpact {
@@ -486,13 +485,16 @@ pub fn removal_impact(path: &Path, kind: WorkspaceKind, branch: Option<String>) 
         untracked: tree.untracked,
         unpushed: if is_git { git::unpushed_count(path) } else { 0 },
         stashes: if is_git { git::stash_count(path) } else { 0 },
-        size_bytes: dir_size(path),
     }
 }
 
 /// `du -sk` rather than a recursive walk: node_modules makes the walk slow,
 /// and du already knows how to not double-count hardlinks.
-fn dir_size(path: &Path) -> u64 {
+///
+/// Still slow in absolute terms — ~5s on a full clone with vendor and
+/// node_modules — which is why it is measured separately from the rest of the
+/// removal impact rather than holding up the list.
+pub fn dir_size(path: &Path) -> u64 {
     run("du", &["-sk", &path.to_string_lossy()], None)
         .ok()
         .filter(|o| o.ok())

@@ -393,33 +393,73 @@ async fn create_workspace(
     .map_err(|e| e.to_string())?
 }
 
+/// What removing each of these would destroy, minus the size on disk.
+///
+/// Sizes come from [`workspace_sizes`] instead: `du` takes seconds on a large
+/// working tree, and making the dialog wait for it before showing anything is
+/// what made cleanup unusable.
 #[tauri::command]
 async fn removal_impacts(
     state: State<'_, AppState>,
     id: String,
     paths: Vec<String>,
 ) -> Result<Vec<RemovalImpact>, String> {
-    let repo = state.project(&id)?;
-    let base = repo
+    let project = state.project(&id)?;
+    let base = project
         .base_branch
         .clone()
-        .unwrap_or_else(|| git::detect_base_branch(&PathBuf::from(&repo.path)));
+        .unwrap_or_else(|| git::detect_base_branch(&PathBuf::from(&project.path)));
 
     tauri::async_runtime::spawn_blocking(move || {
-        let remote_branches = git::remote_branch_names(&PathBuf::from(&repo.path));
-        let known = workspace::scan(&repo, &base, &remote_branches, &|_, _| {}).unwrap_or_default();
-        paths
-            .into_iter()
-            .map(|p| {
-                let found = known.iter().find(|c| c.path == p);
-                let kind = found.map(|c| c.kind).unwrap_or(WorkspaceKind::Orphan);
-                let branch = found.and_then(|c| c.branch.clone());
-                workspace::removal_impact(&PathBuf::from(&p), kind, branch)
-            })
-            .collect()
+        let remote_branches = git::remote_branch_names(&PathBuf::from(&project.path));
+        let known = workspace::scan(&project, &base, &remote_branches, &|_, _| {}).unwrap_or_default();
+        parallel_map(paths, |path| {
+            let found = known.iter().find(|w| w.path == *path);
+            let kind = found.map(|w| w.kind).unwrap_or(WorkspaceKind::Orphan);
+            let branch = found.and_then(|w| w.branch.clone());
+            workspace::removal_impact(&PathBuf::from(path), kind, branch)
+        })
     })
     .await
     .map_err(|e| e.to_string())
+}
+
+/// Size on disk per path. Measured on a pool because `du` is slow and the
+/// paths are independent.
+#[tauri::command]
+async fn workspace_sizes(paths: Vec<String>) -> Result<HashMap<String, u64>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        parallel_map(paths.clone(), |path| {
+            (path.clone(), workspace::dir_size(&PathBuf::from(path)))
+        })
+        .into_iter()
+        .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Run `f` over every item on a small pool, preserving order.
+fn parallel_map<T, R>(items: Vec<T>, f: impl Fn(&T) -> R + Sync) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+{
+    if items.is_empty() {
+        return Vec::new();
+    }
+    let workers = items.len().min(8);
+    let chunk = items.len().div_ceil(workers);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = items
+            .chunks(chunk)
+            .map(|chunk| scope.spawn(|| chunk.iter().map(&f).collect::<Vec<_>>()))
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap_or_default())
+            .collect()
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -560,6 +600,7 @@ pub fn run() {
             plan_workspace,
             create_workspace,
             removal_impacts,
+            workspace_sizes,
             remove_workspaces,
             open_in,
             copy_text,
