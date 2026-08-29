@@ -166,17 +166,9 @@ function dirty(row: Row): boolean {
         placeholder="Search branches, PRs, authors…"
         style="flex: 1; min-width: 0"
       />
-      <button
-        v-if="counts.stale"
-        class="btn small"
-        title="Merged, gone, or orphaned checkouts"
-        @click="cleanupOpen = true"
-      >
-        Cleanup {{ counts.stale }}
-      </button>
-      <button class="btn ghost small icon" title="Fetch now" @click="refresh({ fetch: true })">
+      <button class="btn ghost small icon" title="Actions" @click="openActions">
         <span v-if="state.fetching" class="spin" />
-        <span v-else>↻</span>
+        <Icon v-else name="more" />
       </button>
     </div>
 
@@ -258,23 +250,6 @@ function dirty(row: Row): boolean {
             <span v-if="checkDot(row)" class="dot" :class="checkDot(row)!" />
             #{{ row.pr.number }}
             {{ row.pr.isDraft && row.pr.state === 'open' ? 'draft' : row.pr.state }}
-          </span>
-          <span
-            v-for="entry in kinds(row)"
-            :key="entry.kind"
-            class="badge kind"
-            :title="CHECKOUT_LABELS[entry.kind] + (entry.count > 1 ? ` × ${entry.count}` : '')"
-          >
-            <Icon :name="entry.kind" />
-            <span v-if="entry.count > 1">{{ entry.count }}</span>
-          </span>
-          <span
-            v-for="folder in matchingFolders(row)"
-            :key="folder"
-            class="badge path"
-            title="Matching checkout directory"
-          >
-            {{ folder }}
           </span>
           <span v-if="dirty(row)" class="badge warn">uncommitted</span>
           <span v-if="row.stale" class="badge warn">stale</span>

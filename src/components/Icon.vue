@@ -31,6 +31,11 @@ export const GLYPHS = {
     '<path d="M4 5h4.6l1.8 2.2H20a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/>' +
     '<path d="m9.6 10.7 4.8 4.8"/>' +
     '<path d="m14.4 10.7-4.8 4.8"/>',
+  // vertical ellipsis: the "more actions" affordance.
+  more:
+    '<circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none"/>' +
+    '<circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>' +
+    '<circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none"/>',
 } as const
 
 export type IconName = keyof typeof GLYPHS
