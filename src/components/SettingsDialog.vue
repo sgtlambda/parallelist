@@ -133,7 +133,7 @@ async function save() {
             <div class="field">
               <label>Setup steps</label>
               <span class="hint">
-                Shell commands, offered as checkboxes when creating a checkout and
+                Shell commands, offered as checkboxes when creating a workspace and
                 run inside it. <code>{primary}</code> <code>{path}</code>
                 <code>{branch}</code> are substituted and shell-quoted. A committed
                 <code>.switcheroo.json</code> in the project overrides these.

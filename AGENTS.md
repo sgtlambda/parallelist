@@ -21,7 +21,7 @@ delete. The app exists to answer that.
 background fetch. Having a branch on disk locally is a side effect, not the
 source of truth. Filters, sorting and staleness all follow from this.
 
-**"Checkout" is the central noun** — any directory holding a branch, whether a
+**"Workspace" is the central noun** — any directory holding a branch, whether a
 linked worktree or a full clone. The UI treats them identically on purpose. The
 distinction matters in exactly two places:
 
@@ -62,12 +62,12 @@ redundant complexity and are not.
    used to call `git::branches` again, repeating the expensive `--merged` pass.
 
 4. **Working trees are inspected on a small thread pool.** Sequential
-   `git status` across 16 checkouts was ~3.8s; in parallel it is ~0.55s. On a
+   `git status` across 16 workspaces was ~3.8s; in parallel it is ~0.55s. On a
    monolith with `vendor/` and `node_modules/`, each `git status` is ~140ms.
 
-5. **A branch checked out in a secondary clone is added from that checkout.**
+5. **A branch checked out in a secondary clone is added from that workspace.**
    A clone has its own ref namespace and the primary may never have seen the
-   branch, so such checkouts would otherwise have no row and vanish from the UI
+   branch, so such workspaces would otherwise have no row and vanish from the UI
    while still being counted under Cleanup. **Only checked-out branches are
    added** — merging every ref from every clone would drag in that clone's stale
    `origin/*` snapshot and resurrect hundreds of long-dead branches.
@@ -114,7 +114,7 @@ cd src-tauri && cargo run --example probe -- ~/Code/some-repo
 ```
 
 `probe` exercises the entire git/gh layer headlessly and prints branches,
-checkouts, the sniffed setup recipe, PRs, and whether every checkout resolves to
+workspaces, the sniffed setup recipe, PRs, and whether every workspace resolves to
 a branch row. It found two real bugs in one session — prefer it to guessing.
 
 To check SVG or other rendered output, `qlmanage -t -s 900 -o <dir> file.svg`
@@ -142,7 +142,7 @@ access and fails without it. The `.app` is the deliverable.
 - Per-project override: `.switcheroo.json` committed at a project's root, which
   wins field by field over the app config.
 - "Open in" targets and setup steps are user-editable shell templates run
-  through the login shell. `{path}` is the checkout being acted on and
+  through the login shell. `{path}` is the workspace being acted on and
   `{primary}` the primary clone, in both. Path templates use `{project}` for
   the project's directory name. All substituted values are shell-quoted, so a
   template must not add quotes of its own.

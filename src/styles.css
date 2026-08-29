@@ -574,7 +574,7 @@ code,
   font-size: 12.5px;
 }
 
-/* Checkout directory, alongside the branch name. Shrinks ahead of the branch
+/* Workspace directory, alongside the branch name. Shrinks ahead of the branch
    name so the important half survives a narrow column. */
 .folder {
   display: flex;
@@ -704,11 +704,11 @@ code,
   color: var(--accent);
 }
 
-.checkout.stale {
+.workspace.stale {
   border-color: color-mix(in srgb, var(--amber) 50%, transparent);
 }
 
-.new-checkout {
+.new-workspace {
   width: 100%;
   padding: 9px 10px;
   border: 1px dashed var(--border);
@@ -718,7 +718,7 @@ code,
   text-align: center;
 }
 
-.new-checkout:hover {
+.new-workspace:hover {
   border-color: var(--accent);
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 7%, transparent);

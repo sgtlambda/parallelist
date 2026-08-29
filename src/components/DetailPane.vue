@@ -2,8 +2,8 @@
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
-import { api, type Checkout } from '../api'
-import { CHECKOUT_LABELS, basename, relativeTime, shortPath } from '../format'
+import { api, type Workspace } from '../api'
+import { WORKSPACE_LABELS, basename, relativeTime, shortPath } from '../format'
 import { openTargets, project, selectedRow, state } from '../store'
 
 const emit = defineEmits<{
@@ -30,11 +30,11 @@ const reviewLabel: Record<string, string> = {
   REVIEW_REQUIRED: 'review required',
 }
 
-async function openIn(targetId: string, checkout: Checkout) {
+async function openIn(targetId: string, workspace: Workspace) {
   try {
     await api.openIn(targetId, {
-      path: checkout.path,
-      branch: checkout.branch ?? '',
+      path: workspace.path,
+      branch: workspace.branch ?? '',
       primary: project.value?.path ?? '',
       prUrl: row.value?.pr?.url ?? '',
     })
@@ -45,9 +45,9 @@ async function openIn(targetId: string, checkout: Checkout) {
 
 /** Which clone a worktree belongs to, when it isn't the primary one. With two
  *  clones of the same repo around, that distinction is the whole story. */
-function ownerLabel(checkout: Checkout): string | null {
-  if (!checkout.owner || checkout.owner === project.value?.path) return null
-  return basename(checkout.owner)
+function ownerLabel(workspace: Workspace): string | null {
+  if (!workspace.owner || workspace.owner === project.value?.path) return null
+  return basename(workspace.owner)
 }
 
 /**
@@ -66,7 +66,7 @@ const originState = computed(() => {
     return {
       text: 'merged · gone from origin',
       cls: 'merged',
-      title: `Merged into ${base}, then deleted on origin. The checkout can be removed.`,
+      title: `Merged into ${base}, then deleted on origin. The workspace can be removed.`,
     }
   }
   if (!branch.hasRemote && branch.wasPushed) {
@@ -178,40 +178,36 @@ async function openPullRequest() {
       </button>
 
       <div>
-        <p v-if="!row.checkouts.length" class="muted" style="font-size: 12px; line-height: 1.5">
-          Not checked out anywhere.
-        </p>
-
         <div style="display: flex; flex-direction: column; gap: 14px">
           <div
-            v-for="checkout in row.checkouts"
-            :key="checkout.path"
-            class="card checkout"
-            :class="{ stale: row.stale && checkout.kind !== 'primary' }"
+            v-for="workspace in row.workspaces"
+            :key="workspace.path"
+            class="card workspace"
+            :class="{ stale: row.stale && workspace.kind !== 'primary' }"
           >
-            <div class="card-title">Checkout</div>
+            <div class="card-title">Workspace</div>
             <div
-              v-if="checkout.modified || checkout.untracked || checkout.unpushed"
+              v-if="workspace.modified || workspace.untracked || workspace.unpushed"
               class="row"
             >
-              <span v-if="checkout.modified" class="badge warn">
-                {{ checkout.modified }} changed
+              <span v-if="workspace.modified" class="badge warn">
+                {{ workspace.modified }} changed
               </span>
-              <span v-if="checkout.untracked" class="badge" title="Untracked files — not counted as changes">
-                {{ checkout.untracked }} untracked
+              <span v-if="workspace.untracked" class="badge" title="Untracked files — not counted as changes">
+                {{ workspace.untracked }} untracked
               </span>
-              <span v-if="checkout.unpushed" class="badge warn">{{ checkout.unpushed }} unpushed</span>
+              <span v-if="workspace.unpushed" class="badge warn">{{ workspace.unpushed }} unpushed</span>
             </div>
             <div class="path-row">
-              <span class="kind-icon" :title="CHECKOUT_LABELS[checkout.kind]">
-                <Icon :name="checkout.kind" />
+              <span class="kind-icon" :title="WORKSPACE_LABELS[workspace.kind]">
+                <Icon :name="workspace.kind" />
               </span>
-              <code class="truncate selectable" :title="checkout.path">
-                {{ shortPath(checkout.path) }}
+              <code class="truncate selectable" :title="workspace.path">
+                {{ shortPath(workspace.path) }}
               </code>
             </div>
-            <div v-if="ownerLabel(checkout)" class="faint" style="font-size: 11px">
-              worktree of {{ ownerLabel(checkout) }}
+            <div v-if="ownerLabel(workspace)" class="faint" style="font-size: 11px">
+              worktree of {{ ownerLabel(workspace) }}
             </div>
 
             <div class="actions">
@@ -219,7 +215,7 @@ async function openPullRequest() {
                 v-for="target in targets"
                 :key="target.id"
                 class="btn small"
-                @click="openIn(target.id, checkout)"
+                @click="openIn(target.id, workspace)"
               >
                 {{ target.icon }} {{ target.label }}
               </button>
@@ -232,16 +228,16 @@ async function openPullRequest() {
               </button>
               <span class="spacer" />
               <button
-                v-if="checkout.kind !== 'primary'"
+                v-if="workspace.kind !== 'primary'"
                 class="btn ghost small danger"
-                @click="emit('remove', [checkout.path])"
+                @click="emit('remove', [workspace.path])"
               >
                 Remove
               </button>
             </div>
           </div>
 
-          <button class="new-checkout" @click="emit('create')">+ New checkout</button>
+          <button class="new-workspace" @click="emit('create')">+ New workspace</button>
         </div>
       </div>
     </div>

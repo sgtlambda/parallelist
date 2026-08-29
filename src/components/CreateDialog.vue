@@ -20,7 +20,7 @@ const log = ref<{ line: string; error: boolean }[]>([])
 const createdPath = ref('')
 const logEl = ref<HTMLElement | null>(null)
 
-// Not while a checkout is being created — the dialog owns that job.
+// Not while a workspace is being created — the dialog owns that job.
 useEscape(
   () => props.open && phase.value !== 'running',
   () => emit('close'),
@@ -64,7 +64,7 @@ async function loadPlan() {
   if (!id || !name) return
   const ticket = ++planTicket
   try {
-    const plan = await api.planCheckout(id, name, selectedRow.value?.pr?.number ?? null)
+    const plan = await api.planWorkspace(id, name, selectedRow.value?.pr?.number ?? null)
     if (ticket !== planTicket) return
     path.value = plan.suggestedPath
     conflict.value = plan.conflict
@@ -103,7 +103,7 @@ async function submit() {
   })
 
   try {
-    createdPath.value = await api.createCheckout(jobId, request)
+    createdPath.value = await api.createWorkspace(jobId, request)
     phase.value = 'done'
     await refresh()
     state.selectedBranch = request.branch
@@ -129,7 +129,7 @@ async function openCreated(targetId: string) {
   <div v-if="open" class="scrim" @click.self="phase !== 'running' && emit('close')">
     <div class="modal">
       <div class="modal-header" data-tauri-drag-region="deep">
-        <span>New checkout</span>
+        <span>New workspace</span>
         <span class="spacer" />
         <span class="faint" style="font-weight: 400">{{ project?.name }}</span>
       </div>

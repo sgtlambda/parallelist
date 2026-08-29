@@ -2,13 +2,13 @@
 import { computed, ref, watch } from 'vue'
 import { api, type RemovalImpact } from '../api'
 import Icon from './Icon.vue'
-import { CHECKOUT_LABELS, bytes, shortPath } from '../format'
-import { refresh, projectId, staleCheckoutPaths } from '../store'
+import { WORKSPACE_LABELS, bytes, shortPath } from '../format'
+import { refresh, projectId, staleWorkspacePaths } from '../store'
 import { useEscape } from '../useEscape'
 
 const props = defineProps<{
   open: boolean
-  /** Explicit targets. When null, every stale checkout is offered. */
+  /** Explicit targets. When null, every stale workspace is offered. */
   paths: string[] | null
 }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -22,7 +22,7 @@ const loading = ref(false)
 const working = ref(false)
 const failures = ref<{ path: string; error: string }[]>([])
 
-const staleCandidates = staleCheckoutPaths
+const staleCandidates = staleWorkspacePaths
 
 watch(
   () => props.open,
@@ -64,7 +64,7 @@ async function remove() {
   working.value = true
   failures.value = []
   try {
-    const results = await api.removeCheckouts(
+    const results = await api.removeWorkspaces(
       id,
       chosen.value.map((i) => ({
         path: i.path,
@@ -89,7 +89,7 @@ async function remove() {
   <div v-if="open" class="scrim" @click.self="!working && emit('close')">
     <div class="modal wide">
       <div class="modal-header" data-tauri-drag-region="deep">
-        <span>{{ paths ? 'Remove checkout' : 'Cleanup' }}</span>
+        <span>{{ paths ? 'Remove workspace' : 'Cleanup' }}</span>
         <span class="spacer" />
         <span class="faint" style="font-weight: 400">
           {{ chosen.length }} selected · {{ bytes(totals.size) }}
@@ -127,7 +127,7 @@ async function remove() {
                 {{ shortPath(impact.path) }}
               </td>
               <td>
-                <span class="badge kind" :title="CHECKOUT_LABELS[impact.kind]">
+                <span class="badge kind" :title="WORKSPACE_LABELS[impact.kind]">
                   <Icon :name="impact.kind" />
                 </span>
               </td>

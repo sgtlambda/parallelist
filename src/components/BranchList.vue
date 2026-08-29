@@ -2,9 +2,9 @@
 import { computed, ref } from 'vue'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import Icon from './Icon.vue'
-import { api, type Checkout, type CheckoutKind } from '../api'
+import { api, type Workspace, type WorkspaceKind } from '../api'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import { CHECKOUT_LABELS, basename } from '../format'
+import { WORKSPACE_LABELS, basename } from '../format'
 import type { Row } from '../store'
 import {
   cleanupOpen,
@@ -105,14 +105,14 @@ const menuItems = computed<MenuItem[]>(() => {
   if (!row) return []
   const items: MenuItem[] = [{ id: 'branch', label: 'Copy branch name' }]
 
-  // One entry per checkout, named when there is more than one to tell apart.
-  row.checkouts.forEach((c: Checkout, i: number) => {
+  // One entry per workspace, named when there is more than one to tell apart.
+  row.workspaces.forEach((c: Workspace, i: number) => {
     items.push({
       id: `path:${i}`,
       label:
-        row.checkouts.length > 1
+        row.workspaces.length > 1
           ? `Copy path — ${basename(c.path)}`
-          : 'Copy checkout path',
+          : 'Copy workspace path',
       separator: i === 0,
     })
   })
@@ -122,14 +122,14 @@ const menuItems = computed<MenuItem[]>(() => {
     items.push({ id: 'pr-open', label: `Open pull request #${row.pr.number}` })
   }
 
-  // One flyout per checkout, so a branch with two of them can send each
+  // One flyout per workspace, so a branch with two of them can send each
   // somewhere different.
   const targets = openTargets.value.filter((t) => !t.requiresPr || row.pr)
-  row.checkouts.forEach((c: Checkout, i: number) => {
+  row.workspaces.forEach((c: Workspace, i: number) => {
     items.push({
       id: `open:${i}`,
       label:
-        row.checkouts.length > 1 ? `Open ${basename(c.path)} in…` : 'Open in…',
+        row.workspaces.length > 1 ? `Open ${basename(c.path)} in…` : 'Open in…',
       separator: i === 0,
       children: targets.map((t) => ({
         id: `open:${i}:${t.id}`,
@@ -152,19 +152,19 @@ async function onMenuSelect(id: string) {
   if (id === 'branch') {
     await copyToClipboard(row.branch.name, 'branch name')
   } else if (id.startsWith('path:')) {
-    const checkout = row.checkouts[Number(id.slice(5))]
-    if (checkout) await copyToClipboard(checkout.path, 'path')
+    const workspace = row.workspaces[Number(id.slice(5))]
+    if (workspace) await copyToClipboard(workspace.path, 'path')
   } else if (id === 'pr-url' && row.pr) {
     await copyToClipboard(row.pr.url, 'pull request URL')
   } else if (id === 'pr-open' && row.pr) {
     await openUrl(row.pr.url)
   } else if (id.startsWith('open:')) {
     const [, index, targetId] = id.split(':')
-    const checkout = row.checkouts[Number(index)]
-    if (!checkout || !targetId) return
+    const workspace = row.workspaces[Number(index)]
+    if (!workspace || !targetId) return
     await api.openIn(targetId, {
-      path: checkout.path,
-      branch: checkout.branch ?? row.branch.name,
+      path: workspace.path,
+      branch: workspace.branch ?? row.branch.name,
       primary: project.value?.path ?? '',
       prUrl: row.pr?.url ?? '',
     })
@@ -172,8 +172,8 @@ async function onMenuSelect(id: string) {
 }
 
 /** Where this branch lives on disk, each entry labelled by its own kind. */
-function folders(row: Row): { kind: CheckoutKind; name: string; path: string }[] {
-  return row.checkouts.map((c) => ({
+function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[] {
+  return row.workspaces.map((c) => ({
     kind: c.kind,
     name: basename(c.path),
     path: c.path,
@@ -182,7 +182,7 @@ function folders(row: Row): { kind: CheckoutKind; name: string; path: string }[]
 
 /** Only real work counts here: untracked strays are not "uncommitted". */
 function dirty(row: Row): boolean {
-  return row.checkouts.some((c) => c.modified > 0 || c.unpushed > 0)
+  return row.workspaces.some((c) => c.modified > 0 || c.unpushed > 0)
 }
 </script>
 
@@ -254,12 +254,12 @@ function dirty(row: Row): boolean {
       >
         <div class="row">
           <span class="branch-name truncate">{{ row.branch.name }}</span>
-          <span v-if="row.checkouts.length" class="folder">
+          <span v-if="row.workspaces.length" class="folder">
             <span
               v-for="(entry, i) in folders(row)"
               :key="entry.path"
               class="folder-entry"
-              :title="`${CHECKOUT_LABELS[entry.kind]}\n${entry.path}`"
+              :title="`${WORKSPACE_LABELS[entry.kind]}\n${entry.path}`"
             >
               <span v-if="i > 0" class="folder-sep">·</span>
               <Icon :name="entry.kind" :size="12" />
@@ -280,7 +280,7 @@ function dirty(row: Row): boolean {
           <span
             v-if="row.stale"
             class="badge warn"
-            title="Merged or deleted on origin — the checkout can be removed"
+            title="Merged or deleted on origin — the workspace can be removed"
           >
             stale
           </span>

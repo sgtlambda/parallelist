@@ -37,25 +37,25 @@ pub struct AheadBehind {
     pub behind: u32,
 }
 
-/// How a checkout is backed. Both are equal citizens in the UI; a clone is
+/// How a workspace is backed. Both are equal citizens in the UI; a clone is
 /// what you fall back to when git refuses to check a branch out twice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum CheckoutKind {
+pub enum WorkspaceKind {
     Primary,
     Worktree,
     Clone,
     /// A directory that looks like it belongs to this repo but isn't a git
-    /// checkout at all — left behind by a manual `rm -rf .git` or a failed
+    /// workspace at all — left behind by a manual `rm -rf .git` or a failed
     /// worktree removal.
     Orphan,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Checkout {
+pub struct Workspace {
     pub path: String,
-    pub kind: CheckoutKind,
+    pub kind: WorkspaceKind,
     /// `None` for detached HEAD and orphans.
     pub branch: Option<String>,
     /// Which clone a worktree hangs off. `None` for a clone's own root.
@@ -273,7 +273,7 @@ pub fn remote_branch_names(repo: &Path) -> std::collections::HashSet<String> {
     .unwrap_or_default()
 }
 
-/// Commit metadata for whatever a checkout currently has at HEAD.
+/// Commit metadata for whatever a workspace currently has at HEAD.
 ///
 /// Used for branches that exist only inside a secondary clone, where the
 /// primary has no ref to read them from.

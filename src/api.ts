@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
-export type CheckoutKind = 'primary' | 'worktree' | 'clone' | 'orphan'
+export type WorkspaceKind = 'primary' | 'worktree' | 'clone' | 'orphan'
 export type CheckState = 'pending' | 'passing' | 'failing' | 'none'
 
 export interface SetupStep {
@@ -56,9 +56,9 @@ export interface BranchInfo {
   wasPushed: boolean
 }
 
-export interface Checkout {
+export interface Workspace {
   path: string
-  kind: CheckoutKind
+  kind: WorkspaceKind
   branch: string | null
   /** Which clone a worktree hangs off. Null for a clone's own root. */
   owner: string | null
@@ -88,7 +88,7 @@ export interface Overview {
   baseBranch: string
   slug: string | null
   branches: BranchInfo[]
-  checkouts: Checkout[]
+  workspaces: Workspace[]
   pullRequests: Record<string, PullRequest>
   viewer: string | null
   warnings: string[]
@@ -116,7 +116,7 @@ export interface CreateRequest {
 
 export interface RemovalImpact {
   path: string
-  kind: CheckoutKind
+  kind: WorkspaceKind
   branch: string | null
   modified: number
   untracked: number
@@ -146,16 +146,16 @@ export const api = {
   refresh: (id: string, fetch: boolean) => invoke<Overview>('refresh', { id, fetch }),
   aheadBehind: (id: string, base: string, branches: string[]) =>
     invoke<Record<string, AheadBehind>>('ahead_behind', { id, base, branches }),
-  planCheckout: (id: string, branch: string, pr: number | null) =>
-    invoke<CreatePlan>('plan_checkout', { id, branch, pr }),
-  createCheckout: (jobId: string, request: CreateRequest) =>
-    invoke<string>('create_checkout', { jobId, request }),
+  planWorkspace: (id: string, branch: string, pr: number | null) =>
+    invoke<CreatePlan>('plan_workspace', { id, branch, pr }),
+  createWorkspace: (jobId: string, request: CreateRequest) =>
+    invoke<string>('create_workspace', { jobId, request }),
   removalImpacts: (id: string, paths: string[]) =>
     invoke<RemovalImpact[]>('removal_impacts', { id, paths }),
-  removeCheckouts: (
+  removeWorkspaces: (
     id: string,
-    items: { path: string; kind: CheckoutKind; deleteBranch: string | null }[],
-  ) => invoke<RemovalResult[]>('remove_checkouts', { id, items }),
+    items: { path: string; kind: WorkspaceKind; deleteBranch: string | null }[],
+  ) => invoke<RemovalResult[]>('remove_workspaces', { id, items }),
   openIn: (targetId: string, ctx: OpenContext) => invoke<void>('open_in', { targetId, ctx }),
   copyText: (text: string) => invoke<void>('copy_text', { text }),
 }

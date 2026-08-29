@@ -1,13 +1,13 @@
-//! Discovering, creating and removing checkouts.
+//! Discovering, creating and removing workspaces.
 //!
-//! A "checkout" is any directory on disk holding a branch of a repo: the
+//! A "workspace" is any directory on disk holding a branch of a repo: the
 //! primary clone, a linked worktree, or a second full clone. The distinction
 //! matters exactly twice — when creating one (git won't check a branch out in
 //! two worktrees) and when removing one — so the rest of the app treats them
 //! identically.
 
 use crate::config::{ProjectConfig, SetupStep};
-use crate::git::{self, Checkout, CheckoutKind};
+use crate::git::{self, Workspace, WorkspaceKind};
 use crate::proc::{run, run_shell_streaming};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 
 /// Everything on disk that belongs to this repo.
 ///
-/// The per-checkout `git status` is the slow part here — a few hundred
-/// milliseconds each on a large working tree — so the checkouts are inspected
+/// The per-workspace `git status` is the slow part here — a few hundred
+/// milliseconds each on a large working tree — so the workspaces are inspected
 /// on a small pool of threads and `report` is called as each one lands.
 ///
 /// `remote_branches` is passed in rather than recomputed: the caller has
@@ -28,7 +28,7 @@ pub fn scan(
     base: &str,
     remote_branches: &HashSet<String>,
     report: &(dyn Fn(usize, usize) + Sync),
-) -> Result<Vec<Checkout>, String> {
+) -> Result<Vec<Workspace>, String> {
     let primary = PathBuf::from(&project.path);
     let parent = primary
         .parent()
@@ -66,11 +66,11 @@ pub fn scan(
         }
     }
 
-    /// A checkout we know about but haven't inspected the working tree of yet.
+    /// A workspace we know about but haven't inspected the working tree of yet.
     struct Entry {
         path: PathBuf,
         branch: Option<String>,
-        kind: CheckoutKind,
+        kind: WorkspaceKind,
         owner: Option<String>,
     }
 
@@ -85,11 +85,11 @@ pub fn scan(
             }
             let is_root = &path == clone;
             let kind = if path == primary {
-                CheckoutKind::Primary
+                WorkspaceKind::Primary
             } else if is_root {
-                CheckoutKind::Clone
+                WorkspaceKind::Clone
             } else {
-                CheckoutKind::Worktree
+                WorkspaceKind::Worktree
             };
             entries.push(Entry {
                 path,
@@ -104,7 +104,7 @@ pub fn scan(
         entries.push(Entry {
             path,
             branch: None,
-            kind: CheckoutKind::Orphan,
+            kind: WorkspaceKind::Orphan,
             owner: None,
         });
     }
@@ -118,7 +118,7 @@ pub fn scan(
     let workers = total.min(8);
     let chunk_size = total.div_ceil(workers);
 
-    let mut out: Vec<Checkout> = std::thread::scope(|scope| {
+    let mut out: Vec<Workspace> = std::thread::scope(|scope| {
         let handles: Vec<_> = entries
             .chunks(chunk_size)
             .map(|chunk| {
@@ -128,7 +128,7 @@ pub fn scan(
                         .map(|entry| {
                             // An orphan has no git dir, so there is nothing to
                             // ask git about and no process worth spawning.
-                            let (tree, unpushed) = if entry.kind == CheckoutKind::Orphan {
+                            let (tree, unpushed) = if entry.kind == WorkspaceKind::Orphan {
                                 (git::WorkingTree::default(), 0)
                             } else {
                                 (
@@ -141,8 +141,8 @@ pub fn scan(
                                 .branch
                                 .as_ref()
                                 .map(|b| b != base && !remote_branches.contains(b))
-                                .unwrap_or(entry.kind == CheckoutKind::Orphan);
-                            Checkout {
+                                .unwrap_or(entry.kind == WorkspaceKind::Orphan);
+                            Workspace {
                                 path: entry.path.to_string_lossy().to_string(),
                                 kind: entry.kind,
                                 branch: entry.branch.clone(),
@@ -247,7 +247,7 @@ pub struct CreateRequest {
 #[serde(rename_all = "camelCase")]
 pub struct BranchConflict {
     pub branch: String,
-    /// The checkout already holding it.
+    /// The workspace already holding it.
     pub path: String,
 }
 
@@ -270,7 +270,7 @@ fn log_step<F: FnMut(&str, bool)>(log: &mut F, msg: &str) {
     log(&format!("\u{25b8} {msg}"), false);
 }
 
-/// Create the checkout and run the selected setup steps, streaming everything
+/// Create the workspace and run the selected setup steps, streaming everything
 /// through `log`. Returns the created path.
 pub fn create<F: FnMut(&str, bool)>(
     project: &ProjectConfig,
@@ -290,7 +290,7 @@ pub fn create<F: FnMut(&str, bool)>(
     match req.mode.as_str() {
         "worktree" => create_worktree(&primary, base, req, &mut log)?,
         "clone" => create_clone(&primary, req, &mut log)?,
-        other => return Err(format!("unknown checkout mode '{other}'")),
+        other => return Err(format!("unknown workspace mode '{other}'")),
     }
 
     run_setup_steps(project, &primary, &target, &req.branch, &req.steps, &mut log);
@@ -396,7 +396,7 @@ fn create_clone<F: FnMut(&str, bool)>(
     let branch = &req.branch;
     log_step(log, &format!("Checking out {branch}"));
     let remote_ref = format!("origin/{branch}");
-    let checkout = if req.new_branch {
+    let workspace = if req.new_branch {
         let start = req.from.clone().unwrap_or_else(|| "HEAD".to_string());
         run(
             "git",
@@ -410,11 +410,11 @@ fn create_clone<F: FnMut(&str, bool)>(
             Some(&target),
         )?
     };
-    for line in checkout.stderr.lines() {
-        log(line, !checkout.ok());
+    for line in workspace.stderr.lines() {
+        log(line, !workspace.ok());
     }
-    if !checkout.ok() {
-        return Err(format!("checkout failed: {}", checkout.stderr.trim()));
+    if !workspace.ok() {
+        return Err(format!("workspace failed: {}", workspace.stderr.trim()));
     }
     Ok(())
 }
@@ -456,13 +456,13 @@ fn run_setup_steps<F: FnMut(&str, bool)>(
     }
 }
 
-/// What removing a checkout would destroy. Shown in the confirm dialog; it
+/// What removing a workspace would destroy. Shown in the confirm dialog; it
 /// never blocks the removal, it just makes sure the cost is visible.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemovalImpact {
     pub path: String,
-    pub kind: CheckoutKind,
+    pub kind: WorkspaceKind,
     pub branch: Option<String>,
     pub modified: u32,
     pub untracked: u32,
@@ -471,7 +471,7 @@ pub struct RemovalImpact {
     pub size_bytes: u64,
 }
 
-pub fn removal_impact(path: &Path, kind: CheckoutKind, branch: Option<String>) -> RemovalImpact {
+pub fn removal_impact(path: &Path, kind: WorkspaceKind, branch: Option<String>) -> RemovalImpact {
     let is_git = git::is_git_repo(path);
     let tree = if is_git {
         git::working_tree(path)
@@ -509,17 +509,17 @@ fn dir_size(path: &Path) -> u64 {
 pub fn remove(
     project: &ProjectConfig,
     path: &Path,
-    kind: CheckoutKind,
+    kind: WorkspaceKind,
     delete_branch: Option<String>,
 ) -> Result<(), String> {
     let primary = PathBuf::from(&project.path);
-    if kind == CheckoutKind::Primary {
+    if kind == WorkspaceKind::Primary {
         return Err("refusing to remove the primary clone".into());
     }
     let path_str = path.to_string_lossy().to_string();
 
     match kind {
-        CheckoutKind::Worktree => {
+        WorkspaceKind::Worktree => {
             // --force because the impact dialog has already shown the user
             // exactly what is in there.
             let out = run(
@@ -534,10 +534,10 @@ pub fn remove(
                 run("git", &["worktree", "prune"], Some(&primary))?;
             }
         }
-        CheckoutKind::Clone | CheckoutKind::Orphan => {
+        WorkspaceKind::Clone | WorkspaceKind::Orphan => {
             std::fs::remove_dir_all(path).map_err(|e| format!("could not delete: {e}"))?;
         }
-        CheckoutKind::Primary => unreachable!(),
+        WorkspaceKind::Primary => unreachable!(),
     }
 
     if let Some(branch) = delete_branch {

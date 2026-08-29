@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 pub const CONFIG_FILE: &str = "config.json";
 pub const PROJECT_CONFIG_FILE: &str = ".switcheroo.json";
 
-/// A step offered in the create-checkout dialog. Every step is opt-in at
+/// A step offered in the create-workspace dialog. Every step is opt-in at
 /// creation time; `default_enabled` only decides how the checkbox starts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,7 +20,7 @@ pub struct SetupStep {
     pub label: String,
     #[serde(default = "yes")]
     pub default_enabled: bool,
-    /// Shell command run inside the new checkout. `{primary}`, `{path}` and
+    /// Shell command run inside the new workspace. `{primary}`, `{path}` and
     /// `{branch}` are substituted and shell-quoted.
     ///
     /// Deliberately the only kind of step there is: copying files and
@@ -76,7 +76,7 @@ pub struct OpenTarget {
     pub label: String,
     pub icon: String,
     pub command: String,
-    /// Shown as a button on the checkout row rather than only in the menu.
+    /// Shown as a button on the workspace row rather than only in the menu.
     #[serde(default)]
     pub primary: bool,
     /// Hidden unless the selected branch has a pull request (for `{prUrl}`).

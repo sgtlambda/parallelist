@@ -1,12 +1,12 @@
-pub mod checkout;
+pub mod workspace;
 pub mod config;
 pub mod gh;
 pub mod git;
 pub mod proc;
 
-use checkout::{BranchConflict, CreateRequest, RemovalImpact};
+use workspace::{BranchConflict, CreateRequest, RemovalImpact};
 use config::{AppConfig, ProjectConfig};
-use git::{AheadBehind, BranchInfo, Checkout, CheckoutKind};
+use git::{AheadBehind, BranchInfo, Workspace, WorkspaceKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -82,7 +82,7 @@ pub struct Overview {
     pub base_branch: String,
     pub slug: Option<String>,
     pub branches: Vec<BranchInfo>,
-    pub checkouts: Vec<Checkout>,
+    pub workspaces: Vec<Workspace>,
     pub pull_requests: HashMap<String, gh::PullRequest>,
     /// Logged-in GitHub user, for the "assigned to me" filter.
     pub viewer: Option<String>,
@@ -179,7 +179,7 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
         .unwrap_or_else(|| git::detect_base_branch(&path));
     let slug = git::origin_url(&path).ok().and_then(|u| git::origin_slug(&u));
 
-    type GitSide = Result<(Vec<BranchInfo>, Vec<Checkout>, Vec<String>), String>;
+    type GitSide = Result<(Vec<BranchInfo>, Vec<Workspace>, Vec<String>), String>;
     type PrSide = Result<(HashMap<String, gh::PullRequest>, Option<String>), String>;
 
     let (git_side, pr_side): (GitSide, PrSide) = std::thread::scope(|scope| {
@@ -219,30 +219,30 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
                 .collect();
             report("branches", String::new(), false);
 
-            report("checkouts", String::new(), true);
-            let checkouts = checkout::scan(&project, &base_branch, &remote_branches, &|done, total| {
-                report("checkouts", format!("{done} of {total}"), true)
+            report("workspaces", String::new(), true);
+            let workspaces = workspace::scan(&project, &base_branch, &remote_branches, &|done, total| {
+                report("workspaces", format!("{done} of {total}"), true)
             })?;
-            report("checkouts", String::new(), false);
+            report("workspaces", String::new(), false);
 
             // A secondary clone is an independent repository, so a branch
             // checked out there may not exist in the primary at all. Without
-            // this those checkouts have no row to attach to and vanish from the
+            // this those workspaces have no row to attach to and vanish from the
             // list while still being counted under Cleanup.
             //
             // Only branches that are actually checked out get added. Merging
             // every ref from every clone would drag in that clone's stale
             // origin/* snapshot and resurrect hundreds of dead branches.
             let mut extra: Vec<BranchInfo> = Vec::new();
-            for checkout in &checkouts {
-                let Some(name) = checkout.branch.as_deref() else {
+            for workspace in &workspaces {
+                let Some(name) = workspace.branch.as_deref() else {
                     continue;
                 };
                 if branches.iter().any(|b| b.name == name) || extra.iter().any(|b| b.name == name) {
                     continue;
                 }
                 let Some((sha, when, author, subject)) =
-                    git::head_commit(&PathBuf::from(&checkout.path))
+                    git::head_commit(&PathBuf::from(&workspace.path))
                 else {
                     continue;
                 };
@@ -257,7 +257,7 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
                         "--quiet",
                         &format!("refs/remotes/origin/{name}"),
                     ],
-                    Some(&PathBuf::from(&checkout.path)),
+                    Some(&PathBuf::from(&workspace.path)),
                 )
                 .map(|out| out.ok())
                 .unwrap_or(false);
@@ -279,7 +279,7 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
                 branches.sort_by_key(|b| std::cmp::Reverse(b.committed_at));
             }
 
-            Ok((branches, checkouts, warnings))
+            Ok((branches, workspaces, warnings))
         });
 
         (
@@ -288,7 +288,7 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
         )
     });
 
-    let (branches, checkouts, mut warnings) = git_side?;
+    let (branches, workspaces, mut warnings) = git_side?;
     let (pull_requests, viewer) = match pr_side {
         Ok(value) => value,
         Err(message) => {
@@ -302,7 +302,7 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
         base_branch,
         slug,
         branches,
-        checkouts,
+        workspaces,
         pull_requests,
         viewer,
         warnings,
@@ -343,7 +343,7 @@ struct CreatePlan {
 }
 
 #[tauri::command]
-fn plan_checkout(
+fn plan_workspace(
     state: State<AppState>,
     id: String,
     branch: String,
@@ -351,8 +351,8 @@ fn plan_checkout(
 ) -> Result<CreatePlan, String> {
     let repo = state.project(&id)?;
     Ok(CreatePlan {
-        suggested_path: checkout::suggest_path(&repo, &branch, pr),
-        conflict: checkout::conflicting_worktree(&repo, &branch),
+        suggested_path: workspace::suggest_path(&repo, &branch, pr),
+        conflict: workspace::conflicting_worktree(&repo, &branch),
     })
 }
 
@@ -365,7 +365,7 @@ struct LogEvent {
 }
 
 #[tauri::command]
-async fn create_checkout(
+async fn create_workspace(
     app: AppHandle,
     state: State<'_, AppState>,
     job_id: String,
@@ -378,7 +378,7 @@ async fn create_checkout(
         .unwrap_or_else(|| git::detect_base_branch(&PathBuf::from(&repo.path)));
 
     tauri::async_runtime::spawn_blocking(move || {
-        checkout::create(&repo, &base, &request, |line, error| {
+        workspace::create(&repo, &base, &request, |line, error| {
             let _ = app.emit(
                 "setup-log",
                 LogEvent {
@@ -407,14 +407,14 @@ async fn removal_impacts(
 
     tauri::async_runtime::spawn_blocking(move || {
         let remote_branches = git::remote_branch_names(&PathBuf::from(&repo.path));
-        let known = checkout::scan(&repo, &base, &remote_branches, &|_, _| {}).unwrap_or_default();
+        let known = workspace::scan(&repo, &base, &remote_branches, &|_, _| {}).unwrap_or_default();
         paths
             .into_iter()
             .map(|p| {
                 let found = known.iter().find(|c| c.path == p);
-                let kind = found.map(|c| c.kind).unwrap_or(CheckoutKind::Orphan);
+                let kind = found.map(|c| c.kind).unwrap_or(WorkspaceKind::Orphan);
                 let branch = found.and_then(|c| c.branch.clone());
-                checkout::removal_impact(&PathBuf::from(&p), kind, branch)
+                workspace::removal_impact(&PathBuf::from(&p), kind, branch)
             })
             .collect()
     })
@@ -426,7 +426,7 @@ async fn removal_impacts(
 #[serde(rename_all = "camelCase")]
 struct RemovalRequest {
     path: String,
-    kind: CheckoutKind,
+    kind: WorkspaceKind,
     #[serde(default)]
     delete_branch: Option<String>,
 }
@@ -439,7 +439,7 @@ struct RemovalResult {
 }
 
 #[tauri::command]
-async fn remove_checkouts(
+async fn remove_workspaces(
     state: State<'_, AppState>,
     id: String,
     items: Vec<RemovalRequest>,
@@ -452,7 +452,7 @@ async fn remove_checkouts(
                 // One failure shouldn't abandon the rest of a bulk cleanup, so
                 // each result is reported independently.
                 let error =
-                    checkout::remove(&repo, &PathBuf::from(&item.path), item.kind, item.delete_branch)
+                    workspace::remove(&repo, &PathBuf::from(&item.path), item.kind, item.delete_branch)
                         .err();
                 RemovalResult {
                     path: item.path,
@@ -557,10 +557,10 @@ pub fn run() {
             select_project,
             refresh,
             ahead_behind,
-            plan_checkout,
-            create_checkout,
+            plan_workspace,
+            create_workspace,
             removal_impacts,
-            remove_checkouts,
+            remove_workspaces,
             open_in,
             copy_text,
         ])

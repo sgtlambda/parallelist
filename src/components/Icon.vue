@@ -26,7 +26,7 @@ export const GLYPHS = {
     '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>' +
     '<polyline points="9 22 9 12 15 12 15 22"/>',
 
-  // folder with a cross: a directory that is no longer a checkout at all.
+  // folder with a cross: a directory that is no longer a workspace at all.
   orphan:
     '<path d="M4 5h4.6l1.8 2.2H20a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/>' +
     '<path d="m9.6 10.7 4.8 4.8"/>' +

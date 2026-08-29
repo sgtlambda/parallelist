@@ -20,7 +20,7 @@ branches already merged into `staging`, a dozen of which no longer exist on
 origin at all. They are hidden from Active but still clutter All.
 
 Wants: a list of merged local branches with the same warn-don't-block treatment
-as checkout removal, skipping anything currently checked out (git refuses to
+as workspace removal, skipping anything currently checked out (git refuses to
 delete those anyway).
 
 ## Cache the historical pull request query
@@ -37,7 +37,7 @@ budget, so a normal day sits near 12% of one hour's allowance.
 
 Everything verified so far reads: the `probe` example, the unit tests, the
 timings. Creating a worktree or clone, running setup steps, and removing a
-checkout have never been run end to end.
+workspace have never been run end to end.
 
 ## Housekeeping
 

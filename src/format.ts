@@ -45,10 +45,10 @@ export function basename(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
 }
 
-/** Human names for checkout kinds, used as icon tooltips. */
-export const CHECKOUT_LABELS: Record<string, string> = {
+/** Human names for workspace kinds, used as icon tooltips. */
+export const WORKSPACE_LABELS: Record<string, string> = {
   primary: 'Primary clone',
   worktree: 'Worktree',
   clone: 'Full clone',
-  orphan: 'Orphaned directory — not a git checkout',
+  orphan: 'Orphaned directory — not a git workspace',
 }

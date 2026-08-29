@@ -5,7 +5,7 @@ import {
   type AheadBehind,
   type AppConfig,
   type BranchInfo,
-  type Checkout,
+  type Workspace,
   type Overview,
   type PullRequest,
 } from './api'
@@ -16,9 +16,9 @@ export type Filter = 'active' | 'prs' | 'assigned' | 'checkedOut' | 'all'
 export interface Row {
   branch: BranchInfo
   pr: PullRequest | null
-  checkouts: Checkout[]
+  workspaces: Workspace[]
   aheadBehind: AheadBehind | null
-  /** Finished work — merged or closed — with a checkout still on disk. */
+  /** Finished work — merged or closed — with a workspace still on disk. */
   stale: boolean
 }
 
@@ -45,11 +45,11 @@ export const state = reactive({
 const PHASE_LABELS: Record<string, string> = {
   fetching: 'Fetching from origin',
   branches: 'Reading branches',
-  checkouts: 'Checking working trees',
+  workspaces: 'Checking working trees',
   pullRequests: 'Loading pull requests',
 }
 
-const PHASE_ORDER = ['fetching', 'branches', 'checkouts', 'pullRequests']
+const PHASE_ORDER = ['fetching', 'branches', 'workspaces', 'pullRequests']
 
 export function describeProgress(): string | null {
   const active = PHASE_ORDER.filter((phase) => phase in state.progress)
@@ -108,19 +108,19 @@ function assignedToMe(row: Row): boolean {
 
 /** The branch the primary clone currently has checked out. */
 const primaryBranch = computed(
-  () => state.overview?.checkouts.find((c) => c.kind === 'primary')?.branch ?? null,
+  () => state.overview?.workspaces.find((c) => c.kind === 'primary')?.branch ?? null,
 )
 
-/** Checkouts that aren't attached to any branch we can show in the list. */
-export const looseCheckouts = computed(() =>
-  (state.overview?.checkouts ?? []).filter((c) => c.kind === 'orphan' || !c.branch),
+/** Workspaces that aren't attached to any branch we can show in the list. */
+export const looseWorkspaces = computed(() =>
+  (state.overview?.workspaces ?? []).filter((c) => c.kind === 'orphan' || !c.branch),
 )
 
 const rows = computed<Row[]>(() => {
   const ov = state.overview
   if (!ov) return []
-  const byBranch = new Map<string, Checkout[]>()
-  for (const c of ov.checkouts) {
+  const byBranch = new Map<string, Workspace[]>()
+  for (const c of ov.workspaces) {
     if (!c.branch) continue
     const list = byBranch.get(c.branch) ?? []
     list.push(c)
@@ -128,17 +128,17 @@ const rows = computed<Row[]>(() => {
   }
   return ov.branches.map((branch) => {
     const pr = ov.pullRequests[branch.name] ?? null
-    const checkouts = byBranch.get(branch.name) ?? []
+    const workspaces = byBranch.get(branch.name) ?? []
     return {
       branch,
       pr,
-      checkouts,
+      workspaces,
       aheadBehind: state.aheadBehind[branch.name] ?? null,
       // Finished work, not merely absent from origin. A branch that was
       // never pushed is also "not on origin", and treating that as stale
       // offered unpushed commits up for deletion.
       stale:
-        checkouts.some((c) => c.kind !== 'primary') &&
+        workspaces.some((c) => c.kind !== 'primary') &&
         (branch.merged || pr?.state === 'merged' || pr?.state === 'closed'),
     }
   })
@@ -164,30 +164,30 @@ function haystack(row: Row): string {
     row.branch.author,
     row.pr ? `#${row.pr.number}` : '',
     row.pr?.title ?? '',
-    // Directory names are how a checkout gets referred to in practice ("the
+    // Directory names are how a workspace gets referred to in practice ("the
     // app-b one"), and for a clone on a branch that exists nowhere else
     // it's the only name you'd think to type.
-    ...row.checkouts.map((c) => c.path),
+    ...row.workspaces.map((c) => c.path),
   ]
     .join(' ')
     .toLowerCase()
 }
 
-/** Checkout directories that can go: finished work, plus orphaned folders. */
-export const staleCheckoutPaths = computed(() => {
+/** Workspace directories that can go: finished work, plus orphaned folders. */
+export const staleWorkspacePaths = computed(() => {
   const finished = rows.value
     .filter((r) => r.stale)
-    .flatMap((r) => r.checkouts)
+    .flatMap((r) => r.workspaces)
     .filter((c) => c.kind !== 'primary')
     .map((c) => c.path)
-  const orphans = looseCheckouts.value.filter((c) => c.kind === 'orphan').map((c) => c.path)
+  const orphans = looseWorkspaces.value.filter((c) => c.kind === 'orphan').map((c) => c.path)
   return [...new Set([...finished, ...orphans])]
 })
 
 function isActive(row: Row, activeDays: number): boolean {
   if (row.pr?.state === 'open') return true
   // Anything on disk is active by definition — it's occupying a directory.
-  if (row.checkouts.length > 0) return true
+  if (row.workspaces.length > 0) return true
   // Finished work with nothing checked out is done, however recently it was
   // committed. Without this a branch merged yesterday outranks one that is
   // still open, purely on recency.
@@ -205,10 +205,10 @@ export const counts = computed(() => {
     active: all.filter((r) => isActive(r, days)).length,
     prs: all.filter((r) => r.pr?.state === 'open').length,
     assigned: all.filter((r) => r.pr?.state === 'open' && assignedToMe(r)).length,
-    checkedOut: all.filter((r) => r.checkouts.length > 0).length,
+    checkedOut: all.filter((r) => r.workspaces.length > 0).length,
     all: all.length,
     // Counted in directories, so the badge matches what Cleanup lists.
-    stale: staleCheckoutPaths.value.length,
+    stale: staleWorkspacePaths.value.length,
   }
 })
 
@@ -229,7 +229,7 @@ export const visibleRows = computed<Row[]>(() => {
     case 'assigned':
       return pinPrimary(list.filter((r) => r.pr?.state === 'open' && assignedToMe(r)))
     case 'checkedOut':
-      return pinPrimary(list.filter((r) => r.checkouts.length > 0))
+      return pinPrimary(list.filter((r) => r.workspaces.length > 0))
     case 'all':
       return pinPrimary(list)
     default:
