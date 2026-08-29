@@ -133,9 +133,36 @@ code,
 /* ---------- shell ---------- */
 
 .app {
+  position: relative;
   display: grid;
-  grid-template-columns: var(--sidebar-w) minmax(300px, 1fr) minmax(320px, 400px);
+  grid-template-columns: var(--sidebar-w) minmax(300px, 1fr) var(--detail-w);
   height: 100%;
+}
+
+/* Splitters float over the pane borders rather than being grid tracks, so the
+   grid stays three columns and the middle one keeps absorbing the slack. */
+.splitter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 9px;
+  margin-left: -4px;
+  margin-right: -4px;
+  z-index: 25;
+  cursor: col-resize;
+}
+
+.splitter::after {
+  content: '';
+  position: absolute;
+  inset: 0 4px;
+  background: transparent;
+  transition: background 0.1s ease;
+}
+
+.splitter:hover::after,
+.splitter.dragging::after {
+  background: var(--accent);
 }
 
 .pane {
@@ -487,6 +514,7 @@ code,
 
 .branch.selected .muted,
 .branch.selected .faint,
+.branch.selected .folder,
 .branch.selected .badge {
   color: color-mix(in srgb, var(--accent-fg) 80%, transparent);
   border-color: color-mix(in srgb, var(--accent-fg) 35%, transparent);

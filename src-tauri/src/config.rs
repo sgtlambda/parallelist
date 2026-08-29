@@ -101,6 +101,20 @@ pub struct AppConfig {
     pub active_days: i64,
     #[serde(default)]
     pub selected_repo_id: Option<String>,
+    /// Pane widths in px. Persisted here rather than in web storage so the
+    /// layout survives anything that clears the webview.
+    #[serde(default = "default_sidebar_width")]
+    pub sidebar_width: f64,
+    #[serde(default = "default_detail_width")]
+    pub detail_width: f64,
+}
+
+fn default_sidebar_width() -> f64 {
+    216.0
+}
+
+fn default_detail_width() -> f64 {
+    360.0
 }
 
 fn default_fetch_interval() -> u64 {
@@ -123,6 +137,8 @@ impl Default for AppConfig {
             pr_refresh_secs: default_pr_interval(),
             active_days: default_active_days(),
             selected_repo_id: None,
+            sidebar_width: default_sidebar_width(),
+            detail_width: default_detail_width(),
         }
     }
 }

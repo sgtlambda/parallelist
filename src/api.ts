@@ -40,6 +40,8 @@ export interface AppConfig {
   prRefreshSecs: number
   activeDays: number
   selectedRepoId: string | null
+  sidebarWidth: number
+  detailWidth: number
 }
 
 export interface BranchInfo {

@@ -9,7 +9,13 @@ import RepoSidebar from './components/RepoSidebar.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import { setHomeDirectory } from './format'
 import {
+  DETAIL_RANGE,
+  SIDEBAR_RANGE,
   cleanupOpen,
+  detailWidth,
+  persistPaneWidths,
+  setPaneWidths,
+  sidebarWidth,
   listenProgress,
   loadConfig,
   refresh,
@@ -34,6 +40,51 @@ function onContextMenu(event: MouseEvent) {
   const target = event.target as HTMLElement | null
   if (target?.closest('input, textarea, [contenteditable], .selectable')) return
   event.preventDefault()
+}
+
+type Edge = 'sidebar' | 'detail'
+const dragging = ref<Edge | null>(null)
+
+/** Drag a splitter. The middle column is `1fr`, so it absorbs the difference;
+ *  each edge is clamped so the middle can never be squeezed out. */
+function startDrag(edge: Edge, event: PointerEvent) {
+  event.preventDefault()
+  dragging.value = edge
+  const startX = event.clientX
+  const startSidebar = sidebarWidth.value
+  const startDetail = detailWidth.value
+  const target = event.currentTarget as HTMLElement
+  target.setPointerCapture(event.pointerId)
+
+  const MIDDLE_MIN = 300
+
+  const onMove = (move: PointerEvent) => {
+    const delta = move.clientX - startX
+    if (edge === 'sidebar') {
+      const room = window.innerWidth - startDetail - MIDDLE_MIN
+      const next = clamp(startSidebar + delta, SIDEBAR_RANGE.min, Math.min(SIDEBAR_RANGE.max, room))
+      setPaneWidths(next, startDetail)
+    } else {
+      const room = window.innerWidth - startSidebar - MIDDLE_MIN
+      const next = clamp(startDetail - delta, DETAIL_RANGE.min, Math.min(DETAIL_RANGE.max, room))
+      setPaneWidths(startSidebar, next)
+    }
+  }
+
+  const onUp = () => {
+    dragging.value = null
+    target.releasePointerCapture(event.pointerId)
+    target.removeEventListener('pointermove', onMove)
+    target.removeEventListener('pointerup', onUp)
+    void persistPaneWidths()
+  }
+
+  target.addEventListener('pointermove', onMove)
+  target.addEventListener('pointerup', onUp)
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(value, Math.max(min, max)))
 }
 
 function onKey(event: KeyboardEvent) {
@@ -84,7 +135,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app">
+  <div
+    class="app"
+    :style="{ '--sidebar-w': `${sidebarWidth}px`, '--detail-w': `${detailWidth}px` }"
+  >
     <!-- Full-width strip under the overlay title bar: clears the traffic
          lights and gives the window somewhere to be dragged from. -->
     <div class="titlebar" data-tauri-drag-region />
@@ -95,6 +149,19 @@ onUnmounted(() => {
       @create="createOpen = true"
       @remove="openCleanup($event)"
       @error="state.error = $event"
+    />
+
+    <div
+      class="splitter"
+      :class="{ dragging: dragging === 'sidebar' }"
+      :style="{ left: `${sidebarWidth}px` }"
+      @pointerdown="startDrag('sidebar', $event)"
+    />
+    <div
+      class="splitter"
+      :class="{ dragging: dragging === 'detail' }"
+      :style="{ right: `${detailWidth}px` }"
+      @pointerdown="startDrag('detail', $event)"
     />
 
     <CreateDialog :open="createOpen" @close="createOpen = false" />

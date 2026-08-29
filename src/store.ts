@@ -312,9 +312,9 @@ export async function refresh(options: { fetch?: boolean } = {}) {
     }
     void loadAheadBehind()
   } catch (e) {
-    if (ticket === inFlight) state.error = String(e)
+    if (current()) state.error = String(e)
   } finally {
-    if (ticket === inFlight) {
+    if (current()) {
       state.loading = false
       state.fetching = false
       state.progress = null
