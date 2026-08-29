@@ -135,22 +135,18 @@ async function openPullRequest() {
       </button>
 
       <div>
-        <div class="card-title" style="padding: 0 0 7px">
-          Checkouts
-          <span v-if="row.checkouts.length" class="faint">({{ row.checkouts.length }})</span>
-        </div>
-
         <p v-if="!row.checkouts.length" class="muted" style="font-size: 12px; line-height: 1.5">
           Not checked out anywhere.
         </p>
 
-        <div style="display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; flex-direction: column; gap: 14px">
           <div
             v-for="checkout in row.checkouts"
             :key="checkout.path"
-            class="checkout"
+            class="card checkout"
             :class="{ stale: checkout.branchGone }"
           >
+            <div class="card-title">Checkout</div>
             <div
               v-if="checkout.modified || checkout.untracked || checkout.unpushed"
               class="row"

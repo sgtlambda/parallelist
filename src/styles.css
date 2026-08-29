@@ -595,6 +595,10 @@ code,
   align-items: center;
   gap: 6px;
   min-width: 0;
+  color: var(--text);
+}
+
+.path-row .kind-icon {
   color: var(--text-faint);
 }
 
@@ -684,16 +688,6 @@ code,
 .card.pr-card:hover .open-hint {
   opacity: 1;
   color: var(--accent);
-}
-
-.checkout {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 9px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  background: var(--bg-raised);
 }
 
 .checkout.stale {
