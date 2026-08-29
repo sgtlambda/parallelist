@@ -343,12 +343,6 @@ code,
   color: var(--text-dim);
 }
 
-.badge.path {
-  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
-  font-size: 10px;
-  border-style: dashed;
-}
-
 .badge.warn {
   color: var(--amber);
   border-color: color-mix(in srgb, var(--amber) 45%, transparent);
@@ -497,8 +491,52 @@ code,
 }
 
 .branch-name {
+  flex: 0 1 auto;
   font-weight: 550;
   font-size: 12.5px;
+}
+
+/* Checkout directory, alongside the branch name. Shrinks ahead of the branch
+   name so the important half survives a narrow column. */
+.folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 2 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+/* Flex, not inline: the glyph is a block-level <svg>, which on an inline
+   parent drops the directory name onto the next line. */
+.folder-entry {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.folder-sep {
+  opacity: 0.5;
+}
+
+/* Inline with the path rather than boxed: the icon reads as a prefix to the
+   directory, not as a separate tag. */
+.path-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-faint);
+}
+
+.kind-icon {
+  display: flex;
+  flex: none;
 }
 
 .branch-meta {

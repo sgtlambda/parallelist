@@ -166,7 +166,14 @@ async function openPullRequest() {
               </span>
               <span v-if="checkout.unpushed" class="badge warn">{{ checkout.unpushed }} unpushed</span>
             </div>
-            <code class="truncate selectable" :title="checkout.path">{{ shortPath(checkout.path) }}</code>
+            <div class="path-row">
+              <span class="kind-icon" :title="CHECKOUT_LABELS[checkout.kind]">
+                <Icon :name="checkout.kind" />
+              </span>
+              <code class="truncate selectable" :title="checkout.path">
+                {{ shortPath(checkout.path) }}
+              </code>
+            </div>
             <div v-if="ownerLabel(checkout)" class="faint" style="font-size: 11px">
               worktree of {{ ownerLabel(checkout) }}
             </div>

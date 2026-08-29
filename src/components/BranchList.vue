@@ -54,15 +54,6 @@ function checkDot(row: Row): string | null {
   }
 }
 
-/** One badge per kind of checkout, carrying a count when there's more than one. */
-function kinds(row: Row): { kind: CheckoutKind; count: number }[] {
-  const tally = new Map<CheckoutKind, number>()
-  for (const c of row.checkouts) {
-    tally.set(c.kind, (tally.get(c.kind) ?? 0) + 1)
-  }
-  return [...tally].map(([kind, count]) => ({ kind, count }))
-}
-
 /* Fixed shapes rather than random ones, so the placeholder can't jitter as
    Vue re-renders during the load. */
 const SKELETON = [
@@ -148,9 +139,13 @@ async function onMenuSelect(id: string) {
   }
 }
 
-/** Directory names of everywhere this branch is checked out. */
-function folders(row: Row): string[] {
-  return row.checkouts.map((c) => basename(c.path))
+/** Where this branch lives on disk, each entry labelled by its own kind. */
+function folders(row: Row): { kind: CheckoutKind; name: string; path: string }[] {
+  return row.checkouts.map((c) => ({
+    kind: c.kind,
+    name: basename(c.path),
+    path: c.path,
+  }))
 }
 
 /** Only real work counts here: untracked strays are not "uncommitted". */
@@ -235,9 +230,22 @@ function dirty(row: Row): boolean {
         class="branch"
         :class="{ selected: row.branch.name === state.selectedBranch }"
         @click="state.selectedBranch = row.branch.name"
+        @contextmenu.prevent="openMenu($event, row)"
       >
         <div class="row">
           <span class="branch-name truncate">{{ row.branch.name }}</span>
+          <span v-if="row.checkouts.length" class="folder">
+            <span
+              v-for="(entry, i) in folders(row)"
+              :key="entry.path"
+              class="folder-entry"
+              :title="`${CHECKOUT_LABELS[entry.kind]}\n${entry.path}`"
+            >
+              <span v-if="i > 0" class="folder-sep">·</span>
+              <Icon :name="entry.kind" :size="12" />
+              <span class="truncate">{{ entry.name }}</span>
+            </span>
+          </span>
           <span class="spacer" />
           <span class="faint" style="font-size: 11px">{{ relativeTime(row.branch.committedAt) }}</span>
         </div>
