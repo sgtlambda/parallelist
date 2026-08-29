@@ -405,6 +405,7 @@ code,
 /* ---------- sidebar ---------- */
 
 .repo-item {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -415,6 +416,30 @@ code,
   background: none;
   border-radius: 6px;
   text-align: left;
+}
+
+.repo-item.dragging {
+  opacity: 0.4;
+}
+
+/* Insertion line, drawn on the row the drop would land before/after. */
+.repo-item.drop-before::before,
+.repo-item.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.repo-item.drop-before::before {
+  top: -2px;
+}
+
+.repo-item.drop-after::after {
+  bottom: -2px;
 }
 
 .repo-item:hover {
