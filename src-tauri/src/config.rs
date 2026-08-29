@@ -20,21 +20,14 @@ pub struct SetupStep {
     pub label: String,
     #[serde(default = "yes")]
     pub default_enabled: bool,
-    #[serde(flatten)]
-    pub kind: StepKind,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum StepKind {
-    /// Copy gitignored files (env files, local config) from the primary clone.
-    CopyFiles { files: Vec<String> },
-    /// Symlink heavy directories back to the primary clone instead of
-    /// reinstalling them. Fast, and occasionally wrong when branches disagree
-    /// about dependencies — hence opt-in.
-    Symlink { paths: Vec<String> },
-    /// Arbitrary shell command run inside the new checkout.
-    Command { script: String },
+    /// Shell command run inside the new checkout. `{primary}`, `{path}` and
+    /// `{branch}` are substituted and shell-quoted.
+    ///
+    /// Deliberately the only kind of step there is: copying files and
+    /// symlinking are one-line shell commands, and having them as separate
+    /// step types bought nothing a `cp` or `ln -s` doesn't say more clearly.
+    #[serde(default)]
+    pub script: String,
 }
 
 fn yes() -> bool {
@@ -196,25 +189,33 @@ pub fn sniff_setup_steps(repo: &Path) -> Vec<SetupStep> {
     if !env_files.is_empty() {
         steps.push(SetupStep {
             id: "copy-env".into(),
-            label: format!("Copy {} from primary clone", env_files.join(", ")),
+            label: "Copy env files from the primary clone".into(),
             default_enabled: true,
-            kind: StepKind::CopyFiles { files: env_files },
+            // Guarded, because the old CopyFiles step skipped absent files and
+            // a bare `cp a b c .` fails outright if one of them is missing.
+            script: format!(
+                "for f in {}; do [ -e {{primary}}/$f ] && cp {{primary}}/$f .; done",
+                env_files.join(" ")
+            ),
         });
     }
 
-    let mut linkable = Vec::new();
-    if exists("vendor") {
-        linkable.push("vendor".to_string());
-    }
-    if exists("node_modules") {
-        linkable.push("node_modules".to_string());
-    }
+    let linkable: Vec<String> = ["vendor", "node_modules"]
+        .iter()
+        .filter(|d| exists(d))
+        .map(|d| d.to_string())
+        .collect();
     if !linkable.is_empty() {
         steps.push(SetupStep {
             id: "symlink-deps".into(),
-            label: format!("Symlink {} from primary clone", linkable.join(", ")),
+            label: "Symlink dependencies from the primary clone".into(),
             default_enabled: false,
-            kind: StepKind::Symlink { paths: linkable },
+            // -f so re-running is harmless, -n so an existing link to a
+            // directory is replaced rather than linked inside.
+            script: format!(
+                "for d in {}; do [ -e {{primary}}/$d ] && ln -sfn {{primary}}/$d .; done",
+                linkable.join(" ")
+            ),
         });
     }
 
@@ -223,9 +224,7 @@ pub fn sniff_setup_steps(repo: &Path) -> Vec<SetupStep> {
             id: "composer".into(),
             label: "composer install".into(),
             default_enabled: false,
-            kind: StepKind::Command {
-                script: "composer install".into(),
-            },
+            script: "composer install".into(),
         });
     }
     if exists("package.json") {
@@ -240,9 +239,7 @@ pub fn sniff_setup_steps(repo: &Path) -> Vec<SetupStep> {
             id: "node-deps".into(),
             label: script.into(),
             default_enabled: false,
-            kind: StepKind::Command {
-                script: script.into(),
-            },
+            script: script.into(),
         });
     }
     steps

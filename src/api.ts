@@ -8,10 +8,8 @@ export interface SetupStep {
   id: string
   label: string
   defaultEnabled: boolean
-  kind: 'copyFiles' | 'symlink' | 'command'
-  files?: string[]
-  paths?: string[]
-  script?: string
+  /** Shell command; `{primary}`, `{path}` and `{branch}` are substituted. */
+  script: string
 }
 
 export interface RepoConfig {

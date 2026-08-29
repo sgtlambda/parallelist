@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { AppConfig, SetupStep } from '../api'
+import type { AppConfig } from '../api'
 import { refresh, saveConfig, state } from '../store'
 import { useEscape } from '../useEscape'
 
@@ -30,40 +30,11 @@ const repo = computed(() =>
   draft.value?.repos.find((r) => r.id === draft.value?.selectedRepoId) ?? null,
 )
 
-/** Setup steps carry their payload in a kind-specific field. */
-function stepValue(step: SetupStep): string {
-  if (step.kind === 'command') return step.script ?? ''
-  return (step.kind === 'copyFiles' ? step.files : step.paths)?.join(', ') ?? ''
-}
-
-function setStepValue(step: SetupStep, value: string) {
-  if (step.kind === 'command') {
-    step.script = value
-    return
-  }
-  const list = value
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-  if (step.kind === 'copyFiles') step.files = list
-  else step.paths = list
-}
-
-function changeStepKind(step: SetupStep, kind: SetupStep['kind']) {
-  const value = stepValue(step)
-  step.kind = kind
-  delete step.files
-  delete step.paths
-  delete step.script
-  setStepValue(step, value)
-}
-
 function addStep() {
   repo.value?.setupSteps.push({
     id: `step-${Date.now()}`,
     label: 'New step',
     defaultEnabled: false,
-    kind: 'command',
     script: '',
   })
 }
@@ -149,7 +120,9 @@ async function save() {
             <div class="field">
               <label>Setup steps</label>
               <span class="hint">
-                Offered as checkboxes when creating a checkout. A committed
+                Shell commands, offered as checkboxes when creating a checkout and
+                run inside it. <code>{primary}</code> <code>{path}</code>
+                <code>{branch}</code> are substituted and shell-quoted. A committed
                 <code>.switcheroo.json</code> in the project overrides these.
               </span>
               <div
@@ -160,11 +133,6 @@ async function save() {
               >
                 <div class="row">
                   <input v-model="step.label" style="flex: 1" placeholder="Label" />
-                  <select :value="step.kind" @change="changeStepKind(step, ($event.target as HTMLSelectElement).value as SetupStep['kind'])">
-                    <option value="copyFiles">copy files</option>
-                    <option value="symlink">symlink</option>
-                    <option value="command">command</option>
-                  </select>
                   <button
                     class="btn ghost small danger"
                     @click="repo.setupSteps = repo.setupSteps.filter((s) => s.id !== step.id)"
@@ -172,12 +140,7 @@ async function save() {
                     ✕
                   </button>
                 </div>
-                <input
-                  class="mono"
-                  :value="stepValue(step)"
-                  :placeholder="step.kind === 'command' ? 'pnpm install' : '.env, .env.cypress'"
-                  @input="setStepValue(step, ($event.target as HTMLInputElement).value)"
-                />
+                <input v-model="step.script" class="mono" spellcheck="false" placeholder="pnpm install" />
                 <label class="check">
                   <input v-model="step.defaultEnabled" type="checkbox" />
                   <span class="hint">Ticked by default</span>

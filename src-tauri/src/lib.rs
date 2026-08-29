@@ -428,10 +428,6 @@ struct OpenContext {
     pr_url: String,
 }
 
-fn sh_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r"'\''"))
-}
-
 /// Put text on the system clipboard.
 ///
 /// `pbcopy` rather than a clipboard plugin: the app is macOS-only, it is always
@@ -459,10 +455,10 @@ fn open_in(state: State<AppState>, target_id: String, ctx: OpenContext) -> Resul
     // can't break out of the user's template.
     let script = target
         .command
-        .replace("{path}", &sh_quote(&ctx.path))
-        .replace("{branch}", &sh_quote(&ctx.branch))
-        .replace("{repo}", &sh_quote(&ctx.repo))
-        .replace("{prUrl}", &sh_quote(&ctx.pr_url));
+        .replace("{path}", &proc::sh_quote(&ctx.path))
+        .replace("{branch}", &proc::sh_quote(&ctx.branch))
+        .replace("{repo}", &proc::sh_quote(&ctx.repo))
+        .replace("{prUrl}", &proc::sh_quote(&ctx.pr_url));
 
     let cwd = PathBuf::from(&ctx.path);
     let cwd = if cwd.is_dir() { Some(cwd) } else { None };

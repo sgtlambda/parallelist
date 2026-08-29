@@ -107,6 +107,11 @@ fn build(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {
     cmd
 }
 
+/// Quote a value for safe interpolation into a shell command.
+pub fn sh_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
 /// Run a program to completion, capturing both streams.
 pub fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<Output, String> {
     run_timeout(program, args, cwd, DEFAULT_TIMEOUT)

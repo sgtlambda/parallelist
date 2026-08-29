@@ -6,7 +6,7 @@
 //! two worktrees) and when removing one — so the rest of the app treats them
 //! identically.
 
-use crate::config::{RepoConfig, SetupStep, StepKind};
+use crate::config::{RepoConfig, SetupStep};
 use crate::git::{self, Checkout, CheckoutKind};
 use crate::proc::{run, run_shell_streaming};
 use serde::{Deserialize, Serialize};
@@ -293,7 +293,7 @@ pub fn create<F: FnMut(&str, bool)>(
         other => return Err(format!("unknown checkout mode '{other}'")),
     }
 
-    run_setup_steps(repo, &primary, &target, &req.steps, &mut log);
+    run_setup_steps(repo, &primary, &target, &req.branch, &req.steps, &mut log);
     log_step(&mut log, "Done");
     Ok(req.path.clone())
 }
@@ -423,6 +423,7 @@ fn run_setup_steps<F: FnMut(&str, bool)>(
     repo: &RepoConfig,
     primary: &Path,
     target: &Path,
+    branch: &str,
     enabled: &[String],
     log: &mut F,
 ) {
@@ -431,53 +432,26 @@ fn run_setup_steps<F: FnMut(&str, bool)>(
         .iter()
         .filter(|s| enabled.contains(&s.id))
         .collect();
-    if steps.is_empty() {
-        return;
-    }
+
     for step in steps {
+        if step.script.trim().is_empty() {
+            continue;
+        }
         log_step(log, &step.label);
-        match &step.kind {
-            StepKind::CopyFiles { files } => {
-                for file in files {
-                    let from = primary.join(file);
-                    let to = target.join(file);
-                    if !from.exists() {
-                        log(&format!("  skipped {file} (not in primary clone)"), false);
-                        continue;
-                    }
-                    match std::fs::copy(&from, &to) {
-                        Ok(_) => log(&format!("  copied {file}"), false),
-                        Err(e) => log(&format!("  failed to copy {file}: {e}"), true),
-                    }
-                }
-            }
-            StepKind::Symlink { paths } => {
-                for rel in paths {
-                    let from = primary.join(rel);
-                    let to = target.join(rel);
-                    if !from.exists() {
-                        log(&format!("  skipped {rel} (not in primary clone)"), false);
-                        continue;
-                    }
-                    if to.exists() {
-                        log(&format!("  skipped {rel} (already present)"), false);
-                        continue;
-                    }
-                    match std::os::unix::fs::symlink(&from, &to) {
-                        Ok(_) => log(&format!("  linked {rel}"), false),
-                        Err(e) => log(&format!("  failed to link {rel}: {e}"), true),
-                    }
-                }
-            }
-            StepKind::Command { script } => {
-                match run_shell_streaming(script, target, |line, is_err| {
-                    log(&format!("  {line}"), is_err)
-                }) {
-                    Ok(0) => {}
-                    Ok(code) => log(&format!("  exited with status {code}"), true),
-                    Err(e) => log(&format!("  {e}"), true),
-                }
-            }
+        // Values are shell-quoted on substitution, so a path with spaces
+        // cannot break out of the user's command.
+        let script = step
+            .script
+            .replace("{primary}", &crate::proc::sh_quote(&primary.to_string_lossy()))
+            .replace("{path}", &crate::proc::sh_quote(&target.to_string_lossy()))
+            .replace("{branch}", &crate::proc::sh_quote(branch));
+
+        match run_shell_streaming(&script, target, |line, is_err| {
+            log(&format!("  {line}"), is_err)
+        }) {
+            Ok(0) => {}
+            Ok(code) => log(&format!("  exited with status {code}"), true),
+            Err(e) => log(&format!("  {e}"), true),
         }
     }
 }
