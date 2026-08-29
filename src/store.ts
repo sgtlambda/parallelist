@@ -157,7 +157,14 @@ function haystack(row: Row): string {
 
 function isActive(row: Row, activeDays: number): boolean {
   if (row.pr?.state === 'open') return true
+  // Anything on disk is active by definition — it's occupying a directory.
   if (row.checkouts.length > 0) return true
+  // Finished work with nothing checked out is done, however recently it was
+  // committed. Without this a branch merged yesterday outranks one that is
+  // still open, purely on recency.
+  if (row.branch.merged || row.pr?.state === 'merged' || row.pr?.state === 'closed') {
+    return false
+  }
   const age = Date.now() / 1000 - row.branch.committedAt
   return age < activeDays * DAY
 }

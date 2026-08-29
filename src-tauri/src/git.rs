@@ -224,13 +224,17 @@ fn merged_branches(repo: &Path, base: &str) -> Result<std::collections::HashSet<
             "--merged",
             &base_ref,
             "refs/remotes/origin",
+            "refs/heads",
         ],
         repo,
     )?;
     Ok(out
         .lines()
         .into_iter()
-        .filter_map(|l| l.strip_prefix("refs/remotes/origin/"))
+        .filter_map(|l| {
+            l.strip_prefix("refs/remotes/origin/")
+                .or_else(|| l.strip_prefix("refs/heads/"))
+        })
         .filter(|n| *n != "HEAD" && *n != base)
         .map(|n| n.to_string())
         .collect())
