@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub const CONFIG_FILE: &str = "config.json";
-pub const REPO_CONFIG_FILE: &str = ".switcheroo.json";
+pub const PROJECT_CONFIG_FILE: &str = ".switcheroo.json";
 
 /// A step offered in the create-checkout dialog. Every step is opt-in at
 /// creation time; `default_enabled` only decides how the checkbox starts.
@@ -26,6 +26,8 @@ pub struct SetupStep {
     /// Deliberately the only kind of step there is: copying files and
     /// symlinking are one-line shell commands, and having them as separate
     /// step types bought nothing a `cp` or `ln -s` doesn't say more clearly.
+    ///
+    /// Defaulted so a hand-written `.switcheroo.json` can omit it.
     #[serde(default)]
     pub script: String,
 }
@@ -34,10 +36,10 @@ fn yes() -> bool {
     true
 }
 
-/// Settings that a repo's own `.switcheroo.json` may override.
+/// Settings that a project's own `.switcheroo.json` may override.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoOverrides {
+pub struct ProjectOverrides {
     pub base_branch: Option<String>,
     pub path_template: Option<String>,
     pub setup_steps: Option<Vec<SetupStep>>,
@@ -46,7 +48,7 @@ pub struct RepoOverrides {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoConfig {
+pub struct ProjectConfig {
     pub id: String,
     /// Display name in the sidebar.
     pub name: String,
@@ -86,7 +88,7 @@ pub struct OpenTarget {
 #[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     #[serde(default)]
-    pub repos: Vec<RepoConfig>,
+    pub projects: Vec<ProjectConfig>,
     #[serde(default = "default_open_targets")]
     pub open_targets: Vec<OpenTarget>,
     #[serde(default = "default_fetch_interval")]
@@ -99,7 +101,7 @@ pub struct AppConfig {
     #[serde(default = "default_active_days")]
     pub active_days: i64,
     #[serde(default)]
-    pub selected_repo_id: Option<String>,
+    pub selected_project_id: Option<String>,
     /// Pane widths in px. Persisted here rather than in web storage so the
     /// layout survives anything that clears the webview.
     #[serde(default = "default_sidebar_width")]
@@ -129,13 +131,13 @@ fn default_active_days() -> i64 {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            repos: Vec::new(),
+            projects: Vec::new(),
             open_targets: default_open_targets(),
             fetch_interval_secs: default_fetch_interval(),
             fetch_on_focus: true,
             pr_refresh_secs: default_pr_interval(),
             active_days: default_active_days(),
-            selected_repo_id: None,
+            selected_project_id: None,
             sidebar_width: default_sidebar_width(),
             detail_width: default_detail_width(),
         }
@@ -183,9 +185,9 @@ pub fn default_open_targets() -> Vec<OpenTarget> {
 
 /// Guess a useful setup recipe by looking at what the repo actually contains.
 /// Runs once, when the project is added; everything stays editable afterwards.
-pub fn sniff_setup_steps(repo: &Path) -> Vec<SetupStep> {
+pub fn sniff_setup_steps(project: &Path) -> Vec<SetupStep> {
     let mut steps = Vec::new();
-    let exists = |p: &str| repo.join(p).exists();
+    let exists = |p: &str| project.join(p).exists();
 
     let env_files: Vec<String> = [".env", ".env.local", ".env.cypress", ".env.phpunit", ".env.testing"]
         .iter()
@@ -266,12 +268,12 @@ impl AppConfig {
         std::fs::write(dir.join(CONFIG_FILE), json).map_err(|e| e.to_string())
     }
 
-    pub fn repo(&self, id: &str) -> Option<&RepoConfig> {
-        self.repos.iter().find(|r| r.id == id)
+    pub fn project(&self, id: &str) -> Option<&ProjectConfig> {
+        self.projects.iter().find(|p| p.id == id)
     }
 }
 
-impl RepoConfig {
+impl ProjectConfig {
     pub fn new(path: PathBuf, name: String) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -285,13 +287,13 @@ impl RepoConfig {
     }
 
     /// Apply `.switcheroo.json` from the repo root on top of the stored config.
-    pub fn resolved(&self) -> RepoConfig {
+    pub fn resolved(&self) -> ProjectConfig {
         let mut out = self.clone();
-        let file = Path::new(&self.path).join(REPO_CONFIG_FILE);
+        let file = Path::new(&self.path).join(PROJECT_CONFIG_FILE);
         let Ok(text) = std::fs::read_to_string(file) else {
             return out;
         };
-        let Ok(over) = serde_json::from_str::<RepoOverrides>(&text) else {
+        let Ok(over) = serde_json::from_str::<ProjectOverrides>(&text) else {
             return out;
         };
         if let Some(v) = over.base_branch {

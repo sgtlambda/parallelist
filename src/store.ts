@@ -66,10 +66,10 @@ export function describeProgress(): string | null {
   return parts.join(' · ')
 }
 
-/** Backend refresh phases. Ignores repos other than the one on screen. */
+/** Backend refresh phases. Ignores projects other than the one on screen. */
 export function listenProgress() {
   return onProgress((event) => {
-    if (event.repoId !== repoId.value) return
+    if (event.projectId !== projectId.value) return
     const next = { ...state.progress }
     if (event.active) {
       if (Object.keys(next).length === 0) {
@@ -85,17 +85,17 @@ export function listenProgress() {
   })
 }
 
-export const repoId = computed(() => state.config?.selectedRepoId ?? null)
-export const repo = computed(
-  () => state.config?.repos.find((r) => r.id === repoId.value) ?? null,
+export const projectId = computed(() => state.config?.selectedProjectId ?? null)
+export const project = computed(
+  () => state.config?.projects.find((p) => p.id === projectId.value) ?? null,
 )
 
 /** Global targets plus this project's own; a project id wins on a clash. */
 export const openTargets = computed(() => {
   const global = state.config?.openTargets ?? []
-  const project = repo.value?.openTargets ?? []
-  const ids = new Set(project.map((t) => t.id))
-  return [...project, ...global.filter((t) => !ids.has(t.id))]
+  const own = project.value?.openTargets ?? []
+  const ids = new Set(own.map((t) => t.id))
+  return [...own, ...global.filter((t) => !ids.has(t.id))]
 })
 
 /** The logged-in GitHub user, when `gh` could tell us. */
@@ -284,7 +284,7 @@ export function dropCached(id: string) {
 let inFlight = 0
 
 export async function refresh(options: { fetch?: boolean } = {}) {
-  const id = repoId.value
+  const id = projectId.value
   if (!id) {
     state.overview = null
     return
@@ -292,7 +292,7 @@ export async function refresh(options: { fetch?: boolean } = {}) {
   const ticket = ++inFlight
   // The user can switch projects mid-flight; anything that lands afterwards
   // belongs to a project that is no longer on screen.
-  const current = () => ticket === inFlight && repoId.value === id
+  const current = () => ticket === inFlight && projectId.value === id
   state.loading = state.overview === null
   try {
     if (options.fetch) state.fetching = true
@@ -330,7 +330,7 @@ export async function refresh(options: { fetch?: boolean } = {}) {
 
 /** Ahead/behind costs a git process per branch, so only the visible ones. */
 async function loadAheadBehind() {
-  const id = repoId.value
+  const id = projectId.value
   const ov = state.overview
   if (!id || !ov) return
   const wanted = visibleRows.value
@@ -340,7 +340,7 @@ async function loadAheadBehind() {
   if (wanted.length === 0) return
   try {
     const result = await api.aheadBehind(id, ov.baseBranch, wanted)
-    if (repoId.value !== id) return
+    if (projectId.value !== id) return
     state.aheadBehind = { ...state.aheadBehind, ...result }
     remember(id)
   } catch {
@@ -348,11 +348,11 @@ async function loadAheadBehind() {
   }
 }
 
-export async function selectRepo(id: string | null) {
-  const leaving = repoId.value
+export async function selectProject(id: string | null) {
+  const leaving = projectId.value
   if (leaving && leaving !== id) remember(leaving)
 
-  if (state.config) state.config.selectedRepoId = id
+  if (state.config) state.config.selectedProjectId = id
 
   // Restore whatever we last saw for this project so the list is populated
   // straight away. The refresh below replaces it; the status line says so.
@@ -362,7 +362,7 @@ export async function selectRepo(id: string | null) {
   state.selectedBranch = cached?.selectedBranch ?? null
   state.error = null
 
-  await api.selectRepo(id)
+  await api.selectProject(id)
   await refresh({ fetch: true })
 }
 

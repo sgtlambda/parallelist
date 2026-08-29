@@ -4,7 +4,7 @@ import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
 import { api, type Checkout } from '../api'
 import { CHECKOUT_LABELS, basename, relativeTime, shortPath } from '../format'
-import { openTargets, repo, selectedRow, state } from '../store'
+import { openTargets, project, selectedRow, state } from '../store'
 
 const emit = defineEmits<{
   (e: 'create'): void
@@ -35,7 +35,7 @@ async function openIn(targetId: string, checkout: Checkout) {
     await api.openIn(targetId, {
       path: checkout.path,
       branch: checkout.branch ?? '',
-      repo: repo.value?.path ?? '',
+      repo: project.value?.path ?? '',
       prUrl: row.value?.pr?.url ?? '',
     })
   } catch (e) {
@@ -46,7 +46,7 @@ async function openIn(targetId: string, checkout: Checkout) {
 /** Which clone a worktree belongs to, when it isn't the primary one. With two
  *  clones of the same repo around, that distinction is the whole story. */
 function ownerLabel(checkout: Checkout): string | null {
-  if (!checkout.owner || checkout.owner === repo.value?.path) return null
+  if (!checkout.owner || checkout.owner === project.value?.path) return null
   return basename(checkout.owner)
 }
 

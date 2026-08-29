@@ -12,7 +12,7 @@ export interface SetupStep {
   script: string
 }
 
-export interface RepoConfig {
+export interface ProjectConfig {
   id: string
   name: string
   path: string
@@ -32,13 +32,13 @@ export interface OpenTarget {
 }
 
 export interface AppConfig {
-  repos: RepoConfig[]
+  projects: ProjectConfig[]
   openTargets: OpenTarget[]
   fetchIntervalSecs: number
   fetchOnFocus: boolean
   prRefreshSecs: number
   activeDays: number
-  selectedRepoId: string | null
+  selectedProjectId: string | null
   sidebarWidth: number
   detailWidth: number
 }
@@ -82,7 +82,7 @@ export interface PullRequest {
 }
 
 export interface Overview {
-  repo: RepoConfig
+  project: ProjectConfig
   baseBranch: string
   slug: string | null
   branches: BranchInfo[]
@@ -103,7 +103,7 @@ export interface CreatePlan {
 }
 
 export interface CreateRequest {
-  repoId: string
+  projectId: string
   branch: string
   path: string
   mode: 'worktree' | 'clone'
@@ -138,9 +138,9 @@ export interface OpenContext {
 export const api = {
   getConfig: () => invoke<AppConfig>('get_config'),
   saveConfig: (config: AppConfig) => invoke<void>('save_config', { config }),
-  addRepo: (path: string) => invoke<RepoConfig>('add_repo', { path }),
-  removeRepo: (id: string) => invoke<void>('remove_repo', { id }),
-  selectRepo: (id: string | null) => invoke<void>('select_repo', { id }),
+  addProject: (path: string) => invoke<ProjectConfig>('add_project', { path }),
+  removeProject: (id: string) => invoke<void>('remove_project', { id }),
+  selectProject: (id: string | null) => invoke<void>('select_project', { id }),
   refresh: (id: string, fetch: boolean) => invoke<Overview>('refresh', { id, fetch }),
   aheadBehind: (id: string, base: string, branches: string[]) =>
     invoke<Record<string, AheadBehind>>('ahead_behind', { id, base, branches }),
@@ -159,7 +159,7 @@ export const api = {
 }
 
 export interface ProgressEvent {
-  repoId: string
+  projectId: string
   phase: string
   detail: string
   /** Phases overlap, so this reports a phase starting or finishing. */

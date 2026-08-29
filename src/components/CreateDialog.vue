@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { api, onSetupLog, type CreateRequest } from '../api'
 import { shortPath } from '../format'
-import { openTargets, refresh, repo, repoId, selectedRow, state } from '../store'
+import { openTargets, refresh, project, projectId, selectedRow, state } from '../store'
 import { useEscape } from '../useEscape'
 
 const props = defineProps<{ open: boolean }>()
@@ -26,7 +26,7 @@ useEscape(
   () => emit('close'),
 )
 
-const setupSteps = computed(() => repo.value?.setupSteps ?? [])
+const setupSteps = computed(() => project.value?.setupSteps ?? [])
 const base = computed(() => state.overview?.baseBranch ?? 'main')
 
 /** A branch we've never seen has to be created rather than checked out. */
@@ -59,7 +59,7 @@ watch(branch, () => void loadPlan())
 
 let planTicket = 0
 async function loadPlan() {
-  const id = repoId.value
+  const id = projectId.value
   const name = branch.value.trim()
   if (!id || !name) return
   const ticket = ++planTicket
@@ -81,12 +81,12 @@ function toggleStep(id: string) {
 }
 
 async function submit() {
-  const id = repoId.value
+  const id = projectId.value
   if (!id || !canSubmit.value) return
 
   const jobId = `job-${Date.now()}`
   const request: CreateRequest = {
-    repoId: id,
+    projectId: id,
     branch: branch.value.trim(),
     path: path.value.trim(),
     mode: mode.value,
@@ -119,7 +119,7 @@ async function openCreated(targetId: string) {
   await api.openIn(targetId, {
     path: createdPath.value,
     branch: branch.value.trim(),
-    repo: repo.value?.path ?? '',
+    repo: project.value?.path ?? '',
     prUrl: selectedRow.value?.pr?.url ?? '',
   })
 }
@@ -131,7 +131,7 @@ async function openCreated(targetId: string) {
       <div class="modal-header" data-tauri-drag-region="deep">
         <span>New checkout</span>
         <span class="spacer" />
-        <span class="faint" style="font-weight: 400">{{ repo?.name }}</span>
+        <span class="faint" style="font-weight: 400">{{ project?.name }}</span>
       </div>
 
       <div class="modal-body">

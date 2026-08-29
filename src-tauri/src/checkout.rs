@@ -6,7 +6,7 @@
 //! two worktrees) and when removing one — so the rest of the app treats them
 //! identically.
 
-use crate::config::{RepoConfig, SetupStep};
+use crate::config::{ProjectConfig, SetupStep};
 use crate::git::{self, Checkout, CheckoutKind};
 use crate::proc::{run, run_shell_streaming};
 use serde::{Deserialize, Serialize};
@@ -24,15 +24,15 @@ use std::path::{Path, PathBuf};
 /// already listed the refs, and doing it twice was costing a redundant pair of
 /// `for-each-ref` calls on every refresh.
 pub fn scan(
-    repo: &RepoConfig,
+    project: &ProjectConfig,
     base: &str,
     remote_branches: &HashSet<String>,
     report: &(dyn Fn(usize, usize) + Sync),
 ) -> Result<Vec<Checkout>, String> {
-    let primary = PathBuf::from(&repo.path);
+    let primary = PathBuf::from(&project.path);
     let parent = primary
         .parent()
-        .ok_or_else(|| "repo has no parent directory".to_string())?
+        .ok_or_else(|| "project has no parent directory".to_string())?
         .to_path_buf();
     let origin = git::origin_url(&primary)?;
     let dir_name = primary
@@ -192,8 +192,8 @@ pub fn slugify(branch: &str, pr: Option<u64>) -> String {
 
 /// Fill in a repo's path template, then walk it out of the way of anything
 /// that already exists using the `-b`, `-c` suffixes.
-pub fn suggest_path(repo: &RepoConfig, branch: &str, pr: Option<u64>) -> String {
-    let primary = PathBuf::from(&repo.path);
+pub fn suggest_path(project: &ProjectConfig, branch: &str, pr: Option<u64>) -> String {
+    let primary = PathBuf::from(&project.path);
     let parent = primary
         .parent()
         .map(|p| p.to_string_lossy().to_string())
@@ -201,9 +201,9 @@ pub fn suggest_path(repo: &RepoConfig, branch: &str, pr: Option<u64>) -> String 
     let repo_dir = primary
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| repo.name.clone());
+        .unwrap_or_else(|| project.name.clone());
 
-    let base = repo
+    let base = project
         .path_template
         .replace("{parent}", &parent)
         .replace("{repo}", &repo_dir)
@@ -226,7 +226,7 @@ pub fn suggest_path(repo: &RepoConfig, branch: &str, pr: Option<u64>) -> String 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateRequest {
-    pub repo_id: String,
+    pub project_id: String,
     pub branch: String,
     pub path: String,
     /// `worktree` or `clone`. Anything else is rejected.
@@ -254,8 +254,8 @@ pub struct BranchConflict {
 /// Git refuses to check one branch out in two worktrees of the same clone.
 /// Finding the existing one lets the create dialog say so up front and offer
 /// a clone instead, rather than failing after the user hits create.
-pub fn conflicting_worktree(repo: &RepoConfig, branch: &str) -> Option<BranchConflict> {
-    let primary = PathBuf::from(&repo.path);
+pub fn conflicting_worktree(project: &ProjectConfig, branch: &str) -> Option<BranchConflict> {
+    let primary = PathBuf::from(&project.path);
     git::worktrees(&primary)
         .ok()?
         .into_iter()
@@ -273,12 +273,12 @@ fn log_step<F: FnMut(&str, bool)>(log: &mut F, msg: &str) {
 /// Create the checkout and run the selected setup steps, streaming everything
 /// through `log`. Returns the created path.
 pub fn create<F: FnMut(&str, bool)>(
-    repo: &RepoConfig,
+    project: &ProjectConfig,
     base: &str,
     req: &CreateRequest,
     mut log: F,
 ) -> Result<String, String> {
-    let primary = PathBuf::from(&repo.path);
+    let primary = PathBuf::from(&project.path);
     let target = PathBuf::from(&req.path);
     if target.exists() {
         return Err(format!("{} already exists", req.path));
@@ -293,7 +293,7 @@ pub fn create<F: FnMut(&str, bool)>(
         other => return Err(format!("unknown checkout mode '{other}'")),
     }
 
-    run_setup_steps(repo, &primary, &target, &req.branch, &req.steps, &mut log);
+    run_setup_steps(project, &primary, &target, &req.branch, &req.steps, &mut log);
     log_step(&mut log, "Done");
     Ok(req.path.clone())
 }
@@ -420,14 +420,14 @@ fn create_clone<F: FnMut(&str, bool)>(
 }
 
 fn run_setup_steps<F: FnMut(&str, bool)>(
-    repo: &RepoConfig,
+    project: &ProjectConfig,
     primary: &Path,
     target: &Path,
     branch: &str,
     enabled: &[String],
     log: &mut F,
 ) {
-    let steps: Vec<&SetupStep> = repo
+    let steps: Vec<&SetupStep> = project
         .setup_steps
         .iter()
         .filter(|s| enabled.contains(&s.id))
@@ -507,12 +507,12 @@ fn dir_size(path: &Path) -> u64 {
 }
 
 pub fn remove(
-    repo: &RepoConfig,
+    project: &ProjectConfig,
     path: &Path,
     kind: CheckoutKind,
     delete_branch: Option<String>,
 ) -> Result<(), String> {
-    let primary = PathBuf::from(&repo.path);
+    let primary = PathBuf::from(&project.path);
     if kind == CheckoutKind::Primary {
         return Err("refusing to remove the primary clone".into());
     }

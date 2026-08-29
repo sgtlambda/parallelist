@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { api, type RemovalImpact } from '../api'
 import Icon from './Icon.vue'
 import { CHECKOUT_LABELS, bytes, shortPath } from '../format'
-import { looseCheckouts, refresh, repoId, state } from '../store'
+import { looseCheckouts, refresh, projectId, state } from '../store'
 import { useEscape } from '../useEscape'
 
 const props = defineProps<{
@@ -39,7 +39,7 @@ watch(
     const targets = props.paths ?? staleCandidates.value
     selected.value = new Set(targets)
     impacts.value = []
-    const id = repoId.value
+    const id = projectId.value
     if (!id || targets.length === 0) return
     loading.value = true
     try {
@@ -66,7 +66,7 @@ const totals = computed(() => ({
 }))
 
 async function remove() {
-  const id = repoId.value
+  const id = projectId.value
   if (!id || chosen.value.length === 0) return
   working.value = true
   failures.value = []

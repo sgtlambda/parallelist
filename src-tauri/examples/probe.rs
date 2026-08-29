@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::time::Instant;
-use switcheroo_lib::{build_overview, checkout, config::RepoConfig, gh, git};
+use switcheroo_lib::{build_overview, checkout, config::ProjectConfig, gh, git};
 
 fn main() {
     let path = PathBuf::from(std::env::args().nth(1).expect("usage: probe <repo path>"));
@@ -22,7 +22,7 @@ fn main() {
         );
     }
 
-    let repo = RepoConfig::new(path.clone(), "probe".into());
+    let repo = ProjectConfig::new(path.clone(), "probe".into());
     println!("\nsniffed setup steps:");
     for s in &repo.setup_steps {
         println!("  [{}] {}", if s.default_enabled { "x" } else { " " }, s.label);
@@ -74,7 +74,7 @@ fn main() {
 
     // End-to-end: does every checkout have a branch row to attach to?
     let t = Instant::now();
-    let overview = build_overview(RepoConfig::new(path.clone(), "probe".into()), false, &|_, _, _| {}).unwrap();
+    let overview = build_overview(ProjectConfig::new(path.clone(), "probe".into()), false, &|_, _, _| {}).unwrap();
     println!("\n--- overview: {} branch rows, built in {:?} ---", overview.branches.len(), t.elapsed());
     for c in &overview.checkouts {
         if let Some(b) = c.branch.as_deref() {

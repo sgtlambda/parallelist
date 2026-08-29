@@ -5,7 +5,7 @@ import BranchList from './components/BranchList.vue'
 import CleanupDialog from './components/CleanupDialog.vue'
 import CreateDialog from './components/CreateDialog.vue'
 import DetailPane from './components/DetailPane.vue'
-import RepoSidebar from './components/RepoSidebar.vue'
+import ProjectSidebar from './components/ProjectSidebar.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import { setHomeDirectory } from './format'
 import {
@@ -143,7 +143,7 @@ onUnmounted(() => {
          lights and gives the window somewhere to be dragged from. -->
     <div class="titlebar" data-tauri-drag-region />
 
-    <RepoSidebar @error="state.error = $event" />
+    <ProjectSidebar @error="state.error = $event" />
     <BranchList />
     <DetailPane
       @create="createOpen = true"

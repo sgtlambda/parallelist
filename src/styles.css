@@ -417,7 +417,7 @@ code,
 
 /* ---------- sidebar ---------- */
 
-.repo-item {
+.project-item {
   position: relative;
   display: flex;
   flex-direction: column;
@@ -431,13 +431,13 @@ code,
   text-align: left;
 }
 
-.repo-item.dragging {
+.project-item.dragging {
   opacity: 0.4;
 }
 
 /* Insertion line, drawn on the row the drop would land before/after. */
-.repo-item.drop-before::before,
-.repo-item.drop-after::after {
+.project-item.drop-before::before,
+.project-item.drop-after::after {
   content: '';
   position: absolute;
   left: 8px;
@@ -447,32 +447,32 @@ code,
   background: var(--accent);
 }
 
-.repo-item.drop-before::before {
+.project-item.drop-before::before {
   top: -2px;
 }
 
-.repo-item.drop-after::after {
+.project-item.drop-after::after {
   bottom: -2px;
 }
 
-.repo-item:hover {
+.project-item:hover {
   background: var(--bg-hover);
 }
 
-.repo-item.selected {
+.project-item.selected {
   background: var(--accent);
   color: var(--accent-fg);
 }
 
-.repo-item.selected .repo-sub {
+.project-item.selected .project-sub {
   color: color-mix(in srgb, var(--accent-fg) 78%, transparent);
 }
 
-.repo-name {
+.project-name {
   font-weight: 550;
 }
 
-.repo-sub {
+.project-sub {
   font-size: 11px;
   color: var(--text-dim);
 }

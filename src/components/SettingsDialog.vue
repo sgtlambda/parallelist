@@ -7,10 +7,10 @@ import { useEscape } from '../useEscape'
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-type Tab = 'repo' | 'targets' | 'general'
+type Tab = 'project' | 'targets' | 'general'
 useEscape(() => props.open, () => emit('close'))
 
-const tab = ref<Tab>('repo')
+const tab = ref<Tab>('project')
 const draft = ref<AppConfig | null>(null)
 const saving = ref(false)
 
@@ -22,16 +22,16 @@ watch(
     // throws DataCloneError on those, which silently left the dialog empty.
     draft.value =
       isOpen && state.config ? (JSON.parse(JSON.stringify(state.config)) as AppConfig) : null
-    tab.value = 'repo'
+    tab.value = 'project'
   },
 )
 
-const repo = computed(() =>
-  draft.value?.repos.find((r) => r.id === draft.value?.selectedRepoId) ?? null,
+const project = computed(
+  () => draft.value?.projects.find((p) => p.id === draft.value?.selectedProjectId) ?? null,
 )
 
 function addStep() {
-  repo.value?.setupSteps.push({
+  project.value?.setupSteps.push({
     id: `step-${Date.now()}`,
     label: 'New step',
     defaultEnabled: false,
@@ -47,8 +47,8 @@ const targetGroups = computed(() => [
   },
   {
     key: 'project' as const,
-    title: repo.value ? `Only ${repo.value.name}` : 'This project',
-    items: repo.value?.openTargets ?? [],
+    title: project.value ? `Only ${project.value.name}` : 'This project',
+    items: project.value?.openTargets ?? [],
   },
 ])
 
@@ -83,8 +83,8 @@ async function save() {
         <span>Settings</span>
         <span class="spacer" />
         <div class="tabs" style="padding: 0; border: none">
-          <button class="tab" :class="{ active: tab === 'repo' }" @click="tab = 'repo'">
-            {{ repo?.name ?? 'Project' }}
+          <button class="tab" :class="{ active: tab === 'project' }" @click="tab = 'project'">
+            {{ project?.name ?? 'Project' }}
           </button>
           <button class="tab" :class="{ active: tab === 'targets' }" @click="tab = 'targets'">
             Open in
@@ -97,16 +97,16 @@ async function save() {
 
       <div class="modal-body">
         <!-- Project -->
-        <template v-if="tab === 'repo'">
-          <p v-if="!repo" class="empty">Select a project first.</p>
+        <template v-if="tab === 'project'">
+          <p v-if="!project" class="empty">Select a project first.</p>
           <template v-else>
             <div class="field">
               <label>Name</label>
-              <input v-model="repo.name" />
+              <input v-model="project.name" />
             </div>
             <div class="field">
               <label>Primary clone</label>
-              <input :value="repo.path" readonly class="mono" />
+              <input :value="project.path" readonly class="mono" />
               <span class="hint">
                 New worktrees hang off this clone and setup steps copy files out of it.
               </span>
@@ -114,17 +114,17 @@ async function save() {
             <div class="field">
               <label>Base branch</label>
               <input
-                :value="repo.baseBranch ?? ''"
+                :value="project.baseBranch ?? ''"
                 :placeholder="state.overview?.baseBranch ?? 'detected from origin/HEAD'"
-                @input="repo.baseBranch = ($event.target as HTMLInputElement).value || null"
+                @input="project.baseBranch = ($event.target as HTMLInputElement).value || null"
               />
               <span class="hint">Ahead/behind counts and merge detection measure against this.</span>
             </div>
             <div class="field">
               <label>Directory template</label>
-              <input v-model="repo.pathTemplate" class="mono" />
+              <input v-model="project.pathTemplate" class="mono" />
               <span class="hint">
-                <code>{parent}</code> <code>{repo}</code> <code>{slug}</code>
+                <code>{parent}</code> <code>{project}</code> <code>{slug}</code>
                 <code>{branch}</code> <code>{pr}</code> — the slug is the branch's last segment,
                 prefixed with the PR number when there is one.
               </span>
@@ -139,7 +139,7 @@ async function save() {
                 <code>.switcheroo.json</code> in the project overrides these.
               </span>
               <div
-                v-for="step in repo.setupSteps"
+                v-for="step in project.setupSteps"
                 :key="step.id"
                 class="card"
                 style="gap: 6px; margin-top: 6px"
@@ -148,7 +148,7 @@ async function save() {
                   <input v-model="step.label" style="flex: 1" placeholder="Label" />
                   <button
                     class="btn ghost small danger"
-                    @click="repo.setupSteps = repo.setupSteps.filter((s) => s.id !== step.id)"
+                    @click="project.setupSteps = project.setupSteps.filter((s) => s.id !== step.id)"
                   >
                     ✕
                   </button>
@@ -170,12 +170,12 @@ async function save() {
         <template v-else-if="tab === 'targets'">
           <span class="hint">
             Each target is a shell command run in your login shell.
-            <code>{path}</code> <code>{branch}</code> <code>{repo}</code> <code>{prUrl}</code>
+            <code>{path}</code> <code>{branch}</code> <code>{project}</code> <code>{prUrl}</code>
             are substituted and shell-quoted.
           </span>
           <template v-for="group in targetGroups" :key="group.key">
           <div class="card-title" style="margin-top: 4px">{{ group.title }}</div>
-          <p v-if="group.key === 'project' && !repo" class="hint">
+          <p v-if="group.key === 'project' && !project" class="hint">
             Select a project to add targets that only apply to it.
           </p>
           <div v-for="target in group.items" :key="target.id" class="card" style="gap: 6px">
@@ -202,7 +202,7 @@ async function save() {
             </div>
           </div>
           <button
-            v-if="group.key === 'global' || repo"
+            v-if="group.key === 'global' || project"
             class="btn small"
             style="align-self: flex-start"
             @click="addTarget(group.items)"

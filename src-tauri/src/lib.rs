@@ -5,7 +5,7 @@ pub mod git;
 pub mod proc;
 
 use checkout::{BranchConflict, CreateRequest, RemovalImpact};
-use config::{AppConfig, RepoConfig};
+use config::{AppConfig, ProjectConfig};
 use git::{AheadBehind, BranchInfo, Checkout, CheckoutKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -23,10 +23,10 @@ impl AppState {
         self.config.lock().unwrap().clone()
     }
 
-    /// The stored repo with its `.switcheroo.json` overrides applied.
-    fn repo(&self, id: &str) -> Result<RepoConfig, String> {
+    /// The stored project with its `.switcheroo.json` overrides applied.
+    fn project(&self, id: &str) -> Result<ProjectConfig, String> {
         self.config()
-            .repo(id)
+            .project(id)
             .map(|r| r.resolved())
             .ok_or_else(|| format!("unknown project '{id}'"))
     }
@@ -44,7 +44,7 @@ impl AppState {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProgressEvent {
-    repo_id: String,
+    project_id: String,
     /// Stable id; the frontend owns the wording.
     phase: &'static str,
     /// Optional extra, e.g. "12 of 16".
@@ -59,13 +59,13 @@ pub type Report<'a> = &'a (dyn Fn(&'static str, String, bool) + Sync);
 
 fn progress_reporter(
     app: AppHandle,
-    repo_id: String,
+    project_id: String,
 ) -> impl Fn(&'static str, String, bool) + Sync {
     move |phase, detail, active| {
         let _ = app.emit(
             "progress",
             ProgressEvent {
-                repo_id: repo_id.clone(),
+                project_id: project_id.clone(),
                 phase,
                 detail,
                 active,
@@ -78,7 +78,7 @@ fn progress_reporter(
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Overview {
-    pub repo: RepoConfig,
+    pub project: ProjectConfig,
     pub base_branch: String,
     pub slug: Option<String>,
     pub branches: Vec<BranchInfo>,
@@ -102,7 +102,7 @@ fn save_config(state: State<AppState>, config: AppConfig) -> Result<(), String> 
 }
 
 #[tauri::command]
-fn add_repo(state: State<AppState>, path: String) -> Result<RepoConfig, String> {
+fn add_project(state: State<AppState>, path: String) -> Result<ProjectConfig, String> {
     let path = PathBuf::from(shellexpand_home(&path));
     if !git::is_git_repo(&path) {
         return Err(format!("{} is not a git repository", path.display()));
@@ -117,34 +117,34 @@ fn add_repo(state: State<AppState>, path: String) -> Result<RepoConfig, String> 
 
     let mut cfg = state.config();
     if let Some(existing) = cfg
-        .repos
+        .projects
         .iter()
         .find(|r| Path::new(&r.path) == path)
         .cloned()
     {
         return Ok(existing);
     }
-    let repo = RepoConfig::new(path, name);
-    cfg.repos.push(repo.clone());
-    cfg.selected_repo_id = Some(repo.id.clone());
+    let repo = ProjectConfig::new(path, name);
+    cfg.projects.push(repo.clone());
+    cfg.selected_project_id = Some(repo.id.clone());
     state.persist(cfg)?;
     Ok(repo)
 }
 
 #[tauri::command]
-fn remove_repo(state: State<AppState>, id: String) -> Result<(), String> {
+fn remove_project(state: State<AppState>, id: String) -> Result<(), String> {
     let mut cfg = state.config();
-    cfg.repos.retain(|r| r.id != id);
-    if cfg.selected_repo_id.as_deref() == Some(id.as_str()) {
-        cfg.selected_repo_id = cfg.repos.first().map(|r| r.id.clone());
+    cfg.projects.retain(|r| r.id != id);
+    if cfg.selected_project_id.as_deref() == Some(id.as_str()) {
+        cfg.selected_project_id = cfg.projects.first().map(|r| r.id.clone());
     }
     state.persist(cfg)
 }
 
 #[tauri::command]
-fn select_repo(state: State<AppState>, id: Option<String>) -> Result<(), String> {
+fn select_project(state: State<AppState>, id: Option<String>) -> Result<(), String> {
     let mut cfg = state.config();
-    cfg.selected_repo_id = id;
+    cfg.selected_project_id = id;
     state.persist(cfg)
 }
 
@@ -155,7 +155,7 @@ async fn refresh(
     id: String,
     fetch: bool,
 ) -> Result<Overview, String> {
-    let repo = state.repo(&id)?;
+    let repo = state.project(&id)?;
     let report = progress_reporter(app, id);
     tauri::async_runtime::spawn_blocking(move || build_overview(repo, fetch, &report))
         .await
@@ -167,13 +167,13 @@ async fn refresh(
 /// The GitHub queries touch the network and nothing in the git working tree,
 /// so they run concurrently with fetch → branches → scan rather than after it.
 /// That is most of the wall-clock: the two halves cost roughly the same.
-pub fn build_overview(repo: RepoConfig, fetch: bool, report: Report) -> Result<Overview, String> {
-    let path = PathBuf::from(&repo.path);
+pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Result<Overview, String> {
+    let path = PathBuf::from(&project.path);
     if !git::is_git_repo(&path) {
-        return Err(format!("{} is no longer a git repository", repo.path));
+        return Err(format!("{} is no longer a git repository", project.path));
     }
 
-    let base_branch = repo
+    let base_branch = project
         .base_branch
         .clone()
         .unwrap_or_else(|| git::detect_base_branch(&path));
@@ -220,7 +220,7 @@ pub fn build_overview(repo: RepoConfig, fetch: bool, report: Report) -> Result<O
             report("branches", String::new(), false);
 
             report("checkouts", String::new(), true);
-            let checkouts = checkout::scan(&repo, &base_branch, &remote_branches, &|done, total| {
+            let checkouts = checkout::scan(&project, &base_branch, &remote_branches, &|done, total| {
                 report("checkouts", format!("{done} of {total}"), true)
             })?;
             report("checkouts", String::new(), false);
@@ -281,7 +281,7 @@ pub fn build_overview(repo: RepoConfig, fetch: bool, report: Report) -> Result<O
     };
 
     Ok(Overview {
-        repo,
+        project,
         base_branch,
         slug,
         branches,
@@ -301,7 +301,7 @@ async fn ahead_behind(
     base: String,
     branches: Vec<String>,
 ) -> Result<HashMap<String, AheadBehind>, String> {
-    let repo = state.repo(&id)?;
+    let repo = state.project(&id)?;
     tauri::async_runtime::spawn_blocking(move || {
         let path = PathBuf::from(&repo.path);
         let mut out = HashMap::new();
@@ -332,7 +332,7 @@ fn plan_checkout(
     branch: String,
     pr: Option<u64>,
 ) -> Result<CreatePlan, String> {
-    let repo = state.repo(&id)?;
+    let repo = state.project(&id)?;
     Ok(CreatePlan {
         suggested_path: checkout::suggest_path(&repo, &branch, pr),
         conflict: checkout::conflicting_worktree(&repo, &branch),
@@ -354,7 +354,7 @@ async fn create_checkout(
     job_id: String,
     request: CreateRequest,
 ) -> Result<String, String> {
-    let repo = state.repo(&request.repo_id)?;
+    let repo = state.project(&request.project_id)?;
     let base = repo
         .base_branch
         .clone()
@@ -382,7 +382,7 @@ async fn removal_impacts(
     id: String,
     paths: Vec<String>,
 ) -> Result<Vec<RemovalImpact>, String> {
-    let repo = state.repo(&id)?;
+    let repo = state.project(&id)?;
     let base = repo
         .base_branch
         .clone()
@@ -427,7 +427,7 @@ async fn remove_checkouts(
     id: String,
     items: Vec<RemovalRequest>,
 ) -> Result<Vec<RemovalResult>, String> {
-    let repo = state.repo(&id)?;
+    let repo = state.project(&id)?;
     tauri::async_runtime::spawn_blocking(move || {
         items
             .into_iter()
@@ -479,7 +479,7 @@ fn open_in(state: State<AppState>, target_id: String, ctx: OpenContext) -> Resul
     let cfg = state.config();
     // Project targets win on an id clash, so a project can override a global.
     let project_targets = cfg
-        .repos
+        .projects
         .iter()
         .find(|r| r.path == ctx.repo)
         .map(|r| r.resolved().open_targets)
@@ -535,9 +535,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_config,
             save_config,
-            add_repo,
-            remove_repo,
-            select_repo,
+            add_project,
+            remove_project,
+            select_project,
             refresh,
             ahead_behind,
             plan_checkout,

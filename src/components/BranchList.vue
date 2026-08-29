@@ -11,7 +11,7 @@ import {
   copyToClipboard,
   counts,
   openTargets,
-  repo,
+  project,
   describeProgress,
   refresh,
   state,
@@ -165,7 +165,7 @@ async function onMenuSelect(id: string) {
     await api.openIn(targetId, {
       path: checkout.path,
       branch: checkout.branch ?? row.branch.name,
-      repo: repo.value?.path ?? '',
+      repo: project.value?.path ?? '',
       prUrl: row.pr?.url ?? '',
     })
   }
