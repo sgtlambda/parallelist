@@ -165,7 +165,7 @@ async function onMenuSelect(id: string) {
     await api.openIn(targetId, {
       path: checkout.path,
       branch: checkout.branch ?? row.branch.name,
-      repo: project.value?.path ?? '',
+      primary: project.value?.path ?? '',
       prUrl: row.pr?.url ?? '',
     })
   }
@@ -277,7 +277,13 @@ function dirty(row: Row): boolean {
             {{ row.pr.isDraft && row.pr.state === 'open' ? 'draft' : row.pr.state }}
           </span>
           <span v-if="dirty(row)" class="badge warn">uncommitted</span>
-          <span v-if="row.stale" class="badge warn">stale</span>
+          <span
+            v-if="row.stale"
+            class="badge warn"
+            title="Merged or deleted on origin — the checkout can be removed"
+          >
+            stale
+          </span>
           <span v-if="row.aheadBehind" class="counts muted">
             ↑{{ row.aheadBehind.ahead }} ↓{{ row.aheadBehind.behind }}
           </span>

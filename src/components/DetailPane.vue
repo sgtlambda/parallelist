@@ -35,7 +35,7 @@ async function openIn(targetId: string, checkout: Checkout) {
     await api.openIn(targetId, {
       path: checkout.path,
       branch: checkout.branch ?? '',
-      repo: project.value?.path ?? '',
+      primary: project.value?.path ?? '',
       prUrl: row.value?.pr?.url ?? '',
     })
   } catch (e) {
@@ -49,6 +49,38 @@ function ownerLabel(checkout: Checkout): string | null {
   if (!checkout.owner || checkout.owner === project.value?.path) return null
   return basename(checkout.owner)
 }
+
+/**
+ * How this branch stands with origin, as one label.
+ *
+ * The raw flags read backwards on their own: "not on origin" sounds like
+ * unpushed work, when the usual cause is the opposite — the branch was merged
+ * and GitHub deleted it afterwards.
+ */
+const originState = computed(() => {
+  const branch = row.value?.branch
+  if (!branch) return null
+  const base = state.overview?.baseBranch ?? 'the base branch'
+
+  if (!branch.hasRemote && branch.merged) {
+    return {
+      text: 'merged · gone from origin',
+      cls: 'merged',
+      title: `Merged into ${base}, then deleted on origin. The checkout can be removed.`,
+    }
+  }
+  if (!branch.hasRemote) {
+    return {
+      text: 'local only · never pushed',
+      cls: 'warn',
+      title: 'This branch has never existed on origin.',
+    }
+  }
+  if (branch.merged) {
+    return { text: `merged into ${base}`, cls: 'merged', title: '' }
+  }
+  return null
+})
 
 async function openPullRequest() {
   const pr = row.value?.pr
@@ -89,9 +121,15 @@ async function openPullRequest() {
           <code class="selectable">{{ row.branch.sha.slice(0, 8) }}</code>
         </div>
         <div class="row" style="flex-wrap: wrap">
-          <span v-if="!row.branch.hasRemote" class="badge warn">not on origin</span>
+          <span
+            v-if="originState"
+            class="badge"
+            :class="originState.cls"
+            :title="originState.title"
+          >
+            {{ originState.text }}
+          </span>
           <span v-if="!row.branch.hasLocal" class="badge">remote only</span>
-          <span v-if="row.branch.merged" class="badge merged">merged into {{ state.overview?.baseBranch }}</span>
           <span v-if="row.aheadBehind" class="badge">
             ↑{{ row.aheadBehind.ahead }} ahead · ↓{{ row.aheadBehind.behind }} behind
           </span>
