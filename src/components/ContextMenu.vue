@@ -5,11 +5,13 @@ export interface MenuItem {
   /** Draws a divider above this item. */
   separator?: boolean
   danger?: boolean
+  /** Turns the entry into a flyout rather than an action. */
+  children?: MenuItem[]
 }
 </script>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useEscape } from '../useEscape'
 
 const props = withDefaults(
@@ -28,6 +30,7 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'select', id: string): void }
 useEscape(() => props.open, () => emit('close'))
 
 const el = ref<HTMLElement | null>(null)
+const hover = ref<string | null>(null)
 const pos = ref({ left: 0, top: 0 })
 
 watch(
@@ -51,9 +54,13 @@ watch(
 )
 
 function choose(item: MenuItem) {
+  if (item.children) return
   emit('select', item.id)
   emit('close')
 }
+
+/** Flyouts open to the right unless there isn't room for one. */
+const flip = computed(() => pos.value.left > window.innerWidth - 440)
 </script>
 
 <template>
@@ -75,13 +82,30 @@ function choose(item: MenuItem) {
       >
         <template v-for="item in items" :key="item.id">
           <div v-if="item.separator" class="menu-separator" />
-          <button
-            class="menu-item"
-            :class="{ danger: item.danger }"
-            @click="choose(item)"
-          >
-            {{ item.label }}
-          </button>
+          <div class="menu-row" @mouseenter="hover = item.id" @mouseleave="hover = null">
+            <button
+              class="menu-item"
+              :class="{ danger: item.danger }"
+              @click="choose(item)"
+            >
+              <span class="truncate">{{ item.label }}</span>
+              <span v-if="item.children" class="menu-arrow">›</span>
+            </button>
+            <div
+              v-if="item.children && hover === item.id"
+              class="menu submenu"
+              :class="{ flip }"
+            >
+              <button
+                v-for="child in item.children"
+                :key="child.id"
+                class="menu-item"
+                @click="choose(child)"
+              >
+                {{ child.label }}
+              </button>
+            </div>
+          </div>
         </template>
       </div>
     </div>

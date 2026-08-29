@@ -710,8 +710,15 @@ code,
   box-shadow: var(--shadow);
 }
 
+.menu-row {
+  position: relative;
+}
+
 .menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
   width: 100%;
   padding: 5px 9px;
   border: none;
@@ -733,6 +740,24 @@ code,
 .menu-item.danger:hover {
   background: var(--red);
   color: #fff;
+}
+
+.menu-arrow {
+  opacity: 0.55;
+}
+
+/* Flyout: absolute against its row rather than fixed like the root menu. */
+.menu.submenu {
+  position: absolute;
+  top: -5px;
+  left: 100%;
+  margin-left: 2px;
+}
+
+.menu.submenu.flip {
+  left: auto;
+  right: 100%;
+  margin: 0 2px 0 0;
 }
 
 .menu-separator {

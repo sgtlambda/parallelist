@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import Icon from './Icon.vue'
-import type { Checkout, CheckoutKind } from '../api'
+import { api, type Checkout, type CheckoutKind } from '../api'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { CHECKOUT_LABELS, basename } from '../format'
 import type { Row } from '../store'
@@ -10,6 +10,7 @@ import {
   cleanupOpen,
   copyToClipboard,
   counts,
+  repo,
   describeProgress,
   refresh,
   state,
@@ -119,6 +120,23 @@ const menuItems = computed<MenuItem[]>(() => {
     items.push({ id: 'pr-url', label: 'Copy pull request URL', separator: true })
     items.push({ id: 'pr-open', label: `Open pull request #${row.pr.number}` })
   }
+
+  // One flyout per checkout, so a branch with two of them can send each
+  // somewhere different.
+  const targets = (state.config?.openTargets ?? []).filter((t) => !t.requiresPr || row.pr)
+  row.checkouts.forEach((c: Checkout, i: number) => {
+    items.push({
+      id: `open:${i}`,
+      label:
+        row.checkouts.length > 1 ? `Open ${basename(c.path)} in…` : 'Open in…',
+      separator: i === 0,
+      children: targets.map((t) => ({
+        id: `open:${i}:${t.id}`,
+        label: `${t.icon}  ${t.label}`,
+      })),
+    })
+  })
+
   return items
 })
 
@@ -139,6 +157,16 @@ async function onMenuSelect(id: string) {
     await copyToClipboard(row.pr.url, 'pull request URL')
   } else if (id === 'pr-open' && row.pr) {
     await openUrl(row.pr.url)
+  } else if (id.startsWith('open:')) {
+    const [, index, targetId] = id.split(':')
+    const checkout = row.checkouts[Number(index)]
+    if (!checkout || !targetId) return
+    await api.openIn(targetId, {
+      path: checkout.path,
+      branch: checkout.branch ?? row.branch.name,
+      repo: repo.value?.path ?? '',
+      prUrl: row.pr?.url ?? '',
+    })
   }
 }
 
