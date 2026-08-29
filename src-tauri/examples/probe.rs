@@ -73,8 +73,9 @@ fn main() {
     }
 
     // End-to-end: does every checkout have a branch row to attach to?
-    let overview = build_overview(RepoConfig::new(path.clone(), "probe".into()), &|_, _| {}).unwrap();
-    println!("\n--- overview: {} branch rows ---", overview.branches.len());
+    let t = Instant::now();
+    let overview = build_overview(RepoConfig::new(path.clone(), "probe".into()), false, &|_, _, _| {}).unwrap();
+    println!("\n--- overview: {} branch rows, built in {:?} ---", overview.branches.len(), t.elapsed());
     for c in &overview.checkouts {
         if let Some(b) = c.branch.as_deref() {
             let listed = overview.branches.iter().find(|x| x.name == b);

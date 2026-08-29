@@ -8,7 +8,7 @@ use checkout::{BranchConflict, CreateRequest, RemovalImpact};
 use config::{AppConfig, RepoConfig};
 use git::{AheadBehind, BranchInfo, Checkout, CheckoutKind};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -49,19 +49,26 @@ struct ProgressEvent {
     phase: &'static str,
     /// Optional extra, e.g. "12 of 16".
     detail: String,
+    /// False when the phase has finished. Phases overlap, so the frontend
+    /// tracks a set rather than a single current step.
+    active: bool,
 }
 
 /// Anything that can be told what stage a refresh has reached.
-pub type Report<'a> = &'a (dyn Fn(&'static str, String) + Sync);
+pub type Report<'a> = &'a (dyn Fn(&'static str, String, bool) + Sync);
 
-fn progress_reporter(app: AppHandle, repo_id: String) -> impl Fn(&'static str, String) + Sync {
-    move |phase, detail| {
+fn progress_reporter(
+    app: AppHandle,
+    repo_id: String,
+) -> impl Fn(&'static str, String, bool) + Sync {
+    move |phase, detail, active| {
         let _ = app.emit(
             "progress",
             ProgressEvent {
                 repo_id: repo_id.clone(),
                 phase,
                 detail,
+                active,
             },
         );
     }
@@ -142,111 +149,136 @@ fn select_repo(state: State<AppState>, id: Option<String>) -> Result<(), String>
 }
 
 #[tauri::command]
-async fn fetch_repo(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+async fn refresh(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    fetch: bool,
+) -> Result<Overview, String> {
     let repo = state.repo(&id)?;
     let report = progress_reporter(app, id);
-    tauri::async_runtime::spawn_blocking(move || {
-        report("fetching", String::new());
-        let result = git::fetch(&PathBuf::from(&repo.path));
-        report("done", String::new());
-        result
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn overview(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<Overview, String> {
-    let repo = state.repo(&id)?;
-    let report = progress_reporter(app, id);
-    tauri::async_runtime::spawn_blocking(move || build_overview(repo, &report))
+    tauri::async_runtime::spawn_blocking(move || build_overview(repo, fetch, &report))
         .await
         .map_err(|e| e.to_string())?
 }
 
-pub fn build_overview(repo: RepoConfig, report: Report) -> Result<Overview, String> {
+/// Gather everything the three panes need.
+///
+/// The GitHub queries touch the network and nothing in the git working tree,
+/// so they run concurrently with fetch → branches → scan rather than after it.
+/// That is most of the wall-clock: the two halves cost roughly the same.
+pub fn build_overview(repo: RepoConfig, fetch: bool, report: Report) -> Result<Overview, String> {
     let path = PathBuf::from(&repo.path);
     if !git::is_git_repo(&path) {
         return Err(format!("{} is no longer a git repository", repo.path));
     }
-    let mut warnings = Vec::new();
 
     let base_branch = repo
         .base_branch
         .clone()
         .unwrap_or_else(|| git::detect_base_branch(&path));
-
-    report("branches", String::new());
-    let branches = git::branches(&path, &base_branch)?;
-    let remote_branches: HashSet<String> = branches
-        .iter()
-        .filter(|b| b.has_remote)
-        .map(|b| b.name.clone())
-        .collect();
-
-    report("checkouts", String::new());
-    let checkouts = checkout::scan(&repo, &base_branch, &remote_branches, &|done, total| {
-        report("checkouts", format!("{done} of {total}"))
-    })?;
-
-    // A secondary clone is an independent repository, so a branch checked out
-    // there may not exist in the primary at all — `app-b` on a branch the
-    // primary has never seen. Without this those checkouts have no row to
-    // attach to and disappear from the list entirely, while still being
-    // counted under Cleanup.
-    //
-    // Only branches that are actually checked out get added. Merging every ref
-    // from every clone would drag in each clone's stale `origin/*` copies and
-    // resurrect hundreds of long-dead branches.
-    let mut branches = branches;
-    let mut extra: Vec<BranchInfo> = Vec::new();
-    for checkout in &checkouts {
-        let Some(name) = checkout.branch.as_deref() else {
-            continue;
-        };
-        if branches.iter().any(|b| b.name == name)
-            || extra.iter().any(|b| b.name == name)
-        {
-            continue;
-        }
-        let Some((sha, when, author, subject)) = git::head_commit(&PathBuf::from(&checkout.path))
-        else {
-            continue;
-        };
-        extra.push(BranchInfo {
-            name: name.to_string(),
-            has_remote: false,
-            has_local: true,
-            sha,
-            committed_at: when,
-            author,
-            subject,
-            merged: false,
-        });
-    }
-    if !extra.is_empty() {
-        branches.extend(extra);
-        branches.sort_by_key(|b| std::cmp::Reverse(b.committed_at));
-    }
-
-    report("pullRequests", String::new());
     let slug = git::origin_url(&path).ok().and_then(|u| git::origin_slug(&u));
-    let mut pull_requests = HashMap::new();
-    let mut viewer = None;
-    match (&slug, gh::is_available()) {
-        (Some(slug), true) => match gh::pull_requests(&path, slug) {
-            Ok(map) => {
-                pull_requests = map;
-                viewer = gh::viewer_login().map(str::to_string);
+
+    type GitSide = Result<(Vec<BranchInfo>, Vec<Checkout>, Vec<String>), String>;
+    type PrSide = Result<(HashMap<String, gh::PullRequest>, Option<String>), String>;
+
+    let (git_side, pr_side): (GitSide, PrSide) = std::thread::scope(|scope| {
+        let pulls = scope.spawn(|| -> PrSide {
+            let Some(slug) = slug.as_deref() else {
+                return Err("No GitHub remote detected — pull request info is off.".into());
+            };
+            if !gh::is_available() {
+                return Err("gh CLI not found — pull request info is unavailable.".into());
             }
-            Err(e) => warnings.push(format!("Could not read pull requests: {e}")),
-        },
-        (Some(_), false) => {
-            warnings.push("gh CLI not found — pull request info is unavailable.".into())
+            report("pullRequests", String::new(), true);
+            let result = gh::pull_requests(&path, slug)
+                .map(|prs| (prs, gh::viewer_login().map(str::to_string)))
+                .map_err(|e| format!("Could not read pull requests: {e}"));
+            report("pullRequests", String::new(), false);
+            result
+        });
+
+        let git = scope.spawn(|| -> GitSide {
+            let mut warnings = Vec::new();
+            if fetch {
+                report("fetching", String::new(), true);
+                // Non-fatal: everything below still works from local refs, it
+                // is just one cycle stale.
+                if let Err(e) = git::fetch(&path) {
+                    warnings.push(format!("Couldn't reach origin — showing what's on disk. {e}"));
+                }
+                report("fetching", String::new(), false);
+            }
+
+            report("branches", String::new(), true);
+            let mut branches = git::branches(&path, &base_branch)?;
+            let remote_branches: std::collections::HashSet<String> = branches
+                .iter()
+                .filter(|b| b.has_remote)
+                .map(|b| b.name.clone())
+                .collect();
+            report("branches", String::new(), false);
+
+            report("checkouts", String::new(), true);
+            let checkouts = checkout::scan(&repo, &base_branch, &remote_branches, &|done, total| {
+                report("checkouts", format!("{done} of {total}"), true)
+            })?;
+            report("checkouts", String::new(), false);
+
+            // A secondary clone is an independent repository, so a branch
+            // checked out there may not exist in the primary at all. Without
+            // this those checkouts have no row to attach to and vanish from the
+            // list while still being counted under Cleanup.
+            //
+            // Only branches that are actually checked out get added. Merging
+            // every ref from every clone would drag in that clone's stale
+            // origin/* snapshot and resurrect hundreds of dead branches.
+            let mut extra: Vec<BranchInfo> = Vec::new();
+            for checkout in &checkouts {
+                let Some(name) = checkout.branch.as_deref() else {
+                    continue;
+                };
+                if branches.iter().any(|b| b.name == name) || extra.iter().any(|b| b.name == name) {
+                    continue;
+                }
+                let Some((sha, when, author, subject)) =
+                    git::head_commit(&PathBuf::from(&checkout.path))
+                else {
+                    continue;
+                };
+                extra.push(BranchInfo {
+                    name: name.to_string(),
+                    has_remote: false,
+                    has_local: true,
+                    sha,
+                    committed_at: when,
+                    author,
+                    subject,
+                    merged: false,
+                });
+            }
+            if !extra.is_empty() {
+                branches.extend(extra);
+                branches.sort_by_key(|b| std::cmp::Reverse(b.committed_at));
+            }
+
+            Ok((branches, checkouts, warnings))
+        });
+
+        (
+            git.join().unwrap_or_else(|_| Err("git work panicked".into())),
+            pulls.join().unwrap_or_else(|_| Err("gh work panicked".into())),
+        )
+    });
+
+    let (branches, checkouts, mut warnings) = git_side?;
+    let (pull_requests, viewer) = match pr_side {
+        Ok(value) => value,
+        Err(message) => {
+            warnings.push(message);
+            (HashMap::new(), None)
         }
-        (None, _) => warnings.push("No GitHub remote detected — pull request info is off.".into()),
-    }
-    report("done", String::new());
+    };
 
     Ok(Overview {
         repo,
@@ -445,9 +477,16 @@ fn copy_text(text: String) -> Result<(), String> {
 #[tauri::command]
 fn open_in(state: State<AppState>, target_id: String, ctx: OpenContext) -> Result<(), String> {
     let cfg = state.config();
-    let target = cfg
-        .open_targets
+    // Project targets win on an id clash, so a project can override a global.
+    let project_targets = cfg
+        .repos
         .iter()
+        .find(|r| r.path == ctx.repo)
+        .map(|r| r.resolved().open_targets)
+        .unwrap_or_default();
+    let target = project_targets
+        .iter()
+        .chain(cfg.open_targets.iter())
         .find(|t| t.id == target_id)
         .ok_or_else(|| format!("unknown open target '{target_id}'"))?;
 
@@ -499,8 +538,7 @@ pub fn run() {
             add_repo,
             remove_repo,
             select_repo,
-            fetch_repo,
-            overview,
+            refresh,
             ahead_behind,
             plan_checkout,
             create_checkout,

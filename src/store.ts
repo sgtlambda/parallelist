@@ -30,13 +30,12 @@ export const state = reactive({
   loading: false,
   fetching: false,
   error: null as string | null,
-  /** Last fetch failure. Non-fatal: the list still renders from disk. */
-  fetchError: null as string | null,
   selectedBranch: null as string | null,
   filter: 'active' as Filter,
   search: '',
   aheadBehind: {} as Record<string, AheadBehind>,
-  progress: null as { phase: string; detail: string } | null,
+  /** Phase id -> detail, for every phase currently running. */
+  progress: {} as Record<string, string>,
   /** When the current phase started, so a slow one can say how slow. */
   progressSince: 0,
   now: Date.now(),
@@ -50,11 +49,16 @@ const PHASE_LABELS: Record<string, string> = {
   pullRequests: 'Loading pull requests',
 }
 
+const PHASE_ORDER = ['fetching', 'branches', 'checkouts', 'pullRequests']
+
 export function describeProgress(): string | null {
-  if (!state.progress) return null
-  const label = PHASE_LABELS[state.progress.phase] ?? 'Working'
-  const parts = [label]
-  if (state.progress.detail) parts.push(state.progress.detail)
+  const active = PHASE_ORDER.filter((phase) => phase in state.progress)
+  if (active.length === 0) return null
+  const parts = active.map((phase) => {
+    const label = PHASE_LABELS[phase] ?? 'Working'
+    const detail = state.progress[phase]
+    return detail ? `${label} ${detail}` : label
+  })
   // Only once it's slow enough to wonder about, so the line doesn't flicker
   // with a counter on every quick refresh.
   const elapsed = Math.floor((state.now - state.progressSince) / 1000)
@@ -66,16 +70,18 @@ export function describeProgress(): string | null {
 export function listenProgress() {
   return onProgress((event) => {
     if (event.repoId !== repoId.value) return
-    if (event.phase === 'done') {
-      state.progress = null
-      state.progressSince = 0
-      return
+    const next = { ...state.progress }
+    if (event.active) {
+      if (Object.keys(next).length === 0) {
+        state.progressSince = Date.now()
+        state.now = Date.now()
+      }
+      next[event.phase] = event.detail
+    } else {
+      delete next[event.phase]
     }
-    if (state.progress?.phase !== event.phase) {
-      state.progressSince = Date.now()
-      state.now = Date.now()
-    }
-    state.progress = { phase: event.phase, detail: event.detail }
+    state.progress = next
+    if (Object.keys(next).length === 0) state.progressSince = 0
   })
 }
 
@@ -281,20 +287,11 @@ export async function refresh(options: { fetch?: boolean } = {}) {
   const current = () => ticket === inFlight && repoId.value === id
   state.loading = state.overview === null
   try {
-    if (options.fetch) {
-      state.fetching = true
-      // A failed fetch (offline, VPN down, a dead connection that hit the
-      // timeout) shouldn't stop us rendering what we already have on disk —
-      // but it must be visible, or the branch list quietly goes stale.
-      try {
-        await api.fetchRepo(id)
-        if (current()) state.fetchError = null
-      } catch (e) {
-        if (current()) state.fetchError = String(e)
-      }
-      if (current()) state.fetching = false
-    }
-    const overview = await api.overview(id)
+    if (options.fetch) state.fetching = true
+    // One round-trip: the backend runs the git work and the GitHub queries
+    // concurrently. A failed fetch comes back as a warning rather than an
+    // error, so the list still renders from local refs.
+    const overview = await api.refresh(id, options.fetch === true)
     // Cached even if we've since switched away — that result is exactly what
     // makes switching back instant.
     const previous = cache.get(id)
@@ -317,7 +314,7 @@ export async function refresh(options: { fetch?: boolean } = {}) {
     if (current()) {
       state.loading = false
       state.fetching = false
-      state.progress = null
+      state.progress = {}
       state.progressSince = 0
     }
   }
@@ -356,7 +353,6 @@ export async function selectRepo(id: string | null) {
   state.aheadBehind = cached?.aheadBehind ?? {}
   state.selectedBranch = cached?.selectedBranch ?? null
   state.error = null
-  state.fetchError = null
 
   await api.selectRepo(id)
   await refresh({ fetch: true })

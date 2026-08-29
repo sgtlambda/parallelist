@@ -140,8 +140,7 @@ export const api = {
   addRepo: (path: string) => invoke<RepoConfig>('add_repo', { path }),
   removeRepo: (id: string) => invoke<void>('remove_repo', { id }),
   selectRepo: (id: string | null) => invoke<void>('select_repo', { id }),
-  fetchRepo: (id: string) => invoke<void>('fetch_repo', { id }),
-  overview: (id: string) => invoke<Overview>('overview', { id }),
+  refresh: (id: string, fetch: boolean) => invoke<Overview>('refresh', { id, fetch }),
   aheadBehind: (id: string, base: string, branches: string[]) =>
     invoke<Record<string, AheadBehind>>('ahead_behind', { id, base, branches }),
   planCheckout: (id: string, branch: string, pr: number | null) =>
@@ -162,6 +161,8 @@ export interface ProgressEvent {
   repoId: string
   phase: string
   detail: string
+  /** Phases overlap, so this reports a phase starting or finishing. */
+  active: boolean
 }
 
 /** Refresh progress, so a multi-second load can say what it is waiting on. */

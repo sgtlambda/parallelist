@@ -215,10 +215,6 @@ function dirty(row: Row): boolean {
 
     <div class="pane-body">
       <div v-if="state.error" class="banner error">{{ state.error }}</div>
-      <div v-if="state.fetchError" class="banner">
-        Couldn't reach origin — showing what's on disk.
-        <span class="faint">{{ state.fetchError }}</span>
-      </div>
       <div v-for="warning in state.overview?.warnings ?? []" :key="warning" class="banner">
         {{ warning }}
       </div>
