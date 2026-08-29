@@ -56,7 +56,11 @@ pub struct Checkout {
     pub branch: Option<String>,
     /// Which clone a worktree hangs off. `None` for a clone's own root.
     pub owner: Option<String>,
-    pub dirty: u32,
+    /// Modified or staged *tracked* files.
+    pub modified: u32,
+    /// Untracked files and directories. Kept separate because a stray
+    /// `.DS_Store` is not work you can lose.
+    pub untracked: u32,
     pub unpushed: u32,
     /// The branch is gone from origin, or merged into the base branch.
     pub branch_gone: bool,
@@ -327,11 +331,32 @@ pub fn worktrees(clone: &Path) -> Result<Vec<WorktreeEntry>, String> {
     Ok(list)
 }
 
-/// Number of modified/untracked entries. Cheap enough to run per checkout.
-pub fn dirty_count(path: &Path) -> u32 {
-    git(&["status", "--porcelain"], path)
-        .map(|o| o.lines().len() as u32)
-        .unwrap_or(0)
+/// What is sitting in a working tree, split by kind.
+///
+/// `git status --porcelain` reports modified tracked files and untracked ones
+/// in the same list, and conflating them overstates the case badly: a worktree
+/// whose only "change" is a `.DS_Store` would be reported as having
+/// uncommitted work, which is exactly what an IDE would show as clean.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WorkingTree {
+    pub modified: u32,
+    pub untracked: u32,
+}
+
+pub fn working_tree(path: &Path) -> WorkingTree {
+    let Ok(out) = git(&["status", "--porcelain"], path) else {
+        return WorkingTree::default();
+    };
+    let mut tree = WorkingTree::default();
+    for line in out.lines() {
+        // Porcelain v1: "?? path" is untracked, anything else is tracked.
+        if line.starts_with("??") {
+            tree.untracked += 1;
+        } else {
+            tree.modified += 1;
+        }
+    }
+    tree
 }
 
 /// Commits on this branch that origin doesn't have. Zero when there's no

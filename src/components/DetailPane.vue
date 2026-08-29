@@ -158,7 +158,12 @@ async function openPullRequest() {
               <span class="badge kind" :title="CHECKOUT_LABELS[checkout.kind]">
                 <Icon :name="checkout.kind" />
               </span>
-              <span v-if="checkout.dirty" class="badge warn">{{ checkout.dirty }} changed</span>
+              <span v-if="checkout.modified" class="badge warn">
+                {{ checkout.modified }} changed
+              </span>
+              <span v-if="checkout.untracked" class="badge" title="Untracked files — not counted as changes">
+                {{ checkout.untracked }} untracked
+              </span>
               <span v-if="checkout.unpushed" class="badge warn">{{ checkout.unpushed }} unpushed</span>
             </div>
             <code class="truncate selectable" :title="checkout.path">{{ shortPath(checkout.path) }}</code>

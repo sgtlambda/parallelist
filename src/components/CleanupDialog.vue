@@ -57,7 +57,7 @@ const chosen = computed(() => impacts.value.filter((i) => selected.value.has(i.p
 
 const totals = computed(() => ({
   size: chosen.value.reduce((sum, i) => sum + i.sizeBytes, 0),
-  dirty: chosen.value.reduce((sum, i) => sum + i.dirty, 0),
+  modified: chosen.value.reduce((sum, i) => sum + i.modified, 0),
   unpushed: chosen.value.reduce((sum, i) => sum + i.unpushed, 0),
   stashes: chosen.value.reduce((sum, i) => sum + i.stashes, 0),
 }))
@@ -140,14 +140,14 @@ async function remove() {
                 {{ bytes(impact.sizeBytes) }}
               </td>
               <td>
-                <span v-if="impact.dirty" class="badge warn">{{ impact.dirty }} changed</span>
+                <span v-if="impact.modified" class="badge warn">{{ impact.modified }} changed</span>
                 <span v-if="impact.unpushed" class="badge warn">{{ impact.unpushed }} unpushed</span>
                 <span v-if="impact.stashes" class="badge warn">{{ impact.stashes }} stashed</span>
                 <span
-                  v-if="!impact.dirty && !impact.unpushed && !impact.stashes"
+                  v-if="!impact.modified && !impact.unpushed && !impact.stashes"
                   class="faint"
                 >
-                  nothing
+                  {{ impact.untracked ? `nothing (${impact.untracked} untracked)` : 'nothing' }}
                 </span>
               </td>
             </tr>
@@ -159,8 +159,8 @@ async function remove() {
           <span>Also delete the local branch of removed worktrees</span>
         </label>
 
-        <div v-if="totals.dirty || totals.unpushed || totals.stashes" class="banner">
-          This will destroy {{ totals.dirty }} uncommitted change(s),
+        <div v-if="totals.modified || totals.unpushed || totals.stashes" class="banner">
+          This will destroy {{ totals.modified }} uncommitted change(s),
           {{ totals.unpushed }} unpushed commit(s) and {{ totals.stashes }} stash(es).
         </div>
 

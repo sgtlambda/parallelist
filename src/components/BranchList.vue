@@ -76,18 +76,86 @@ const SKELETON = [
   { name: '40%', pills: ['26px', '58px'] },
 ]
 
-/** Checkout folders matching the current search, so it's visible why a row
- *  came back when the term matched a directory rather than a branch. */
-function matchingFolders(row: Row): string[] {
-  const term = state.search.trim().toLowerCase()
-  if (!term) return []
-  return row.checkouts
-    .filter((c) => c.path.toLowerCase().includes(term))
-    .map((c) => basename(c.path))
+const actions = ref({ open: false, x: 0, y: 0 })
+
+const actionItems = computed<MenuItem[]>(() => [
+  { id: 'refresh', label: 'Refresh now' },
+  {
+    id: 'cleanup',
+    label: counts.value.stale ? `Cleanup (${counts.value.stale})…` : 'Cleanup…',
+    separator: true,
+  },
+])
+
+function openActions(event: MouseEvent) {
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  actions.value = { open: true, x: rect.right, y: rect.bottom + 5 }
 }
 
+function onActionSelect(id: string) {
+  if (id === 'refresh') void refresh({ fetch: true })
+  else if (id === 'cleanup') cleanupOpen.value = true
+}
+
+const menu = ref<{ open: boolean; x: number; y: number; row: Row | null }>({
+  open: false,
+  x: 0,
+  y: 0,
+  row: null,
+})
+
+const menuItems = computed<MenuItem[]>(() => {
+  const row = menu.value.row
+  if (!row) return []
+  const items: MenuItem[] = [{ id: 'branch', label: 'Copy branch name' }]
+
+  // One entry per checkout, named when there is more than one to tell apart.
+  row.checkouts.forEach((c: Checkout, i: number) => {
+    items.push({
+      id: `path:${i}`,
+      label:
+        row.checkouts.length > 1
+          ? `Copy path — ${basename(c.path)}`
+          : 'Copy checkout path',
+      separator: i === 0,
+    })
+  })
+
+  if (row.pr) {
+    items.push({ id: 'pr-url', label: 'Copy pull request URL', separator: true })
+    items.push({ id: 'pr-open', label: `Open pull request #${row.pr.number}` })
+  }
+  return items
+})
+
+function openMenu(event: MouseEvent, row: Row) {
+  state.selectedBranch = row.branch.name
+  menu.value = { open: true, x: event.clientX, y: event.clientY, row }
+}
+
+async function onMenuSelect(id: string) {
+  const row = menu.value.row
+  if (!row) return
+  if (id === 'branch') {
+    await copyToClipboard(row.branch.name, 'branch name')
+  } else if (id.startsWith('path:')) {
+    const checkout = row.checkouts[Number(id.slice(5))]
+    if (checkout) await copyToClipboard(checkout.path, 'path')
+  } else if (id === 'pr-url' && row.pr) {
+    await copyToClipboard(row.pr.url, 'pull request URL')
+  } else if (id === 'pr-open' && row.pr) {
+    await openUrl(row.pr.url)
+  }
+}
+
+/** Directory names of everywhere this branch is checked out. */
+function folders(row: Row): string[] {
+  return row.checkouts.map((c) => basename(c.path))
+}
+
+/** Only real work counts here: untracked strays are not "uncommitted". */
 function dirty(row: Row): boolean {
-  return row.checkouts.some((c) => c.dirty > 0 || c.unpushed > 0)
+  return row.checkouts.some((c) => c.modified > 0 || c.unpushed > 0)
 }
 </script>
 

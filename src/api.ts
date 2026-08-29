@@ -59,7 +59,10 @@ export interface Checkout {
   branch: string | null
   /** Which clone a worktree hangs off. Null for a clone's own root. */
   owner: string | null
-  dirty: number
+  /** Modified or staged tracked files. */
+  modified: number
+  /** Untracked entries — noise like `.DS_Store`, not work at risk. */
+  untracked: number
   unpushed: number
   branchGone: boolean
 }
@@ -112,7 +115,8 @@ export interface RemovalImpact {
   path: string
   kind: CheckoutKind
   branch: string | null
-  dirty: number
+  modified: number
+  untracked: number
   unpushed: number
   stashes: number
   sizeBytes: number

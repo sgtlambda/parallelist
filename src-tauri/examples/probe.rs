@@ -38,8 +38,8 @@ fn main() {
     println!("\n{} checkouts (scan took {:?}):", checkouts.len(), t.elapsed());
     for c in &checkouts {
         println!(
-            "  {:?} {:<58} branch={:?} dirty={} unpushed={} gone={}",
-            c.kind, c.path, c.branch, c.dirty, c.unpushed, c.branch_gone
+            "  {:?} {:<58} branch={:?} modified={} untracked={} unpushed={} gone={}",
+            c.kind, c.path, c.branch, c.modified, c.untracked, c.unpushed, c.branch_gone
         );
     }
 

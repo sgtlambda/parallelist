@@ -128,11 +128,11 @@ pub fn scan(
                         .map(|entry| {
                             // An orphan has no git dir, so there is nothing to
                             // ask git about and no process worth spawning.
-                            let (dirty, unpushed) = if entry.kind == CheckoutKind::Orphan {
-                                (0, 0)
+                            let (tree, unpushed) = if entry.kind == CheckoutKind::Orphan {
+                                (git::WorkingTree::default(), 0)
                             } else {
                                 (
-                                    git::dirty_count(&entry.path),
+                                    git::working_tree(&entry.path),
                                     git::unpushed_count(&entry.path),
                                 )
                             };
@@ -147,7 +147,8 @@ pub fn scan(
                                 kind: entry.kind,
                                 branch: entry.branch.clone(),
                                 owner: entry.owner.clone(),
-                                dirty,
+                                modified: tree.modified,
+                                untracked: tree.untracked,
                                 unpushed,
                                 branch_gone: gone,
                             }
@@ -489,7 +490,8 @@ pub struct RemovalImpact {
     pub path: String,
     pub kind: CheckoutKind,
     pub branch: Option<String>,
-    pub dirty: u32,
+    pub modified: u32,
+    pub untracked: u32,
     pub unpushed: u32,
     pub stashes: u32,
     pub size_bytes: u64,
@@ -497,11 +499,17 @@ pub struct RemovalImpact {
 
 pub fn removal_impact(path: &Path, kind: CheckoutKind, branch: Option<String>) -> RemovalImpact {
     let is_git = git::is_git_repo(path);
+    let tree = if is_git {
+        git::working_tree(path)
+    } else {
+        git::WorkingTree::default()
+    };
     RemovalImpact {
         path: path.to_string_lossy().to_string(),
         kind,
         branch,
-        dirty: if is_git { git::dirty_count(path) } else { 0 },
+        modified: tree.modified,
+        untracked: tree.untracked,
         unpushed: if is_git { git::unpushed_count(path) } else { 0 },
         stashes: if is_git { git::stash_count(path) } else { 0 },
         size_bytes: dir_size(path),
