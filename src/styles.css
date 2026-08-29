@@ -494,10 +494,15 @@ code,
   background: var(--bg-hover);
 }
 
+/* Weight is constant: bolding the active tab changes its text width and
+   shifts every tab after it. */
+.tab {
+  font-weight: 550;
+}
+
 .tab.active {
   background: var(--bg-active);
   color: var(--text);
-  font-weight: 550;
 }
 
 .tab .count {
