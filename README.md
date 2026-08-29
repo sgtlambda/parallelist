@@ -124,6 +124,24 @@ phpstorm {path}
 open {prUrl}
 ```
 
+Don't wrap a placeholder in quotes of your own — substituted values are already
+shell-quoted, and `"{path}"` would embed literal quote characters.
+
+Warp has no URI action that runs a command, so starting something in a Warp tab
+means writing a launch configuration and opening that:
+
+```
+d=~/.warp/launch_configurations; mkdir -p $d;
+find $d -maxdepth 1 -name "switcheroo-*.yaml" -delete 2>/dev/null;
+n=switcheroo-$(date +%s)-$RANDOM;
+printf "name: %s\nwindows:\n  - tabs:\n      - layout:\n          cwd: %s\n          commands:\n            - exec: claude\n" $n {path} > $d/$n.yaml && open warp://launch/$n
+```
+
+The unique name matters: Warp caches launch configurations by name, so reusing
+one filename makes it replay the stale copy and appear to do nothing. Old files
+are pruned with `find` rather than `rm`, because zsh aborts on a glob that
+matches nothing even under `rm -f`.
+
 ## Development
 
 Needs [Rust](https://rustup.rs) and [pnpm](https://pnpm.io).
