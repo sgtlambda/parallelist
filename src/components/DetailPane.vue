@@ -72,9 +72,6 @@ async function openPullRequest() {
         {{ row ? row.branch.name : 'No branch selected' }}
       </span>
       <span class="spacer" />
-      <button v-if="row" class="btn primary small" @click="emit('create')">
-        + New checkout
-      </button>
     </div>
 
     <div v-if="!row" class="pane-body">
@@ -154,10 +151,10 @@ async function openPullRequest() {
             class="checkout"
             :class="{ stale: checkout.branchGone }"
           >
-            <div class="row">
-              <span class="badge kind" :title="CHECKOUT_LABELS[checkout.kind]">
-                <Icon :name="checkout.kind" />
-              </span>
+            <div
+              v-if="checkout.modified || checkout.untracked || checkout.unpushed"
+              class="row"
+            >
               <span v-if="checkout.modified" class="badge warn">
                 {{ checkout.modified }} changed
               </span>
