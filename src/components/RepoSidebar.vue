@@ -20,6 +20,7 @@ async function addRepo() {
 
 async function forget(id: string) {
   await api.removeRepo(id)
+  dropCached(id)
   await loadConfig()
   await refresh({ fetch: false })
 }

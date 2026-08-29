@@ -209,8 +209,54 @@ export async function loadConfig() {
 }
 
 export async function saveConfig(next: AppConfig) {
-  await api.saveConfig(next)
+  // Cloned to a plain object: the IPC layer structured-clones its payload and
+  // chokes on a reactive proxy.
+  await api.saveConfig(JSON.parse(JSON.stringify(next)))
   state.config = next
+}
+
+export const SIDEBAR_RANGE = { min: 170, max: 380 }
+export const DETAIL_RANGE = { min: 280, max: 560 }
+
+export const sidebarWidth = computed(() => state.config?.sidebarWidth ?? 216)
+export const detailWidth = computed(() => state.config?.detailWidth ?? 360)
+
+/** Live update while dragging; nothing is written until the drag ends. */
+export function setPaneWidths(sidebar: number, detail: number) {
+  if (!state.config) return
+  state.config.sidebarWidth = sidebar
+  state.config.detailWidth = detail
+}
+
+export async function persistPaneWidths() {
+  if (!state.config) return
+  await saveConfig(JSON.parse(JSON.stringify(state.config)))
+}
+
+interface CacheEntry {
+  overview: Overview
+  aheadBehind: Record<string, AheadBehind>
+  selectedBranch: string | null
+  at: number
+}
+
+/** Last known state per project. Switching projects shows this immediately —
+ *  slightly stale, but present — instead of blanking the list for the several
+ *  seconds a full refresh takes. */
+const cache = new Map<string, CacheEntry>()
+
+function remember(id: string) {
+  if (!state.overview) return
+  cache.set(id, {
+    overview: state.overview,
+    aheadBehind: state.aheadBehind,
+    selectedBranch: state.selectedBranch,
+    at: Date.now(),
+  })
+}
+
+export function dropCached(id: string) {
+  cache.delete(id)
 }
 
 let inFlight = 0
@@ -222,6 +268,9 @@ export async function refresh(options: { fetch?: boolean } = {}) {
     return
   }
   const ticket = ++inFlight
+  // The user can switch projects mid-flight; anything that lands afterwards
+  // belongs to a project that is no longer on screen.
+  const current = () => ticket === inFlight && repoId.value === id
   state.loading = state.overview === null
   try {
     if (options.fetch) {
@@ -231,14 +280,23 @@ export async function refresh(options: { fetch?: boolean } = {}) {
       // but it must be visible, or the branch list quietly goes stale.
       try {
         await api.fetchRepo(id)
-        state.fetchError = null
+        if (current()) state.fetchError = null
       } catch (e) {
-        state.fetchError = String(e)
+        if (current()) state.fetchError = String(e)
       }
-      state.fetching = false
+      if (current()) state.fetching = false
     }
     const overview = await api.overview(id)
-    if (ticket !== inFlight) return
+    // Cached even if we've since switched away — that result is exactly what
+    // makes switching back instant.
+    const previous = cache.get(id)
+    cache.set(id, {
+      overview,
+      aheadBehind: previous?.aheadBehind ?? {},
+      selectedBranch: previous?.selectedBranch ?? null,
+      at: Date.now(),
+    })
+    if (!current()) return
     state.overview = overview
     state.error = null
     if (state.selectedBranch && !overview.branches.some((b) => b.name === state.selectedBranch)) {
@@ -269,17 +327,29 @@ async function loadAheadBehind() {
   if (wanted.length === 0) return
   try {
     const result = await api.aheadBehind(id, ov.baseBranch, wanted)
+    if (repoId.value !== id) return
     state.aheadBehind = { ...state.aheadBehind, ...result }
+    remember(id)
   } catch {
     /* counts are decoration; failing to get them is not worth a banner */
   }
 }
 
 export async function selectRepo(id: string | null) {
+  const leaving = repoId.value
+  if (leaving && leaving !== id) remember(leaving)
+
   if (state.config) state.config.selectedRepoId = id
-  state.selectedBranch = null
-  state.aheadBehind = {}
-  state.overview = null
+
+  // Restore whatever we last saw for this project so the list is populated
+  // straight away. The refresh below replaces it; the status line says so.
+  const cached = id ? cache.get(id) : undefined
+  state.overview = cached?.overview ?? null
+  state.aheadBehind = cached?.aheadBehind ?? {}
+  state.selectedBranch = cached?.selectedBranch ?? null
+  state.error = null
+  state.fetchError = null
+
   await api.selectRepo(id)
   await refresh({ fetch: true })
 }
