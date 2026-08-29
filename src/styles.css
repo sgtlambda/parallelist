@@ -297,6 +297,12 @@ code,
   background: color-mix(in srgb, var(--red) 16%, transparent);
 }
 
+/* Inside a dialog the body already provides the horizontal padding, so the
+   banner's own margin pushed it out of line with every other field. */
+.modal-body .banner {
+  margin: 0;
+}
+
 /* ---------- badges ---------- */
 
 .badge {
@@ -636,10 +642,92 @@ code,
   border-color: color-mix(in srgb, var(--amber) 50%, transparent);
 }
 
+.new-checkout {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.new-checkout:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
+}
+
+/* ---------- context menu ---------- */
+
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.menu {
+  position: fixed;
+  min-width: 200px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 5px 9px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.menu-item:hover {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.menu-item.danger {
+  color: var(--red);
+}
+
+.menu-item.danger:hover {
+  background: var(--red);
+  color: #fff;
+}
+
+.menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-soft);
+}
+
+/* ---------- toast ---------- */
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  z-index: 70;
+  padding: 7px 14px;
+  border-radius: 20px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  animation: fade-in 0.12s ease both;
 }
 
 /* ---------- modal ---------- */
@@ -738,7 +826,7 @@ code,
   display: flex;
   gap: 8px;
   align-items: center;
-  padding: 3px 0;
+  padding: 0;
 }
 
 .log {

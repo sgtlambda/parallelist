@@ -144,7 +144,7 @@ async function openPullRequest() {
         </div>
 
         <p v-if="!row.checkouts.length" class="muted" style="font-size: 12px; line-height: 1.5">
-          Not checked out anywhere. Create one to work on this branch.
+          Not checked out anywhere.
         </p>
 
         <div style="display: flex; flex-direction: column; gap: 8px">
@@ -204,6 +204,8 @@ async function openPullRequest() {
               </button>
             </div>
           </div>
+
+          <button class="new-checkout" @click="emit('create')">+ New checkout</button>
         </div>
       </div>
     </div>
