@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { api, onSetupLog, type CreateRequest } from '../api'
 import { shortPath } from '../format'
 import { refresh, repo, repoId, selectedRow, state } from '../store'
+import { useEscape } from '../useEscape'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -18,6 +19,12 @@ const conflict = ref<{ branch: string; path: string } | null>(null)
 const log = ref<{ line: string; error: boolean }[]>([])
 const createdPath = ref('')
 const logEl = ref<HTMLElement | null>(null)
+
+// Not while a checkout is being created — the dialog owns that job.
+useEscape(
+  () => props.open && phase.value !== 'running',
+  () => emit('close'),
+)
 
 const setupSteps = computed(() => repo.value?.setupSteps ?? [])
 const base = computed(() => state.overview?.baseBranch ?? 'main')

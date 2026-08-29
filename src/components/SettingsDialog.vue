@@ -2,11 +2,14 @@
 import { computed, ref, watch } from 'vue'
 import type { AppConfig, SetupStep } from '../api'
 import { refresh, saveConfig, state } from '../store'
+import { useEscape } from '../useEscape'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 type Tab = 'repo' | 'targets' | 'general'
+useEscape(() => props.open, () => emit('close'))
+
 const tab = ref<Tab>('repo')
 const draft = ref<AppConfig | null>(null)
 const saving = ref(false)

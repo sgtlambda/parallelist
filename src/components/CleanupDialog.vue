@@ -4,6 +4,7 @@ import { api, type RemovalImpact } from '../api'
 import Icon from './Icon.vue'
 import { CHECKOUT_LABELS, bytes, shortPath } from '../format'
 import { looseCheckouts, refresh, repoId, state } from '../store'
+import { useEscape } from '../useEscape'
 
 const props = defineProps<{
   open: boolean
@@ -11,6 +12,8 @@ const props = defineProps<{
   paths: string[] | null
 }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
+
+useEscape(() => props.open && !working.value, () => emit('close'))
 
 const impacts = ref<RemovalImpact[]>([])
 const selected = ref<Set<string>>(new Set())
