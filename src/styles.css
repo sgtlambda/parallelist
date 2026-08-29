@@ -433,6 +433,7 @@ code,
 
 .project-item.dragging {
   opacity: 0.4;
+  cursor: grabbing;
 }
 
 /* Insertion line, drawn on the row the drop would land before/after. */
