@@ -215,6 +215,11 @@ pub fn branches(repo: &Path, base: &str) -> Result<Vec<BranchInfo>, String> {
 
 /// Branch names already reachable from the base branch — one call for all of
 /// them rather than a merge-base check per branch.
+///
+/// Local refs are scanned as well as remote ones. A branch that was merged and
+/// then deleted upstream survives only as a local ref, and looking at
+/// `refs/remotes/origin` alone would never mark it merged — leaving finished
+/// work sitting in the Active tab purely because it was committed recently.
 fn merged_branches(repo: &Path, base: &str) -> Result<std::collections::HashSet<String>, String> {
     let base_ref = format!("origin/{base}");
     let out = git(
