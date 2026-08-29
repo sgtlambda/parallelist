@@ -179,19 +179,11 @@ pub fn default_open_targets() -> Vec<OpenTarget> {
             primary: false,
             requires_pr: false,
         },
-        OpenTarget {
-            id: "pr".into(),
-            label: "Pull request".into(),
-            icon: "\u{2197}".into(),
-            command: "open {prUrl}".into(),
-            primary: false,
-            requires_pr: true,
-        },
     ]
 }
 
 /// Guess a useful setup recipe by looking at what the repo actually contains.
-/// Runs once, when the repo is added; everything stays editable afterwards.
+/// Runs once, when the project is added; everything stays editable afterwards.
 pub fn sniff_setup_steps(repo: &Path) -> Vec<SetupStep> {
     let mut steps = Vec::new();
     let exists = |p: &str| repo.join(p).exists();
