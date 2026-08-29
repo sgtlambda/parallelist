@@ -169,7 +169,7 @@ async function openCreated(targetId: string) {
           <div class="field">
             <label for="path">Directory</label>
             <input id="path" v-model="path" spellcheck="false" class="mono" />
-            <span class="hint">Suggested from this repo's path template; edit it freely.</span>
+            <span class="hint">Suggested from this project's path template; edit it freely.</span>
           </div>
 
           <div v-if="setupSteps.length" class="field">

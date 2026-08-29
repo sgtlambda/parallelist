@@ -97,7 +97,7 @@ async function save() {
         <span class="spacer" />
         <div class="tabs" style="padding: 0; border: none">
           <button class="tab" :class="{ active: tab === 'repo' }" @click="tab = 'repo'">
-            Repository
+            Project
           </button>
           <button class="tab" :class="{ active: tab === 'targets' }" @click="tab = 'targets'">
             Open in
@@ -109,9 +109,9 @@ async function save() {
       </div>
 
       <div class="modal-body">
-        <!-- Repository -->
+        <!-- Project -->
         <template v-if="tab === 'repo'">
-          <p v-if="!repo" class="empty">Select a repository first.</p>
+          <p v-if="!repo" class="empty">Select a project first.</p>
           <template v-else>
             <div class="field">
               <label>Name</label>
@@ -147,7 +147,7 @@ async function save() {
               <label>Setup steps</label>
               <span class="hint">
                 Offered as checkboxes when creating a checkout. A committed
-                <code>.switcheroo.json</code> in the repo overrides these.
+                <code>.switcheroo.json</code> in the project overrides these.
               </span>
               <div
                 v-for="step in repo.setupSteps"

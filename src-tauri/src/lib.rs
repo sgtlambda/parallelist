@@ -28,7 +28,7 @@ impl AppState {
         self.config()
             .repo(id)
             .map(|r| r.resolved())
-            .ok_or_else(|| format!("unknown repo '{id}'"))
+            .ok_or_else(|| format!("unknown project '{id}'"))
     }
 
     fn persist(&self, next: AppConfig) -> Result<(), String> {

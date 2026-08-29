@@ -155,7 +155,7 @@ function dirty(row: Row): boolean {
           </div>
         </div>
       </template>
-      <p v-else-if="!state.overview" class="empty">Select a repository.</p>
+      <p v-else-if="!state.overview" class="empty">Select a project.</p>
       <p v-else-if="!visibleRows.length" class="empty">
         Nothing here.<br />
         <span class="faint">Try another tab, or search across all branches.</span>
