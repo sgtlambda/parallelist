@@ -14,8 +14,11 @@ const saving = ref(false)
 watch(
   () => props.open,
   (isOpen) => {
-    // Edit a copy so Cancel really cancels.
-    draft.value = isOpen && state.config ? structuredClone(state.config) : null
+    // Edit a copy so Cancel really cancels. Cloned through JSON, not
+    // structuredClone: the config is a reactive proxy and structuredClone
+    // throws DataCloneError on those, which silently left the dialog empty.
+    draft.value =
+      isOpen && state.config ? (JSON.parse(JSON.stringify(state.config)) as AppConfig) : null
     tab.value = 'repo'
   },
 )
