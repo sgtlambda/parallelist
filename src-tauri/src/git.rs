@@ -317,6 +317,15 @@ fn branches_with_upstream(repo: &Path) -> std::collections::HashSet<String> {
         .unwrap_or_default()
 }
 
+/// Which of `paths` git tracks, relative to the repo root.
+pub fn tracked_files(repo: &Path, paths: &[&str]) -> std::collections::HashSet<String> {
+    let mut args = vec!["ls-files", "--"];
+    args.extend_from_slice(paths);
+    git(&args, repo)
+        .map(|out| out.lines().into_iter().map(str::to_string).collect())
+        .unwrap_or_default()
+}
+
 pub fn ahead_behind(repo: &Path, base: &str, branch: &str) -> Option<AheadBehind> {
     let range = format!("origin/{base}...origin/{branch}");
     let out = git(&["rev-list", "--left-right", "--count", &range], repo).ok()?;

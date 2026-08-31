@@ -189,15 +189,27 @@ pub fn sniff_setup_steps(project: &Path) -> Vec<SetupStep> {
     let mut steps = Vec::new();
     let exists = |p: &str| project.join(p).exists();
 
-    let env_files: Vec<String> = [".env", ".env.local", ".env.cypress", ".env.phpunit", ".env.testing"]
+    // Only untracked ones. A tracked `.env.cypress` is committed content that
+    // can differ between branches, and copying the primary clone's copy over
+    // it does not merely dirty the new workspace — it silently reverts
+    // whatever that branch committed.
+    const ENV_CANDIDATES: [&str; 5] = [
+        ".env",
+        ".env.local",
+        ".env.cypress",
+        ".env.phpunit",
+        ".env.testing",
+    ];
+    let tracked = crate::git::tracked_files(project, &ENV_CANDIDATES);
+    let env_files: Vec<String> = ENV_CANDIDATES
         .iter()
-        .filter(|f| exists(f))
+        .filter(|f| exists(f) && !tracked.contains(**f))
         .map(|f| f.to_string())
         .collect();
     if !env_files.is_empty() {
         steps.push(SetupStep {
             id: "copy-env".into(),
-            label: "Copy env files from the primary clone".into(),
+            label: "Copy untracked env files from the primary clone".into(),
             default_enabled: true,
             // Guarded, because the old CopyFiles step skipped absent files and
             // a bare `cp a b c .` fails outright if one of them is missing.
