@@ -196,8 +196,7 @@ function dirty(row: Row): boolean {
         style="flex: 1; min-width: 0"
       />
       <button class="btn ghost small icon" title="Actions" @click="openActions">
-        <span v-if="state.fetching" class="spin" />
-        <Icon v-else name="more" />
+        <Icon name="more" />
       </button>
     </div>
 

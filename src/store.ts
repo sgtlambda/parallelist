@@ -28,7 +28,6 @@ export const state = reactive({
   config: null as AppConfig | null,
   overview: null as Overview | null,
   loading: false,
-  fetching: false,
   error: null as string | null,
   selectedBranch: null as string | null,
   filter: 'active' as Filter,
@@ -310,7 +309,6 @@ export async function refresh(options: { fetch?: boolean } = {}) {
   const current = () => ticket === inFlight && projectId.value === id
   state.loading = state.overview === null
   try {
-    if (options.fetch) state.fetching = true
     // One round-trip: the backend runs the git work and the GitHub queries
     // concurrently. A failed fetch comes back as a warning rather than an
     // error, so the list still renders from local refs.
@@ -336,7 +334,6 @@ export async function refresh(options: { fetch?: boolean } = {}) {
   } finally {
     if (current()) {
       state.loading = false
-      state.fetching = false
       state.progress = {}
       state.progressSince = 0
     }
