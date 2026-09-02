@@ -462,6 +462,77 @@ where
     })
 }
 
+/// What deleting a branch would cost: the commits no other ref holds.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BranchImpact {
+    branch: String,
+    /// Newest first, capped at `COMMIT_PREVIEW`; `commit_count` is the truth.
+    commits: Vec<git::Commit>,
+    commit_count: u32,
+}
+
+/// Enough commits to recognise what a branch was, without turning the cleanup
+/// list into a log viewer. The count next to them is never capped.
+const COMMIT_PREVIEW: usize = 5;
+
+/// Read-only: what each branch would take with it if deleted.
+#[tauri::command]
+async fn branch_impacts(
+    state: State<'_, AppState>,
+    id: String,
+    branches: Vec<String>,
+) -> Result<Vec<BranchImpact>, String> {
+    let project = state.project(&id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let primary = PathBuf::from(&project.path);
+        parallel_map(branches, |branch| {
+            let (commits, commit_count) = git::unique_commits(&primary, branch, COMMIT_PREVIEW);
+            BranchImpact {
+                branch: branch.clone(),
+                commits,
+                commit_count,
+            }
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BranchDeleteResult {
+    branch: String,
+    error: Option<String>,
+}
+
+/// Deleted one at a time, in order: they all write refs in the same clone, and
+/// one refusal shouldn't abandon the rest of the sweep.
+#[tauri::command]
+async fn delete_branches(
+    state: State<'_, AppState>,
+    id: String,
+    branches: Vec<String>,
+) -> Result<Vec<BranchDeleteResult>, String> {
+    let project = state.project(&id)?;
+    let base = project
+        .base_branch
+        .clone()
+        .unwrap_or_else(|| git::detect_base_branch(&PathBuf::from(&project.path)));
+    let primary = PathBuf::from(&project.path);
+    tauri::async_runtime::spawn_blocking(move || {
+        branches
+            .into_iter()
+            .map(|branch| {
+                let error = workspace::delete_branch(&primary, &base, &branch).err();
+                BranchDeleteResult { branch, error }
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RemovalRequest {
@@ -602,6 +673,8 @@ pub fn run() {
             removal_impacts,
             workspace_sizes,
             remove_workspaces,
+            branch_impacts,
+            delete_branches,
             open_in,
             copy_text,
         ])

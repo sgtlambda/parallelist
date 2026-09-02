@@ -418,6 +418,72 @@ pub fn stash_count(path: &Path) -> u32 {
         .unwrap_or(0)
 }
 
+/// A commit, for showing what deleting a ref would throw away.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Commit {
+    pub sha: String,
+    pub subject: String,
+    pub author: String,
+    pub committed_at: i64,
+}
+
+/// Commits only this branch keeps alive: reachable from it, but from no ref on
+/// origin and no other local branch.
+///
+/// The exclusions are the point. `--not --remotes=origin` on its own counts
+/// commits that are sitting safely on a second local branch — exactly the
+/// shape a pre-rebase backup has — and would report work as lost that deleting
+/// this ref cannot lose. `--exclude` applies to the `--branches` that follows
+/// it, so the two must stay adjacent and in that order.
+///
+/// Returns the total together with the first `limit` commits, newest first:
+/// the dialog lists a handful and says how many more there are.
+pub fn unique_commits(repo: &Path, branch: &str, limit: usize) -> (Vec<Commit>, u32) {
+    let exclude = format!("--exclude={branch}");
+    let scope = ["--not", "--remotes=origin", exclude.as_str(), "--branches"];
+
+    let mut count_args = vec!["rev-list", "--count", branch];
+    count_args.extend_from_slice(&scope);
+    let total: u32 = git(&count_args, repo)
+        .ok()
+        .filter(|o| o.ok())
+        .and_then(|o| o.stdout.trim().parse().ok())
+        .unwrap_or(0);
+    if total == 0 {
+        return (Vec::new(), 0);
+    }
+
+    // Subject last, so a tab inside it can't shift the other fields.
+    let format = ["%H", "%an", "%ct", "%s"].join(&REF_SEP.to_string());
+    let format_arg = format!("--format={format}");
+    let max_arg = format!("--max-count={limit}");
+    let mut log_args = vec!["log", &format_arg, &max_arg, branch];
+    log_args.extend_from_slice(&scope);
+    let Ok(out) = git(&log_args, repo) else {
+        return (Vec::new(), total);
+    };
+
+    let commits = out
+        .lines()
+        .into_iter()
+        .filter_map(|line| {
+            let mut parts = line.splitn(4, REF_SEP);
+            let (Some(sha), Some(author), Some(date)) = (parts.next(), parts.next(), parts.next())
+            else {
+                return None;
+            };
+            Some(Commit {
+                sha: sha.to_string(),
+                author: author.to_string(),
+                committed_at: date.parse().unwrap_or(0),
+                subject: parts.next().unwrap_or("").to_string(),
+            })
+        })
+        .collect();
+    (commits, total)
+}
+
 /// Read origin's URL straight out of `.git/config`.
 ///
 /// This is how the sibling scan stays fast: a directory with a `.git` *file*
@@ -484,5 +550,91 @@ mod tests {
             "git@github.com:acme/widget.git",
             "git@github.com:acme/gadget.git"
         ));
+    }
+
+    /// Builds: origin/main, a branch merged into it, a two-commit branch that
+    /// was never pushed, and a second local branch holding the older of those
+    /// two commits.
+    fn fixture(dir: &Path) {
+        let g = |cwd: &Path, args: &[&str]| {
+            let out = git(args, cwd).expect("git ran");
+            assert!(out.ok(), "git {args:?} failed: {}", out.stderr);
+        };
+        std::fs::create_dir_all(dir.join("origin.git")).unwrap();
+        g(dir, &["init", "--quiet", "--bare", "-b", "main", "origin.git"]);
+        g(dir, &["clone", "--quiet", "origin.git", "work"]);
+        let work = dir.join("work");
+        let work = work.as_path();
+        g(work, &["config", "user.email", "test@example.com"]);
+        g(work, &["config", "user.name", "Test"]);
+
+        let commit = |msg: &str| {
+            std::fs::write(work.join(msg), msg).unwrap();
+            g(work, &["add", "-A"]);
+            g(work, &["commit", "--quiet", "-m", msg]);
+        };
+        commit("base");
+        g(work, &["push", "--quiet", "-u", "origin", "main"]);
+
+        g(work, &["checkout", "--quiet", "-b", "merged"]);
+        commit("merged-work");
+        g(work, &["checkout", "--quiet", "main"]);
+        g(work, &["merge", "--quiet", "--no-ff", "merged", "-m", "merge"]);
+        g(work, &["push", "--quiet", "origin", "main"]);
+
+        g(work, &["checkout", "--quiet", "-b", "backup/prerebase"]);
+        commit("older");
+        commit("newer");
+        // A second ref on the older commit, which therefore survives the
+        // deletion of backup/prerebase.
+        g(work, &["branch", "shared", "HEAD~1"]);
+        g(work, &["checkout", "--quiet", "main"]);
+    }
+
+    /// The ref exclusions are load-bearing. Counting against origin alone
+    /// would report the commit that `shared` still holds as about to be lost.
+    #[test]
+    fn counts_only_the_commits_no_other_ref_holds() {
+        let dir = std::env::temp_dir().join(format!("switcheroo-unique-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        fixture(&dir);
+        let work = dir.join("work");
+
+        let (commits, total) = unique_commits(&work, "backup/prerebase", 10);
+        assert_eq!(total, 1, "only the tip is held by nothing else");
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].subject, "newer");
+        assert_eq!(commits[0].author, "Test");
+
+        // Merged and pushed: origin still has every one of its commits.
+        assert_eq!(unique_commits(&work, "merged", 10).1, 0);
+        assert_eq!(unique_commits(&work, "shared", 10).1, 0);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A long branch reports its true total and still only lists `limit`.
+    #[test]
+    fn caps_the_listing_without_capping_the_count() {
+        let dir = std::env::temp_dir().join(format!("switcheroo-cap-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        fixture(&dir);
+        let work = dir.join("work");
+        let g = |args: &[&str]| assert!(git(args, &work).unwrap().ok());
+        g(&["checkout", "--quiet", "backup/prerebase"]);
+        for i in 0..5 {
+            std::fs::write(work.join(format!("f{i}")), "x").unwrap();
+            g(&["add", "-A"]);
+            g(&["commit", "--quiet", "-m", &format!("extra {i}")]);
+        }
+
+        let (commits, total) = unique_commits(&work, "backup/prerebase", 3);
+        assert_eq!(total, 6);
+        assert_eq!(commits.len(), 3);
+        assert_eq!(commits[0].subject, "extra 4", "newest first");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

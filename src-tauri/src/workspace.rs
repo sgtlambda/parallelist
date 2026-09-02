@@ -549,9 +549,83 @@ pub fn remove(
     Ok(())
 }
 
+/// Delete a local branch from the primary clone.
+///
+/// `-D` rather than `-d`, for the same reason the worktree removal forces:
+/// the confirm dialog has already listed the commits only this branch holds,
+/// which is a sharper answer than git's own merge check. A pre-rebase backup
+/// is "unmerged" by that check while holding nothing origin doesn't have.
+///
+/// The base branch is refused here rather than only in the UI. Nothing offers
+/// it — it has a remote, so it never looks like a leftover — but it is the one
+/// deletion that would take a re-clone to notice.
+pub fn delete_branch(primary: &Path, base: &str, branch: &str) -> Result<(), String> {
+    if branch == base {
+        return Err(format!("refusing to delete the base branch '{base}'"));
+    }
+    let out = run("git", &["branch", "-D", branch], Some(primary))?;
+    if !out.ok() {
+        // git's own message already names the worktree still holding it.
+        return Err(out.stderr.trim().to_string());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A repo on `main` with one extra branch, and no origin: `delete_branch`
+    /// only ever touches local refs.
+    fn repo_with_branch(dir: &Path, branch: &str) {
+        let g = |args: &[&str]| {
+            let out = run("git", args, Some(dir)).expect("git ran");
+            assert!(out.ok(), "git {args:?} failed: {}", out.stderr);
+        };
+        g(&["init", "--quiet", "-b", "main", "."]);
+        g(&["config", "user.email", "test@example.com"]);
+        g(&["config", "user.name", "Test"]);
+        std::fs::write(dir.join("a"), "a").unwrap();
+        g(&["add", "-A"]);
+        g(&["commit", "--quiet", "-m", "base"]);
+        g(&["branch", branch]);
+    }
+
+    #[test]
+    fn deletes_a_branch_but_never_the_base_or_a_checked_out_one() {
+        let dir = std::env::temp_dir().join(format!("switcheroo-del-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        repo_with_branch(&dir, "leftover");
+
+        // The base branch is refused before git is even asked.
+        let err = delete_branch(&dir, "main", "main").unwrap_err();
+        assert!(err.contains("refusing"), "{err}");
+
+        // A checked-out branch is refused by git, and its message — "used by
+        // worktree at <path>", which names what still holds it — is what
+        // surfaces to the dialog.
+        let checkout = |branch: &str| {
+            assert!(run("git", &["checkout", "--quiet", branch], Some(&dir))
+                .unwrap()
+                .ok());
+        };
+        checkout("leftover");
+        let err = delete_branch(&dir, "main", "leftover").unwrap_err();
+        assert!(err.contains("worktree at"), "{err}");
+        checkout("main");
+
+        delete_branch(&dir, "main", "leftover").expect("deletes a leftover");
+        let refs = run("git", &["branch", "--format=%(refname:short)"], Some(&dir))
+            .unwrap()
+            .stdout;
+        assert!(!refs.contains("leftover"), "still there: {refs}");
+
+        // Gone already: git's error is surfaced rather than swallowed.
+        assert!(delete_branch(&dir, "main", "leftover").is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn slugifies_branch_names() {
