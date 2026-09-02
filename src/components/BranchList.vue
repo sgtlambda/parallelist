@@ -303,8 +303,10 @@ function dirty(row: Row): boolean {
             {{ row.pr.isDraft && row.pr.state === 'open' ? 'draft' : row.pr.state }}
           </span>
           <span v-if="dirty(row)" class="badge warn">uncommitted</span>
+          <!-- Stale says the workspace can go; uncommitted says it can't yet.
+               The second is the one to act on, so it stands alone. -->
           <span
-            v-if="row.stale"
+            v-if="row.stale && !dirty(row)"
             class="badge warn"
             title="Merged or deleted on origin — the workspace can be removed"
           >
