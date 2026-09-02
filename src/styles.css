@@ -190,6 +190,33 @@ code,
   border-bottom: 1px solid var(--border-soft);
 }
 
+/* The branch list's header *is* its search field. A bordered box inset in a
+   padded strip draws two frames for one control, so the input goes full bleed
+   — no padding, border or radius of its own — and the header's bottom rule is
+   the only line. The actions button floats over the trailing edge; the input
+   pads past it so typed text can never run underneath. */
+.pane-header.search {
+  padding: 0;
+  gap: 0;
+  position: relative;
+}
+
+.pane-header.search input[type='search'] {
+  align-self: stretch;
+  height: 100%;
+  padding: 0 40px 0 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.pane-header.search .btn {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+}
+
 .pane-body {
   flex: 1;
   overflow-y: auto;

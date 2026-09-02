@@ -188,7 +188,7 @@ function dirty(row: Row): boolean {
 
 <template>
   <section class="pane">
-    <div class="pane-header" data-tauri-drag-region="deep">
+    <div class="pane-header search">
       <input
         v-model="state.search"
         type="search"
