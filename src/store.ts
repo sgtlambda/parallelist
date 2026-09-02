@@ -183,6 +183,17 @@ export const staleWorkspacePaths = computed(() => {
   return [...new Set([...finished, ...orphans])]
 })
 
+/** A local branch with nothing on disk and nothing on origin — what a merge
+ *  plus a worktree removal leaves behind. No directory points at one, so
+ *  removing a workspace can never offer it and they just accumulate. */
+export function isDangling(row: Row): boolean {
+  return row.branch.hasLocal && !row.branch.hasRemote && row.workspaces.length === 0
+}
+
+export const danglingBranches = computed(() =>
+  rows.value.filter(isDangling).map((r) => r.branch.name),
+)
+
 function isActive(row: Row, activeDays: number): boolean {
   if (row.pr?.state === 'open') return true
   // Anything on disk is active by definition — it's occupying a directory.
@@ -206,8 +217,10 @@ export const counts = computed(() => {
     assigned: all.filter((r) => r.pr?.state === 'open' && assignedToMe(r)).length,
     checkedOut: all.filter((r) => r.workspaces.length > 0).length,
     all: all.length,
-    // Counted in directories, so the badge matches what Cleanup lists.
-    stale: staleWorkspacePaths.value.length,
+    // One per Cleanup entry, so each menu item's number is exactly what that
+    // sweep would list.
+    staleWorkspaces: staleWorkspacePaths.value.length,
+    staleBranches: danglingBranches.value.length,
   }
 })
 
@@ -445,3 +458,18 @@ export async function copyToClipboard(text: string, what: string) {
 
 export const settingsOpen = ref(false)
 export const cleanupOpen = ref(false)
+
+/** What the open Cleanup dialog is working on. Snapshots, not live lists: the
+ *  refresh that follows a removal must not rewrite the dialog underneath it. */
+export const cleanupPaths = ref<string[]>([])
+export const cleanupBranches = ref<string[]>([])
+export const cleanupTitle = ref('Cleanup')
+
+/** The only way in, so a previous run's targets can't leak into the next one:
+ *  every field is set on every call, even when that means clearing it. */
+export function openCleanup(paths: string[], branches: string[], title: string) {
+  cleanupPaths.value = paths
+  cleanupBranches.value = branches
+  cleanupTitle.value = title
+  cleanupOpen.value = true
+}

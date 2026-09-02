@@ -11,13 +11,17 @@ import { setHomeDirectory } from './format'
 import {
   DETAIL_RANGE,
   SIDEBAR_RANGE,
+  cleanupBranches,
   cleanupOpen,
+  cleanupPaths,
+  cleanupTitle,
   detailWidth,
   persistPaneWidths,
   setPaneWidths,
   sidebarWidth,
   listenProgress,
   loadConfig,
+  openCleanup,
   refresh,
   settingsOpen,
   startBackgroundSync,
@@ -26,13 +30,6 @@ import {
 } from './store'
 
 const createOpen = ref(false)
-/** null means "offer everything stale"; a list means "just these". */
-const removalPaths = ref<string[] | null>(null)
-
-function openCleanup(paths: string[] | null) {
-  removalPaths.value = paths
-  cleanupOpen.value = true
-}
 
 /** Suppress WebKit's page context menu, which is pure web-app tell — except
  *  over editable or selectable text, where Cut/Copy/Paste is the right menu. */
@@ -147,7 +144,7 @@ onUnmounted(() => {
     <BranchList />
     <DetailPane
       @create="createOpen = true"
-      @remove="openCleanup($event)"
+      @remove="openCleanup($event, [], 'Remove workspace')"
       @error="state.error = $event"
     />
 
@@ -167,7 +164,9 @@ onUnmounted(() => {
     <CreateDialog :open="createOpen" @close="createOpen = false" />
     <CleanupDialog
       :open="cleanupOpen"
-      :paths="removalPaths"
+      :paths="cleanupPaths"
+      :branches="cleanupBranches"
+      :title="cleanupTitle"
       @close="cleanupOpen = false"
     />
     <SettingsDialog :open="settingsOpen" @close="settingsOpen = false" />

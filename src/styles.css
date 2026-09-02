@@ -1093,3 +1093,30 @@ table.list th {
   color: var(--text-faint);
   font-weight: 600;
 }
+
+/* The commits a branch deletion would take with it, tucked under its row. The
+   row above drops its rule so the two read as one entry, not two. */
+table.list tr.no-rule td {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+
+table.list .detail-row td {
+  padding-top: 0;
+}
+
+.commit {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.commit .truncate {
+  min-width: 0;
+}
+
+.commit code {
+  flex: none;
+}

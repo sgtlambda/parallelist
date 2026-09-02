@@ -129,6 +129,27 @@ export interface RemovalResult {
   error: string | null
 }
 
+export interface Commit {
+  sha: string
+  subject: string
+  author: string
+  committedAt: number
+}
+
+/** What deleting a branch would cost. */
+export interface BranchImpact {
+  branch: string
+  /** Newest first, capped for display; `commitCount` is the real total. */
+  commits: Commit[]
+  /** Commits reachable from this branch and from no other ref. */
+  commitCount: number
+}
+
+export interface BranchDeleteResult {
+  branch: string
+  error: string | null
+}
+
 export interface OpenContext {
   path: string
   branch: string
@@ -157,6 +178,10 @@ export const api = {
     id: string,
     items: { path: string; kind: WorkspaceKind; deleteBranch: string | null }[],
   ) => invoke<RemovalResult[]>('remove_workspaces', { id, items }),
+  branchImpacts: (id: string, branches: string[]) =>
+    invoke<BranchImpact[]>('branch_impacts', { id, branches }),
+  deleteBranches: (id: string, branches: string[]) =>
+    invoke<BranchDeleteResult[]>('delete_branches', { id, branches }),
   openIn: (targetId: string, ctx: OpenContext) => invoke<void>('open_in', { targetId, ctx }),
   copyText: (text: string) => invoke<void>('copy_text', { text }),
 }

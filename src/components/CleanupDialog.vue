@@ -1,54 +1,72 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { api, type RemovalImpact } from '../api'
+import { api, type BranchImpact, type RemovalImpact } from '../api'
 import Icon from './Icon.vue'
-import { WORKSPACE_LABELS, bytes, shortPath } from '../format'
-import { refresh, projectId, staleWorkspacePaths } from '../store'
+import { WORKSPACE_LABELS, bytes, relativeTime, shortPath } from '../format'
+import { refresh, projectId } from '../store'
 import { useEscape } from '../useEscape'
 
 const props = defineProps<{
   open: boolean
-  /** Explicit targets. When null, every stale workspace is offered. */
-  paths: string[] | null
+  /** Directories to remove. */
+  paths: string[]
+  /** Branches to delete: leftovers with nothing on disk. */
+  branches: string[]
+  title: string
 }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 useEscape(() => props.open && !working.value, () => emit('close'))
 
 const impacts = ref<RemovalImpact[]>([])
+const branchImpacts = ref<BranchImpact[]>([])
 /** Filled in after the list is already on screen; `du` is slow. */
 const sizes = ref<Record<string, number>>({})
 const measuring = ref(false)
 const selected = ref<Set<string>>(new Set())
+const selectedBranches = ref<Set<string>>(new Set())
 const deleteBranches = ref(true)
 const loading = ref(false)
 const working = ref(false)
-const failures = ref<{ path: string; error: string }[]>([])
-
-const staleCandidates = staleWorkspacePaths
+const failures = ref<{ label: string; error: string }[]>([])
 
 watch(
   () => props.open,
   async (isOpen) => {
     if (!isOpen) return
     failures.value = []
-    const targets = props.paths ?? staleCandidates.value
-    selected.value = new Set(targets)
+    const { paths, branches } = props
+    selected.value = new Set(paths)
+    selectedBranches.value = new Set()
     impacts.value = []
+    branchImpacts.value = []
     const id = projectId.value
-    if (!id || targets.length === 0) return
+    if (!id || paths.length + branches.length === 0) return
     sizes.value = {}
     loading.value = true
     try {
-      impacts.value = await api.removalImpacts(id, targets)
+      const [workspaces, refs] = await Promise.all([
+        paths.length ? api.removalImpacts(id, paths) : Promise.resolve([]),
+        branches.length ? api.branchImpacts(id, branches) : Promise.resolve([]),
+      ])
+      impacts.value = workspaces
+      branchImpacts.value = refs
+      // One branch named on its own is what the user came here for. In a
+      // sweep, only the ones that cost nothing are ticked: a branch still
+      // holding commits is listed to be noticed, not deleted by default.
+      const singled = branches.length === 1 && paths.length === 0
+      selectedBranches.value = new Set(
+        refs.filter((r) => singled || r.commitCount === 0).map((r) => r.branch),
+      )
     } finally {
       loading.value = false
     }
 
+    if (paths.length === 0) return
     // Sizes arrive separately so the list is usable immediately.
     measuring.value = true
     try {
-      const measured = await api.workspaceSizes(targets)
+      const measured = await api.workspaceSizes(paths)
       // The dialog may have been closed and reopened meanwhile.
       if (props.open) sizes.value = measured
     } finally {
@@ -63,34 +81,58 @@ function toggle(path: string) {
   selected.value = next
 }
 
+function toggleBranch(branch: string) {
+  const next = new Set(selectedBranches.value)
+  next.has(branch) ? next.delete(branch) : next.add(branch)
+  selectedBranches.value = next
+}
+
 const chosen = computed(() => impacts.value.filter((i) => selected.value.has(i.path)))
+const chosenBranches = computed(() =>
+  branchImpacts.value.filter((b) => selectedBranches.value.has(b.branch)),
+)
+const chosenCount = computed(() => chosen.value.length + chosenBranches.value.length)
 
 const totals = computed(() => ({
   size: chosen.value.reduce((sum, i) => sum + (sizes.value[i.path] ?? 0), 0),
   modified: chosen.value.reduce((sum, i) => sum + i.modified, 0),
   unpushed: chosen.value.reduce((sum, i) => sum + i.unpushed, 0),
   stashes: chosen.value.reduce((sum, i) => sum + i.stashes, 0),
+  commits: chosenBranches.value.reduce((sum, b) => sum + b.commitCount, 0),
 }))
 
 async function remove() {
   const id = projectId.value
-  if (!id || chosen.value.length === 0) return
+  if (!id || chosenCount.value === 0) return
   working.value = true
   failures.value = []
   try {
-    const results = await api.removeWorkspaces(
-      id,
-      chosen.value.map((i) => ({
-        path: i.path,
-        kind: i.kind,
-        // Only offered for worktrees: a clone's branch lives in its own repo
-        // and disappears with it.
-        deleteBranch: deleteBranches.value && i.kind === 'worktree' ? i.branch : null,
-      })),
-    )
-    failures.value = results
-      .filter((r) => r.error)
-      .map((r) => ({ path: r.path, error: r.error as string }))
+    const next: { label: string; error: string }[] = []
+    if (chosen.value.length) {
+      const results = await api.removeWorkspaces(
+        id,
+        chosen.value.map((i) => ({
+          path: i.path,
+          kind: i.kind,
+          // Only offered for worktrees: a clone's branch lives in its own repo
+          // and disappears with it.
+          deleteBranch: deleteBranches.value && i.kind === 'worktree' ? i.branch : null,
+        })),
+      )
+      for (const r of results) {
+        if (r.error) next.push({ label: shortPath(r.path), error: r.error })
+      }
+    }
+    if (chosenBranches.value.length) {
+      const results = await api.deleteBranches(
+        id,
+        chosenBranches.value.map((b) => b.branch),
+      )
+      for (const r of results) {
+        if (r.error) next.push({ label: r.branch, error: r.error })
+      }
+    }
+    failures.value = next
     await refresh()
     if (failures.value.length === 0) emit('close')
   } finally {
@@ -103,19 +145,18 @@ async function remove() {
   <div v-if="open" class="scrim" @click.self="!working && emit('close')">
     <div class="modal wide">
       <div class="modal-header" data-tauri-drag-region="deep">
-        <span>{{ paths ? 'Remove workspace' : 'Cleanup' }}</span>
+        <span>{{ title }}</span>
         <span class="spacer" />
         <span class="faint" style="font-weight: 400">
-          {{ chosen.length }} selected
-          <template v-if="!measuring"> · {{ bytes(totals.size) }}</template>
+          {{ chosenCount }} selected
+          <template v-if="!measuring && chosen.length"> · {{ bytes(totals.size) }}</template>
         </span>
       </div>
 
       <div class="modal-body">
         <p v-if="loading" class="muted">Measuring…</p>
-        <p v-else-if="!impacts.length" class="empty">
-          Nothing to clean up. Merged branches, branches deleted on origin and
-          leftover directories all show up here.
+        <p v-else-if="!impacts.length && !branchImpacts.length" class="empty">
+          Nothing to clean up.
         </p>
 
         <table v-else class="list">
@@ -163,6 +204,46 @@ async function remove() {
                 </span>
               </td>
             </tr>
+
+            <!-- Branches with nothing on disk. No directory, no size: the only
+                 thing at stake is the commits no other ref holds, so those are
+                 spelled out under the row rather than left as a number. -->
+            <template v-for="impact in branchImpacts" :key="impact.branch">
+              <tr :class="{ 'no-rule': impact.commits.length }">
+                <td>
+                  <input
+                    type="checkbox"
+                    :checked="selectedBranches.has(impact.branch)"
+                    @change="toggleBranch(impact.branch)"
+                  />
+                </td>
+                <td class="faint">—</td>
+                <td><span class="badge kind" title="Local branch, nothing checked out">branch</span></td>
+                <td class="truncate" style="max-width: 160px" :title="impact.branch">
+                  {{ impact.branch }}
+                </td>
+                <td class="faint" style="text-align: right">—</td>
+                <td>
+                  <span v-if="impact.commitCount" class="badge warn">
+                    {{ impact.commitCount }} commit{{ impact.commitCount === 1 ? '' : 's' }}
+                  </span>
+                  <span v-else class="faint">nothing — every commit is on origin</span>
+                </td>
+              </tr>
+              <tr v-if="impact.commits.length" class="detail-row">
+                <td></td>
+                <td colspan="5">
+                  <div v-for="commit in impact.commits" :key="commit.sha" class="commit">
+                    <code class="faint">{{ commit.sha.slice(0, 8) }}</code>
+                    <span class="truncate">{{ commit.subject }}</span>
+                    <span class="faint">{{ relativeTime(commit.committedAt) }}</span>
+                  </div>
+                  <div v-if="impact.commitCount > impact.commits.length" class="faint">
+                    + {{ impact.commitCount - impact.commits.length }} more
+                  </div>
+                </td>
+              </tr>
+            </template>
           </tbody>
         </table>
 
@@ -176,8 +257,13 @@ async function remove() {
           {{ totals.unpushed }} unpushed commit(s) and {{ totals.stashes }} stash(es).
         </div>
 
-        <div v-for="failure in failures" :key="failure.path" class="banner error">
-          <code>{{ shortPath(failure.path) }}</code> — {{ failure.error }}
+        <div v-if="totals.commits" class="banner">
+          {{ totals.commits }} commit(s) exist on no other branch and nowhere on
+          origin. Deleting these branches is the last thing holding them.
+        </div>
+
+        <div v-for="failure in failures" :key="failure.label" class="banner error">
+          <code>{{ failure.label }}</code> — {{ failure.error }}
         </div>
       </div>
 
@@ -187,10 +273,10 @@ async function remove() {
         <button class="btn" :disabled="working" @click="emit('close')">Cancel</button>
         <button
           class="btn primary danger"
-          :disabled="working || !chosen.length"
+          :disabled="working || !chosenCount"
           @click="remove"
         >
-          Remove {{ chosen.length || '' }}
+          {{ chosen.length ? 'Remove' : 'Delete' }} {{ chosenCount || '' }}
         </button>
       </div>
     </div>

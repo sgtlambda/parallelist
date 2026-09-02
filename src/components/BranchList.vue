@@ -7,13 +7,16 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { WORKSPACE_LABELS, basename } from '../format'
 import type { Row } from '../store'
 import {
-  cleanupOpen,
   copyToClipboard,
   counts,
+  danglingBranches,
+  isDangling,
+  openCleanup,
   openTargets,
   project,
   describeProgress,
   refresh,
+  staleWorkspacePaths,
   state,
   viewer,
   visibleRows,
@@ -76,12 +79,22 @@ const actions = ref({ open: false, x: 0, y: 0 })
 
 const actionItems = computed<MenuItem[]>(() => [
   { id: 'refresh', label: 'Refresh now' },
+  // Two sweeps, because they cost different things: one frees directories,
+  // the other drops refs. Each carries the number it would list.
   {
-    id: 'cleanup',
-    label: counts.value.stale ? `Cleanup (${counts.value.stale})…` : 'Cleanup…',
+    id: 'cleanup-workspaces',
+    label: countedLabel('Cleanup checked out', counts.value.staleWorkspaces),
     separator: true,
   },
+  {
+    id: 'cleanup-branches',
+    label: countedLabel('Cleanup branches', counts.value.staleBranches),
+  },
 ])
+
+function countedLabel(label: string, count: number): string {
+  return count ? `${label} (${count})…` : `${label}…`
+}
 
 function openActions(event: MouseEvent) {
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
@@ -90,7 +103,11 @@ function openActions(event: MouseEvent) {
 
 function onActionSelect(id: string) {
   if (id === 'refresh') void refresh({ fetch: true })
-  else if (id === 'cleanup') cleanupOpen.value = true
+  else if (id === 'cleanup-workspaces') {
+    openCleanup(staleWorkspacePaths.value, [], 'Cleanup checked out')
+  } else if (id === 'cleanup-branches') {
+    openCleanup([], danglingBranches.value, 'Cleanup branches')
+  }
 }
 
 const menu = ref<{ open: boolean; x: number; y: number; row: Row | null }>({
@@ -138,6 +155,12 @@ const menuItems = computed<MenuItem[]>(() => {
     })
   })
 
+  // Nothing on disk and nothing on origin: this ref is the only copy left, so
+  // the branch list is the only place it can be deleted from.
+  if (isDangling(row)) {
+    items.push({ id: 'delete-branch', label: 'Delete branch…', separator: true, danger: true })
+  }
+
   return items
 })
 
@@ -158,6 +181,10 @@ async function onMenuSelect(id: string) {
     await copyToClipboard(row.pr.url, 'pull request URL')
   } else if (id === 'pr-open' && row.pr) {
     await openUrl(row.pr.url)
+  } else if (id === 'delete-branch') {
+    // Into Cleanup rather than a bespoke confirm: it already knows how to show
+    // what a deletion costs before it happens.
+    openCleanup([], [row.branch.name], 'Delete branch')
   } else if (id.startsWith('open:')) {
     const [, index, targetId] = id.split(':')
     const workspace = row.workspaces[Number(index)]
