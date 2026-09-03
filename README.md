@@ -6,24 +6,15 @@ the directories you're done with.
 
 Built with [Tauri 2](https://tauri.app) (Rust) and Vue 3.
 
-## Run it now
+## Running / development
 
 ```sh
 ./run.sh            # dev build, reloads as you edit
 ./run.sh --build    # release .app, installed to /Applications and launched
 ```
 
-That is the whole setup. The script checks for `pnpm`, `cargo` and `git` and
-tells you how to install whichever is missing, puts `~/.cargo/bin` on `PATH`
-(rustup here was installed with `--no-modify-path`), runs `pnpm install` the
-first time, and hands over to `pnpm tauri dev`.
-
-Use `--build` to test the app the way you actually use it: it installs to
-`/Applications` and launches it through `env -i`, so the app gets launchd's bare
-environment rather than your terminal's. That difference is not cosmetic — an
-app started from the Dock has no Homebrew on `PATH`, which is how `gh` goes
-missing and pull request data silently disappears in a build that worked fine
-from a terminal.
+The script checks for `pnpm`, `cargo` and `git`, puts `~/.cargo/bin` on `PATH`,
+runs `pnpm install` the first time, and hands over to `pnpm tauri dev`.
 
 ## Requirements
 
