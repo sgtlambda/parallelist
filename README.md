@@ -6,6 +6,25 @@ the directories you're done with.
 
 Built with [Tauri 2](https://tauri.app) (Rust) and Vue 3.
 
+## Run it now
+
+```sh
+./run.sh            # dev build, reloads as you edit
+./run.sh --build    # release .app, installed to /Applications and launched
+```
+
+That is the whole setup. The script checks for `pnpm`, `cargo` and `git` and
+tells you how to install whichever is missing, puts `~/.cargo/bin` on `PATH`
+(rustup here was installed with `--no-modify-path`), runs `pnpm install` the
+first time, and hands over to `pnpm tauri dev`.
+
+Use `--build` to test the app the way you actually use it: it installs to
+`/Applications` and launches it through `env -i`, so the app gets launchd's bare
+environment rather than your terminal's. That difference is not cosmetic — an
+app started from the Dock has no Homebrew on `PATH`, which is how `gh` goes
+missing and pull request data silently disappears in a build that worked fine
+from a terminal.
+
 ## Requirements
 
 | | |
@@ -44,7 +63,7 @@ are added — merging every ref from every clone would drag in each clone's stal
 ## Layout
 
 ```
-repos          branches (origin-first)        the selected branch
+projects       branches (origin-first)        the selected branch
 ─────────────  ─────────────────────────────  ──────────────────────
 acme-app       fix/login-redirect             commit, author, drift
 web-portal       #1042 ● open  ⑂      2d      pull request + checks
@@ -68,12 +87,22 @@ when its branch exists nowhere else.
 
 The dialog suggests a directory from the repo's path template
 (`{parent}/{project}-{slug}`, where the slug is the branch's last segment prefixed
-with its PR number) and lets you edit it. Setup steps are offered as
-checkboxes, so each one is a per-workspace decision rather than a policy:
+with its PR number; `{branch}` and `{pr}` are available too) and lets you edit
+it. Setup steps are offered as checkboxes, so each one is a per-workspace
+decision rather than a policy.
 
-- **copy files** — `.env` and friends out of the primary clone
-- **symlink** — point `vendor` / `node_modules` at the primary clone
-- **command** — `composer install`, `pnpm install`, anything else
+A step is just a shell command run inside the new workspace, with `{primary}`,
+`{path}` and `{branch}` substituted. When a project is added, its recipe is
+guessed from what the directory actually contains:
+
+- **copy untracked env files** — `.env` and friends out of the primary clone.
+  Only untracked ones: a committed `.env.cypress` differs between branches, and
+  overwriting it would silently revert what that branch committed.
+- **symlink dependencies** — point `vendor` / `node_modules` at the primary clone
+- **install** — `composer install`, `pnpm install` / `yarn` / `npm`, whichever
+  the lockfiles call for
+
+Everything stays editable afterwards, and you can add steps of your own.
 
 Output streams into a log pane. A branch that does not exist yet is created
 with `--no-track`, so your first `git push` goes to its own branch instead of
@@ -85,17 +114,28 @@ copy of a large repo therefore costs seconds rather than a full network clone.
 
 ## Cleanup
 
-Merged branches, branches deleted on origin, and directories that are not git
-workspaces at all are collected under **Cleanup**. Each row shows what removing
-it would destroy — uncommitted changes, unpushed commits, stashes, size on
-disk. Nothing is blocked; you just get to see the bill first.
+The branch list's menu has two sweeps, each counting what it would offer:
+
+- **Cleanup checked out** — workspaces of finished branches (merged, or deleted
+  on origin), plus directories that are not git workspaces at all. Removing a
+  worktree can delete its branch along with it.
+- **Cleanup branches** — local branches with nothing checked out *and* nothing
+  on origin: what a merge plus a worktree removal strands. Nothing points at
+  them, so no workspace removal can ever offer them. Ones carrying commits of
+  their own start unticked. A single branch can also be deleted straight from
+  its right-click menu.
+
+Each row shows what removing it would destroy — uncommitted changes, unpushed
+commits, stashes, size on disk. Nothing is blocked; you just get to see the
+bill first.
 
 ## Configuration
 
 App settings live in
 `~/Library/Application Support/com.jmversteeg.switcheroo/config.json` and are
 edited in the settings pane. A repo may also commit a `.switcheroo.json` at its
-root, which wins field by field:
+root, which wins field by field over the stored config —
+`baseBranch`, `pathTemplate`, `setupSteps` and `openTargets`:
 
 ```json
 {
@@ -106,8 +146,7 @@ root, which wins field by field:
       "id": "copy-env",
       "label": "Copy env files",
       "defaultEnabled": true,
-      "kind": "copyFiles",
-      "files": [".env", ".env.testing"]
+      "script": "for f in .env .env.testing; do [ -e {primary}/$f ] && cp {primary}/$f .; done"
     }
   ]
 }
@@ -147,13 +186,17 @@ matches nothing even under `rm -f`.
 Needs [Rust](https://rustup.rs) and [pnpm](https://pnpm.io).
 
 ```sh
-pnpm install
-pnpm tauri dev        # run it
+./run.sh              # install if needed, then run it
+./run.sh --build      # release .app -> /Applications, launched
+pnpm tauri dev        # what run.sh ends up calling
 pnpm tauri build      # -> src-tauri/target/release/bundle/macos/Switcheroo.app
 pnpm typecheck        # vue-tsc
 pnpm test             # cargo test
 pnpm lint             # cargo clippy
 ```
+
+`bundle.targets` is `["app"]` on purpose: DMG bundling wants Finder scripting
+access and fails without it. The `.app` is the deliverable.
 
 ### Architecture
 
