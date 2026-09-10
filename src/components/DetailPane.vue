@@ -3,7 +3,7 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
 import { api, type Workspace } from '../api'
-import { WORKSPACE_LABELS, basename, relativeTime, shortPath } from '../format'
+import { WORKSPACE_LABELS, WORKSPACE_TITLES, basename, relativeTime, shortPath } from '../format'
 import { openTargets, project, selectedRow, state } from '../store'
 
 const emit = defineEmits<{
@@ -43,8 +43,8 @@ async function openIn(targetId: string, workspace: Workspace) {
   }
 }
 
-/** Which clone a worktree belongs to, when it isn't the primary one. With two
- *  clones of the same repo around, that distinction is the whole story. */
+/** Which clone a worktree hangs off, when it isn't the main workspace. With
+ *  two clones of the same repo around, that distinction is the whole story. */
 function ownerLabel(workspace: Workspace): string | null {
   if (!workspace.owner || workspace.owner === project.value?.path) return null
   return basename(workspace.owner)
@@ -115,7 +115,7 @@ async function openPullRequest() {
       <p class="empty">
         Pick a branch to see its pull request, how far it has drifted from
         <code>{{ state.overview?.baseBranch ?? 'the base branch' }}</code
-        >, and where it is checked out.
+        >, and which workspaces hold it.
       </p>
     </div>
 
@@ -185,7 +185,7 @@ async function openPullRequest() {
             class="card workspace"
             :class="{ stale: row.stale && workspace.kind !== 'primary' }"
           >
-            <div class="card-title">Workspace</div>
+            <div class="card-title">{{ WORKSPACE_TITLES[workspace.kind] }}</div>
             <div
               v-if="workspace.modified || workspace.untracked || workspace.unpushed"
               class="row"

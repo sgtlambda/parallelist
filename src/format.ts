@@ -45,10 +45,21 @@ export function basename(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
 }
 
-/** Human names for workspace kinds, used as icon tooltips. */
+/** What each kind of workspace actually is, spelled out. Used as tooltips,
+ *  where there is room to say more than the one-word name. */
 export const WORKSPACE_LABELS: Record<string, string> = {
-  primary: 'Primary clone',
-  worktree: 'Worktree',
-  clone: 'Full clone',
-  orphan: 'Orphaned directory — not a git workspace',
+  primary: 'Main workspace — the clone every worktree hangs off',
+  worktree: 'Worktree — shares the main workspace\'s object store',
+  clone: 'Clone — an independent repository of its own',
+  orphan: 'Orphaned directory — not a workspace at all',
+}
+
+/** The heading a workspace card carries. Every kind here is a workspace; the
+ *  suffix is what says which of the two kinds it is, so the pair is visible
+ *  without hovering anything. */
+export const WORKSPACE_TITLES: Record<string, string> = {
+  primary: 'Main workspace',
+  worktree: 'Workspace · worktree',
+  clone: 'Workspace · clone',
+  orphan: 'Orphaned directory',
 }

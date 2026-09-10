@@ -374,7 +374,7 @@ fn create_clone<F: FnMut(&str, bool)>(
     // Clone from the primary with --local: git hardlinks the object store, so
     // this costs almost nothing on disk and finishes in seconds even on a big
     // repo. Origin is then pointed back at the real remote so pushing works.
-    log_step(log, "Cloning from primary clone (hardlinked objects)");
+    log_step(log, "Cloning from the main workspace (hardlinked objects)");
     let out = run(
         "git",
         &["clone", "--local", "--no-checkout", &primary_str, &req.path],
@@ -516,7 +516,7 @@ pub fn remove(
 ) -> Result<(), String> {
     let primary = PathBuf::from(&project.path);
     if kind == WorkspaceKind::Primary {
-        return Err("refusing to remove the primary clone".into());
+        return Err("refusing to remove the main workspace".into());
     }
     let path_str = path.to_string_lossy().to_string();
 

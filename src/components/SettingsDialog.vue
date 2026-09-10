@@ -105,10 +105,11 @@ async function save() {
               <input v-model="project.name" />
             </div>
             <div class="field">
-              <label>Primary clone</label>
+              <label>Main workspace</label>
               <input :value="project.path" readonly class="mono" />
               <span class="hint">
-                New worktrees hang off this clone and setup steps copy files out of it.
+                The project's own clone. New worktrees hang off it and setup steps copy files
+                out of it.
               </span>
             </div>
             <div class="field">
@@ -230,8 +231,8 @@ async function save() {
             <label>"Active" window (days)</label>
             <input v-model.number="draft.activeDays" type="number" min="1" />
             <span class="hint">
-              A branch counts as active if it has an open PR, is checked out, or was committed to
-              within this window.
+              A branch counts as active if it has an open PR, has a workspace on disk, or was
+              committed to within this window.
             </span>
           </div>
           <label class="check">

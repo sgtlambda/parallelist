@@ -92,7 +92,7 @@ function onSelect(id: string) {
 }
 
 async function addProject() {
-  const picked = await open({ directory: true, multiple: false, title: "Choose the project's main clone" })
+  const picked = await open({ directory: true, multiple: false, title: "Choose the project's main workspace" })
   if (typeof picked !== 'string') return
   try {
     const added = await api.addProject(picked)
@@ -162,7 +162,7 @@ async function onMenuSelect(action: string) {
       </button>
 
       <p v-if="!state.config?.projects.length" class="empty" style="padding: 20px 14px">
-        Add the main clone of a project to get started.
+        Add a project's main workspace to get started.
       </p>
     </div>
 

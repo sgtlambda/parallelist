@@ -218,7 +218,7 @@ async function remove() {
                   />
                 </td>
                 <td class="faint">—</td>
-                <td><span class="badge kind" title="Local branch, nothing checked out">branch</span></td>
+                <td><span class="badge kind" title="Local branch with no workspace on disk">branch</span></td>
                 <td class="truncate" style="max-width: 160px" :title="impact.branch">
                   {{ impact.branch }}
                 </td>

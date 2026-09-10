@@ -29,7 +29,8 @@ useEscape(
 const setupSteps = computed(() => project.value?.setupSteps ?? [])
 const base = computed(() => state.overview?.baseBranch ?? 'main')
 
-/** A branch we've never seen has to be created rather than checked out. */
+/** A branch we've never seen has to be created, not just placed in a
+ *  workspace. */
 const isNewBranch = computed(
   () =>
     branch.value.trim().length > 0 &&
@@ -146,28 +147,36 @@ async function openCreated(targetId: string) {
           </div>
 
           <div class="field">
-            <label>How</label>
+            <label>Kind</label>
+            <span class="hint">
+              A workspace is a directory holding this branch. It is either a worktree of the
+              main workspace or a clone of its own — everywhere else in Switcheroo the two are
+              treated the same.
+            </span>
             <div v-if="conflict" class="banner">
-              <strong>{{ conflict.branch }}</strong> is already checked out at
+              <strong>{{ conflict.branch }}</strong> already has a worktree at
               <code>{{ shortPath(conflict.path) }}</code
-              >. Git allows a branch in only one worktree, so a second copy has to be a clone.
+              >. Git allows a branch in only one worktree per clone, so a second workspace for it
+              has to be a clone.
             </div>
 
             <label class="choice" :class="{ selected: mode === 'worktree', disabled: !!conflict }">
               <input v-model="mode" type="radio" value="worktree" :disabled="!!conflict" />
               <span>
                 <strong>Worktree</strong>
-                <div class="hint">Shares the object store with the primary clone. Cheap and instant.</div>
+                <div class="hint">
+                  Shares the main workspace's object store. Cheap and instant.
+                </div>
               </span>
             </label>
 
             <label class="choice" :class="{ selected: mode === 'clone' }">
               <input v-model="mode" type="radio" value="clone" />
               <span>
-                <strong>Full clone</strong>
+                <strong>Clone</strong>
                 <div class="hint">
-                  Independent repo, so the same branch can be checked out twice. Cloned locally with
-                  hardlinked objects, then pointed back at origin.
+                  An independent repository, so the same branch can sit in two workspaces at
+                  once. Copied locally with hardlinked objects, then pointed back at origin.
                 </div>
               </span>
             </label>

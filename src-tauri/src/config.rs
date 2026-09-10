@@ -52,8 +52,8 @@ pub struct ProjectConfig {
     pub id: String,
     /// Display name in the sidebar.
     pub name: String,
-    /// The primary clone. New worktrees hang off this one and setup steps copy
-    /// files out of it.
+    /// The main workspace: the project's own clone. New worktrees hang off
+    /// this one and setup steps copy files out of it.
     pub path: String,
     /// Falls back to `origin/HEAD` when unset.
     pub base_branch: Option<String>,
@@ -190,7 +190,7 @@ pub fn sniff_setup_steps(project: &Path) -> Vec<SetupStep> {
     let exists = |p: &str| project.join(p).exists();
 
     // Only untracked ones. A tracked `.env.cypress` is committed content that
-    // can differ between branches, and copying the primary clone's copy over
+    // can differ between branches, and copying the main workspace's copy over
     // it does not merely dirty the new workspace — it silently reverts
     // whatever that branch committed.
     const ENV_CANDIDATES: [&str; 5] = [
@@ -209,7 +209,7 @@ pub fn sniff_setup_steps(project: &Path) -> Vec<SetupStep> {
     if !env_files.is_empty() {
         steps.push(SetupStep {
             id: "copy-env".into(),
-            label: "Copy untracked env files from the primary clone".into(),
+            label: "Copy untracked env files from the main workspace".into(),
             default_enabled: true,
             // Guarded, because the old CopyFiles step skipped absent files and
             // a bare `cp a b c .` fails outright if one of them is missing.
@@ -228,7 +228,7 @@ pub fn sniff_setup_steps(project: &Path) -> Vec<SetupStep> {
     if !linkable.is_empty() {
         steps.push(SetupStep {
             id: "symlink-deps".into(),
-            label: "Symlink dependencies from the primary clone".into(),
+            label: "Symlink dependencies from the main workspace".into(),
             default_enabled: false,
             // -f so re-running is harmless, -n so an existing link to a
             // directory is replaced rather than linked inside.

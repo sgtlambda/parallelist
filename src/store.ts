@@ -10,7 +10,7 @@ import {
   type PullRequest,
 } from './api'
 
-export type Filter = 'active' | 'prs' | 'assigned' | 'checkedOut' | 'all'
+export type Filter = 'active' | 'prs' | 'assigned' | 'workspaces' | 'all'
 
 /** A branch with everything we know about it hung off the side. */
 export interface Row {
@@ -105,8 +105,9 @@ function assignedToMe(row: Row): boolean {
   return !!me && (row.pr?.assignees.includes(me) ?? false)
 }
 
-/** The branch the primary clone currently has checked out. */
-const primaryBranch = computed(
+/** The branch sitting in the main workspace. (`'primary'` is the wire name
+ *  for that kind — see the note on vocabulary in AGENTS.md.) */
+const mainWorkspaceBranch = computed(
   () => state.overview?.workspaces.find((c) => c.kind === 'primary')?.branch ?? null,
 )
 
@@ -143,10 +144,11 @@ const rows = computed<Row[]>(() => {
   })
 })
 
-/** Keep the primary clone's branch first. It is the branch everything else is
- *  measured against, so it shouldn't drift around the list as commits land. */
-function pinPrimary(list: Row[]): Row[] {
-  const name = primaryBranch.value
+/** Keep the main workspace's branch first. It is the branch everything else
+ *  is measured against, so it shouldn't drift around the list as commits
+ *  land. */
+function pinMainWorkspace(list: Row[]): Row[] {
+  const name = mainWorkspaceBranch.value
   if (!name) return list
   const index = list.findIndex((r) => r.branch.name === name)
   if (index <= 0) return list
@@ -198,7 +200,7 @@ function isActive(row: Row, activeDays: number): boolean {
   if (row.pr?.state === 'open') return true
   // Anything on disk is active by definition — it's occupying a directory.
   if (row.workspaces.length > 0) return true
-  // Finished work with nothing checked out is done, however recently it was
+  // Finished work with no workspace left is done, however recently it was
   // committed. Without this a branch merged yesterday outranks one that is
   // still open, purely on recency.
   if (row.branch.merged || row.pr?.state === 'merged' || row.pr?.state === 'closed') {
@@ -215,7 +217,7 @@ export const counts = computed(() => {
     active: all.filter((r) => isActive(r, days)).length,
     prs: all.filter((r) => r.pr?.state === 'open').length,
     assigned: all.filter((r) => r.pr?.state === 'open' && assignedToMe(r)).length,
-    checkedOut: all.filter((r) => r.workspaces.length > 0).length,
+    workspaces: all.filter((r) => r.workspaces.length > 0).length,
     all: all.length,
     // One per Cleanup entry, so each menu item's number is exactly what that
     // sweep would list.
@@ -232,20 +234,20 @@ export const visibleRows = computed<Row[]>(() => {
   // Search always looks at every branch, whatever the filter is set to —
   // otherwise finding an old branch means changing tab first.
   if (term) {
-    return pinPrimary(list.filter((r) => haystack(r).includes(term)))
+    return pinMainWorkspace(list.filter((r) => haystack(r).includes(term)))
   }
 
   switch (state.filter) {
     case 'prs':
-      return pinPrimary(list.filter((r) => r.pr?.state === 'open'))
+      return pinMainWorkspace(list.filter((r) => r.pr?.state === 'open'))
     case 'assigned':
-      return pinPrimary(list.filter((r) => r.pr?.state === 'open' && assignedToMe(r)))
-    case 'checkedOut':
-      return pinPrimary(list.filter((r) => r.workspaces.length > 0))
+      return pinMainWorkspace(list.filter((r) => r.pr?.state === 'open' && assignedToMe(r)))
+    case 'workspaces':
+      return pinMainWorkspace(list.filter((r) => r.workspaces.length > 0))
     case 'all':
-      return pinPrimary(list)
+      return pinMainWorkspace(list)
     default:
-      return pinPrimary(list.filter((r) => isActive(r, days)))
+      return pinMainWorkspace(list.filter((r) => isActive(r, days)))
   }
 })
 

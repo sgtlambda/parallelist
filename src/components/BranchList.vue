@@ -24,7 +24,7 @@ import {
 import { relativeTime } from '../format'
 
 const tabs = computed(() => [
-  { id: 'active' as const, label: 'Active', title: 'Open PR, checked out, or recently committed to', count: counts.value.active },
+  { id: 'active' as const, label: 'Active', title: 'Open PR, has a workspace, or recently committed to', count: counts.value.active },
   { id: 'prs' as const, label: 'Open PRs', title: 'Every open pull request', count: counts.value.prs },
   // Hidden when gh couldn't tell us who we are — an always-empty tab is worse
   // than no tab.
@@ -38,7 +38,7 @@ const tabs = computed(() => [
         },
       ]
     : []),
-  { id: 'checkedOut' as const, label: 'Checked out', title: 'Branches with a worktree or clone on disk', count: counts.value.checkedOut },
+  { id: 'workspaces' as const, label: 'Workspaces', title: 'Branches with a workspace on disk — a worktree or a clone', count: counts.value.workspaces },
   { id: 'all' as const, label: 'All', title: 'Every branch on origin', count: counts.value.all },
 ])
 
@@ -83,7 +83,7 @@ const actionItems = computed<MenuItem[]>(() => [
   // the other drops refs. Each carries the number it would list.
   {
     id: 'cleanup-workspaces',
-    label: countedLabel('Cleanup checked out', counts.value.staleWorkspaces),
+    label: countedLabel('Cleanup workspaces', counts.value.staleWorkspaces),
     separator: true,
   },
   {
@@ -104,7 +104,7 @@ function openActions(event: MouseEvent) {
 function onActionSelect(id: string) {
   if (id === 'refresh') void refresh({ fetch: true })
   else if (id === 'cleanup-workspaces') {
-    openCleanup(staleWorkspacePaths.value, [], 'Cleanup checked out')
+    openCleanup(staleWorkspacePaths.value, [], 'Cleanup workspaces')
   } else if (id === 'cleanup-branches') {
     openCleanup([], danglingBranches.value, 'Cleanup branches')
   }
