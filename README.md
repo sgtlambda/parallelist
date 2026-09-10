@@ -1,8 +1,8 @@
 # Switcheroo
 
 A macOS app for working with a lot of branches across a few big repos: see
-what's on origin, check a branch out into a worktree (or a clone), and clean up
-the directories you're done with.
+what's on origin, put a branch into a **workspace** — a worktree or a clone —
+and clean up the ones you're done with.
 
 Built with [Tauri 2](https://tauri.app) (Rust) and Vue 3.
 
@@ -33,23 +33,28 @@ Branches live on **origin**. Having one on disk is a side effect, so the list
 you look at is origin's branch list, kept fresh by a background fetch, with
 local state hung off the side.
 
-A place a branch lives on disk is a **workspace**. It is either a linked
-worktree (cheap, shares the object store) or a full clone. That distinction
-only matters twice:
+A place a branch lives on disk is a **workspace**. It is always one of two
+things: a linked **worktree** (cheap, shares the object store) or a full
+**clone**. The project's own clone — the one you added to Switcheroo — is the
+**main workspace**, and the other two hang off it.
+
+That worktree/clone distinction only matters twice:
 
 - **Creating one.** Git allows a branch in exactly one worktree per clone. When
-  the branch you want is already checked out, Switcheroo says so and offers a
+  the branch you want already has a worktree, Switcheroo says so and offers a
   clone instead — which is what an `app-b` directory next to `app` really is.
 - **Removing one.** A worktree is unregistered with `git worktree remove`; a
   clone is just deleted.
 
-Everywhere else they are the same thing, and the UI treats them that way.
+Everywhere else they are the same thing, and the UI treats them that way — the
+New workspace dialog spells the choice out, and every workspace card names its
+own kind.
 
-A clone is an independent repository with its own refs, so a branch checked out
-in one may not exist in the primary clone at all. Those branches are added to
-the list from the workspace itself. Only branches that are actually checked out
-are added — merging every ref from every clone would drag in each clone's stale
-`origin/*` copies and resurrect hundreds of dead branches.
+A clone is an independent repository with its own refs, so a branch sitting in
+one may not exist in the main workspace at all. Those branches are added to the
+list from the workspace itself. Only branches a workspace actually has checked
+out are added — merging every ref from every clone would drag in each clone's
+stale `origin/*` copies and resurrect hundreds of dead branches.
 
 ## Layout
 
@@ -64,8 +69,8 @@ docs-site      search-index                   every workspace of it
                  merged  ⑂  stale    9d
 ```
 
-Tabs: **Active** (open PR, checked out, or committed to recently) · **Open PRs**
-· **Assigned** (open PRs assigned to you) · **Checked out** · **All**.
+Tabs: **Active** (open PR, has a workspace, or committed to recently) · **Open
+PRs** · **Assigned** (open PRs assigned to you) · **Workspaces** · **All**.
 
 Search always looks across every branch regardless of the tab, and matches
 branch names, commit subjects, authors, PR numbers and titles, and **workspace
@@ -82,14 +87,15 @@ with its PR number; `{branch}` and `{pr}` are available too) and lets you edit
 it. Setup steps are offered as checkboxes, so each one is a per-workspace
 decision rather than a policy.
 
-A step is just a shell command run inside the new workspace, with `{primary}`,
-`{path}` and `{branch}` substituted. When a project is added, its recipe is
-guessed from what the directory actually contains:
+A step is just a shell command run inside the new workspace, with `{primary}`
+(the main workspace's path), `{path}` and `{branch}` substituted. When a project
+is added, its recipe is guessed from what the directory actually contains:
 
-- **copy untracked env files** — `.env` and friends out of the primary clone.
+- **copy untracked env files** — `.env` and friends out of the main workspace.
   Only untracked ones: a committed `.env.cypress` differs between branches, and
   overwriting it would silently revert what that branch committed.
-- **symlink dependencies** — point `vendor` / `node_modules` at the primary clone
+- **symlink dependencies** — point `vendor` / `node_modules` at the main
+  workspace
 - **install** — `composer install`, `pnpm install` / `yarn` / `npm`, whichever
   the lockfiles call for
 
@@ -99,19 +105,21 @@ Output streams into a log pane. A branch that does not exist yet is created
 with `--no-track`, so your first `git push` goes to its own branch instead of
 the one it was cut from.
 
-Clones are made with `git clone --local` from the primary clone, which hardlinks
-the object store, then `origin` is pointed back at the real remote. A second
-copy of a large repo therefore costs seconds rather than a full network clone.
+Clones are made with `git clone --local` from the main workspace, which
+hardlinks the object store, then `origin` is pointed back at the real remote. A
+second copy of a large repo therefore costs seconds rather than a full network
+clone.
 
 ## Cleanup
 
 The branch list's menu has two sweeps, each counting what it would offer:
 
-- **Cleanup checked out** — workspaces of finished branches (merged, or deleted
+- **Cleanup workspaces** — workspaces of finished branches (merged, or deleted
   on origin), plus directories that are not git workspaces at all. Removing a
-  worktree can delete its branch along with it.
-- **Cleanup branches** — local branches with nothing checked out *and* nothing
-  on origin: what a merge plus a worktree removal strands. Nothing points at
+  worktree can delete its branch along with it. The main workspace is never
+  offered.
+- **Cleanup branches** — local branches with no workspace *and* nothing on
+  origin: what a merge plus a worktree removal strands. Nothing points at
   them, so no workspace removal can ever offer them. Ones carrying commits of
   their own start unticked. A single branch can also be deleted straight from
   its right-click menu.

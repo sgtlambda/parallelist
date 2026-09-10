@@ -12,7 +12,7 @@ Start with `README.md` for what the app does. This file is about working on it.
 The user works across many branches of a few big monoliths and
 constantly spins up worktrees to review or test them. Sibling directories
 (`~/Code/app`, `~/Code/app-1234-fix-header`, `~/Code/app-b`) accumulate until
-nobody knows what is checked out where, which are merged, or which are safe to
+nobody knows which branch is where, which are merged, or which are safe to
 delete. The app exists to answer that.
 
 ## Domain model
@@ -22,15 +22,24 @@ background fetch. Having a branch on disk locally is a side effect, not the
 source of truth. Filters, sorting and staleness all follow from this.
 
 **"Workspace" is the central noun** — any directory holding a branch, whether a
-linked worktree or a full clone. The UI treats them identically on purpose. The
-distinction matters in exactly two places:
+linked worktree or a full clone. It is the only word the UI uses for the idea:
+there is no "checkout" and no "checked out" in user-facing copy, and a branch
+either *has a workspace* or it doesn't. The project's own clone is the **main
+workspace**; worktrees and secondary clones hang off it.
+
+Worktree and clone are treated identically on purpose, but the pair is named
+wherever a user is choosing or looking at one — the New workspace dialog's
+"Kind" field spells the two out, and every workspace card is headed
+"Main workspace" / "Workspace · worktree" / "Workspace · clone"
+(`WORKSPACE_TITLES` in `src/format.ts`). The distinction *behaves* differently
+in exactly two places:
 
 - **Creating.** Git allows a branch in exactly one worktree per clone. When that
   conflicts, the dialog offers a clone instead. This is the whole reason a
   `repo-b` directory exists next to `repo` in the first place.
 - **Removing.** `git worktree remove` versus `rm -rf`.
 
-Clones are made with `git clone --local` from the primary clone, which hardlinks
+Clones are made with `git clone --local` from the main workspace, which hardlinks
 the object store (seconds, not minutes, on a large repo), then `origin` is
 repointed at the real remote so pushing works.
 
@@ -65,12 +74,13 @@ redundant complexity and are not.
    `git status` across 16 workspaces was ~3.8s; in parallel it is ~0.55s. On a
    monolith with `vendor/` and `node_modules/`, each `git status` is ~140ms.
 
-5. **A branch checked out in a secondary clone is added from that workspace.**
-   A clone has its own ref namespace and the primary may never have seen the
-   branch, so such workspaces would otherwise have no row and vanish from the UI
-   while still being counted under Cleanup. **Only checked-out branches are
-   added** — merging every ref from every clone would drag in that clone's stale
-   `origin/*` snapshot and resurrect hundreds of long-dead branches.
+5. **A branch sitting in a secondary clone is added from that workspace.**
+   A clone has its own ref namespace and the main workspace may never have seen
+   the branch, so such workspaces would otherwise have no row and vanish from
+   the UI while still being counted under Cleanup. **Only the branch a
+   workspace actually has checked out is added** — merging every ref from every
+   clone would drag in that clone's stale `origin/*` snapshot and resurrect
+   hundreds of long-dead branches.
 
 6. **New branches are created with `--no-track`.** Otherwise git sets the
    upstream to the start point and a later bare `git push` lands on the branch it
@@ -95,6 +105,14 @@ redundant complexity and are not.
   `add_repo`, the `repos` key in `config.json`). This is deliberate — renaming
   the internals is churn with a config-migration risk and none of it is visible.
   Don't "fix" the inconsistency without being asked.
+- **The UI says "main workspace"; the wire says `primary`.** `WorkspaceKind`
+  serialises that variant as `'primary'`, and setup steps and "Open in" commands
+  substitute `{primary}` for its path. Both are load-bearing: the placeholder is
+  baked into the user's saved `config.json` and into `.switcheroo.json` files
+  committed inside repos, which the app can never rewrite. Renaming it without
+  an alias fails *silently* — `.replace("{primary}", …)` stops matching and the
+  literal text reaches the shell. Same rule as above: don't "fix" it unasked.
+  Note `OpenTarget.primary` is a third, unrelated meaning ("show as a button").
 - **`src/components/Icon.vue` is the only place a glyph is defined.** Call sites
   ask for a semantic name (`<Icon name="worktree" />`), never a picture, so the
   icon set can be swapped by editing one file.
@@ -143,7 +161,7 @@ access and fails without it. The `.app` is the deliverable.
   wins field by field over the app config.
 - "Open in" targets and setup steps are user-editable shell templates run
   through the login shell. `{path}` is the workspace being acted on and
-  `{primary}` the primary clone, in both. Path templates use `{project}` for
+  `{primary}` the main workspace, in both. Path templates use `{project}` for
   the project's directory name. All substituted values are shell-quoted, so a
   template must not add quotes of its own.
 
