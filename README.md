@@ -101,9 +101,17 @@ is added, its recipe is guessed from what the directory actually contains:
 
 Everything stays editable afterwards, and you can add steps of your own.
 
-Output streams into a log pane. A branch that does not exist yet is created
-with `--no-track`, so your first `git push` goes to its own branch instead of
-the one it was cut from.
+Creating runs in the background: the dialog closes as soon as the task starts,
+and a pending card takes its place in the branch's workspace list, showing the
+step it is on and the last line that step printed. Clicking the card opens the
+full log. When the task finishes the card turns ready, with the "Open in"
+buttons, and becomes the real workspace card as soon as the list has caught
+up. If you have moved on to another branch or project by the time it
+finishes, the task box says it is ready and carries the "Open in" buttons
+for the new workspace. A failure stays until dismissed.
+
+A branch that does not exist yet is created with `--no-track`, so your first
+`git push` goes to its own branch instead of the one it was cut from.
 
 Clones are made with `git clone --local` from the main workspace, which
 hardlinks the object store, then `origin` is pointed back at the real remote. A
@@ -127,6 +135,20 @@ The branch list's menu has two sweeps, each counting what it would offer:
 Each row shows what removing it would destroy — uncommitted changes, unpushed
 commits, stashes, size on disk. Nothing is blocked; you just get to see the
 bill first.
+
+Confirming closes the dialog straight away. Each workspace and branch becomes
+its own task, run one at a time per project in the background; the cards being
+removed stay greyed out until the list drops them.
+
+## Tasks
+
+Refreshes, creates, removals and branch deletions all run as tasks. A small
+box in the top right shows one of them, what it last printed ("Checking
+working trees 22/24", the newest line of `pnpm install`) and how many others
+are going. Failures, and finished workspaces you have navigated away from,
+take the box first and stay until dismissed. Click the box for every task and
+its full log, including this session's recent history. Tasks can't be
+cancelled.
 
 ## Configuration
 
@@ -210,7 +232,8 @@ do in your terminal.
 | `src-tauri/src/gh.rs` | pull requests, reviews, CI rollup |
 | `src-tauri/src/workspace.rs` | discovering, creating and removing workspaces |
 | `src-tauri/src/config.rs` | app config, per-repo overrides, setup recipes |
-| `src-tauri/src/lib.rs` | Tauri commands, progress events |
+| `src-tauri/src/lib.rs` | Tauri commands |
+| `src-tauri/src/tasks.rs` | Task registry: logs, history, coalesced refreshes, removal lane |
 | `src/store.ts` | reactive state, filtering, background sync |
 
 Two details worth knowing before changing `proc.rs`:

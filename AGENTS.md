@@ -113,6 +113,45 @@ redundant complexity and are not.
   an alias fails *silently* — `.replace("{primary}", …)` stops matching and the
   literal text reaches the shell. Same rule as above: don't "fix" it unasked.
   Note `OpenTarget.primary` is a third, unrelated meaning ("show as a button").
+- **Slow work is a task, and tasks live in the backend.** Refreshing,
+  creating a workspace, removing one and deleting a branch each run as a task
+  in `src-tauri/src/tasks.rs`: a title, a status and a log. The registry is
+  Rust-side so a task and its log survive a webview reload mid-install;
+  `src/tasks.ts` mirrors it from `list_tasks` plus the `task` / `task-line` /
+  `task-removed` events (header revisions and line numbers make the events
+  that race the listing harmless). The top-right `TaskBox` features one task
+  (anything asking for attention, else the oldest running) with a `+N` count;
+  clicking it opens `TasksDialog`. **Tasks cannot be cancelled** — decided,
+  not overlooked. Scheduling, also decided:
+  - Refreshes of one project are **coalesced** (`Coalesced` in `tasks.rs`): a
+    request during a run waits for the *next* run, shared by everyone who
+    asked meanwhile, with `fetch` or-ed across them. It can't reuse the run in
+    flight — that may predate whatever prompted the request.
+  - Removals and branch deletions run **one at a time per project** (a lane):
+    concurrent `git branch -D` trips over `packed-refs.lock`, and parallel
+    `rm -rf` of `vendor/` just fights over the disk. Creates run in parallel.
+  - History keeps the newest successful refresh per project, up to 20 failed
+    refreshes, and the newest 20 of everything else. A failure asks for
+    attention until dismissed; a newer refresh of the same project quiets an
+    older refresh failure.
+- **A create outlives its dialog.** `CreateDialog` only builds the request
+  and closes. The task is drawn as a pending card in `DetailPane` (keyed on
+  project + branch, so it shows even for a branch no ref knows about yet —
+  `refresh` keeps such a selection alive via `hasPendingCreate`). The pane
+  renders real workspaces and create tasks as one list keyed by path: a
+  finished create keeps its card, marked ready, until a refresh *asked for
+  after it finished* has landed (`state.overviewAt`), and Vue then patches the
+  element in place. Hiding it on completion left the slot empty for as long as
+  the refresh took; keeping it without the cutoff resurrected it as "ready"
+  once its workspace was later removed. When the refresh lands and the real
+  workspace is not listed on the selected row, the frontend flags the task for
+  attention and the box shows it as "Ready" with the "Open in" buttons. "Off
+  screen" means not listed, not merely navigated away, so a refresh that misses
+  the new directory still produces the notice.
+- **A removal greys its card instead of hiding it.** The Cleanup dialog is
+  only the review step; confirming queues one task per item and closes. The
+  card stays, marked "removing", until the refresh drops it, and comes back
+  to life with "removal failed" if the task fails.
 - **`src/components/Icon.vue` is the only place a glyph is defined.** Call sites
   ask for a semantic name (`<Icon name="worktree" />`), never a picture, so the
   icon set can be swapped by editing one file.
