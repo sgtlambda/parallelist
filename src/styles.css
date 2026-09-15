@@ -958,8 +958,16 @@ code,
   border-color: color-mix(in srgb, var(--green) 45%, var(--border));
 }
 
+/* Exactly one title line tall. The +N badge and the dismiss button come and
+   go with the other tasks; sized to fit inside this row rather than stretch
+   it, their arrival can't make the box grow. */
 .task-box .row {
   gap: 7px;
+  height: 18px;
+}
+
+.task-box .task-title {
+  line-height: 18px;
 }
 
 .task-box .actions {
@@ -1017,14 +1025,17 @@ code,
   color: var(--red);
 }
 
+/* 14px line + 1px padding + 1px border, each side: the row's 18px. */
 .task-count {
   flex: none;
+  line-height: 14px;
   font-variant-numeric: tabular-nums;
 }
 
 .task-dismiss {
+  height: 18px;
   padding: 0 5px;
-  margin: -2px 0;
+  line-height: 16px;
 }
 
 .tasks-modal {
