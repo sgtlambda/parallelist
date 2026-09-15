@@ -84,8 +84,29 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(value, Math.max(min, max)))
 }
 
+/** Typing with nothing editable focused goes to the search field, so a query
+ *  can be started from anywhere without reaching for ⌘F first. */
+function typeToSearch(event: KeyboardEvent) {
+  if (event.defaultPrevented || event.isComposing) return
+  if (event.ctrlKey || event.altKey) return
+  // Printable characters only; a leading space would also click a focused button.
+  if (event.key.length !== 1 || event.key === ' ') return
+  if (document.activeElement?.closest('input, textarea, select, [contenteditable]')) return
+  // Dialogs and menus own the keyboard while they are up.
+  if (document.querySelector('.scrim, .menu-backdrop')) return
+
+  const input = document.querySelector<HTMLInputElement>('input[type="search"]')
+  if (!input) return
+  // Inserted by hand rather than left to the browser: whether a keypress
+  // follows focus that moved during its keydown differs between engines.
+  event.preventDefault()
+  input.focus()
+  input.value += event.key
+  input.dispatchEvent(new Event('input'))
+}
+
 function onKey(event: KeyboardEvent) {
-  if (!event.metaKey) return
+  if (!event.metaKey) return typeToSearch(event)
   switch (event.key) {
     case 'f':
       event.preventDefault()

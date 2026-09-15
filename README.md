@@ -77,7 +77,7 @@ branch names, commit subjects, authors, PR numbers and titles, and **workspace
 directory paths** — so a clone is findable by its folder name (`app-b`) even
 when its branch exists nowhere else.
 
-`⌘F` search · `⌘R` fetch now · `⌘N` new workspace of the selected branch.
+`⌘F` search (or just start typing) · `⌘R` fetch now · `⌘N` new workspace of the selected branch.
 
 ## Creating a workspace
 
