@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { api, type BranchImpact, type RemovalImpact } from '../api'
 import Icon from './Icon.vue'
 import { WORKSPACE_LABELS, bytes, relativeTime, shortPath } from '../format'
-import { refresh, projectId } from '../store'
+import { projectId, state } from '../store'
 import { useEscape } from '../useEscape'
 
 const props = defineProps<{
@@ -16,7 +16,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-useEscape(() => props.open && !working.value, () => emit('close'))
+useEscape(() => props.open && !submitting.value, () => emit('close'))
 
 const impacts = ref<RemovalImpact[]>([])
 const branchImpacts = ref<BranchImpact[]>([])
@@ -27,14 +27,13 @@ const selected = ref<Set<string>>(new Set())
 const selectedBranches = ref<Set<string>>(new Set())
 const deleteBranches = ref(true)
 const loading = ref(false)
-const working = ref(false)
-const failures = ref<{ label: string; error: string }[]>([])
+/** Only while the tasks are being queued, which is a moment. */
+const submitting = ref(false)
 
 watch(
   () => props.open,
   async (isOpen) => {
     if (!isOpen) return
-    failures.value = []
     const { paths, branches } = props
     selected.value = new Set(paths)
     selectedBranches.value = new Set()
@@ -101,15 +100,18 @@ const totals = computed(() => ({
   commits: chosenBranches.value.reduce((sum, b) => sum + b.commitCount, 0),
 }))
 
+/**
+ * Queue a task per workspace and per branch, then get out of the way. They
+ * run one at a time in the background; each reports in the task box, a
+ * failure stays there until dismissed, and the list refreshes as each lands.
+ */
 async function remove() {
   const id = projectId.value
   if (!id || chosenCount.value === 0) return
-  working.value = true
-  failures.value = []
+  submitting.value = true
   try {
-    const next: { label: string; error: string }[] = []
     if (chosen.value.length) {
-      const results = await api.removeWorkspaces(
+      await api.removeWorkspaces(
         id,
         chosen.value.map((i) => ({
           path: i.path,
@@ -119,30 +121,24 @@ async function remove() {
           deleteBranch: deleteBranches.value && i.kind === 'worktree' ? i.branch : null,
         })),
       )
-      for (const r of results) {
-        if (r.error) next.push({ label: shortPath(r.path), error: r.error })
-      }
     }
     if (chosenBranches.value.length) {
-      const results = await api.deleteBranches(
+      await api.deleteBranches(
         id,
         chosenBranches.value.map((b) => b.branch),
       )
-      for (const r of results) {
-        if (r.error) next.push({ label: r.branch, error: r.error })
-      }
     }
-    failures.value = next
-    await refresh()
-    if (failures.value.length === 0) emit('close')
+    emit('close')
+  } catch (e) {
+    state.error = String(e)
   } finally {
-    working.value = false
+    submitting.value = false
   }
 }
 </script>
 
 <template>
-  <div v-if="open" class="scrim" @click.self="!working && emit('close')">
+  <div v-if="open" class="scrim" @click.self="!submitting && emit('close')">
     <div class="modal wide">
       <div class="modal-header" data-tauri-drag-region="deep">
         <span>{{ title }}</span>
@@ -262,18 +258,17 @@ async function remove() {
           origin. Deleting these branches is the last thing holding them.
         </div>
 
-        <div v-for="failure in failures" :key="failure.label" class="banner error">
-          <code>{{ failure.label }}</code> — {{ failure.error }}
-        </div>
       </div>
 
       <div class="modal-footer">
-        <span v-if="working" class="spin" />
+        <span class="faint" style="font-size: 11.5px">
+          Runs in the background, one at a time.
+        </span>
         <span class="spacer" />
-        <button class="btn" :disabled="working" @click="emit('close')">Cancel</button>
+        <button class="btn" :disabled="submitting" @click="emit('close')">Cancel</button>
         <button
           class="btn primary danger"
-          :disabled="working || !chosenCount"
+          :disabled="submitting || loading || !chosenCount"
           @click="remove"
         >
           {{ chosen.length ? 'Remove' : 'Delete' }} {{ chosenCount || '' }}

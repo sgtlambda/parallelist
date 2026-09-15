@@ -7,7 +7,10 @@ import CreateDialog from './components/CreateDialog.vue'
 import DetailPane from './components/DetailPane.vue'
 import ProjectSidebar from './components/ProjectSidebar.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
+import TaskBox from './components/TaskBox.vue'
+import TasksDialog from './components/TasksDialog.vue'
 import { setHomeDirectory } from './format'
+import { startTaskSync } from './tasks'
 import {
   DETAIL_RANGE,
   SIDEBAR_RANGE,
@@ -19,7 +22,6 @@ import {
   persistPaneWidths,
   setPaneWidths,
   sidebarWidth,
-  listenProgress,
   loadConfig,
   openCleanup,
   refresh,
@@ -125,7 +127,7 @@ function onKey(event: KeyboardEvent) {
   }
 }
 
-let unlistenProgress: (() => void) | null = null
+let stopTaskSync: (() => void) | null = null
 
 onMounted(async () => {
   // Purely cosmetic: without it paths render absolute rather than under `~`.
@@ -135,8 +137,8 @@ onMounted(async () => {
     /* leave paths absolute */
   }
 
-  // Subscribe before the first refresh so its phases are not missed.
-  unlistenProgress = await listenProgress()
+  // Before the first refresh, so its task is in the box from the start.
+  stopTaskSync = await startTaskSync()
   await loadConfig()
   await refresh({ fetch: true })
   startBackgroundSync()
@@ -145,7 +147,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  unlistenProgress?.()
+  stopTaskSync?.()
   stopBackgroundSync()
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('contextmenu', onContextMenu)
@@ -191,6 +193,9 @@ onUnmounted(() => {
       @close="cleanupOpen = false"
     />
     <SettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
+    <TasksDialog @error="state.error = $event" />
+
+    <TaskBox @error="state.error = $event" />
 
     <div v-if="state.toast" class="toast">{{ state.toast }}</div>
   </div>

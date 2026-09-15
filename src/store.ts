@@ -1,7 +1,6 @@
 import { computed, reactive, ref, watch } from 'vue'
 import {
   api,
-  onProgress,
   type AheadBehind,
   type AppConfig,
   type BranchInfo,
@@ -9,6 +8,7 @@ import {
   type Overview,
   type PullRequest,
 } from './api'
+import { hasPendingCreate } from './tasks'
 
 export type Filter = 'active' | 'prs' | 'assigned' | 'workspaces' | 'all'
 
@@ -33,69 +33,27 @@ export const state = reactive({
   filter: 'active' as Filter,
   search: '',
   aheadBehind: {} as Record<string, AheadBehind>,
-  /** Phase id -> detail, for every phase currently running. */
-  progress: {} as Record<string, string>,
-  /** When the current phase started, so a slow one can say how slow. */
-  progressSince: 0,
+  /** When the refresh behind `overview` was asked for. Anything that finished
+   *  after this may not be reflected in it yet. */
+  overviewAt: 0,
   now: Date.now(),
   toast: null as string | null,
 })
-
-const PHASE_LABELS: Record<string, string> = {
-  fetching: 'Fetching from origin',
-  branches: 'Reading branches',
-  workspaces: 'Checking working trees',
-  pullRequests: 'Loading pull requests',
-}
-
-const PHASE_ORDER = ['fetching', 'branches', 'workspaces', 'pullRequests']
-
-export function describeProgress(): string | null {
-  const active = PHASE_ORDER.filter((phase) => phase in state.progress)
-  if (active.length === 0) return null
-  const parts = active.map((phase) => {
-    const label = PHASE_LABELS[phase] ?? 'Working'
-    const detail = state.progress[phase]
-    return detail ? `${label} ${detail}` : label
-  })
-  // Only once it's slow enough to wonder about, so the line doesn't flicker
-  // with a counter on every quick refresh.
-  const elapsed = Math.floor((state.now - state.progressSince) / 1000)
-  if (state.progressSince && elapsed >= 3) parts.push(`${elapsed}s`)
-  return parts.join(' · ')
-}
-
-/** Backend refresh phases. Ignores projects other than the one on screen. */
-export function listenProgress() {
-  return onProgress((event) => {
-    if (event.projectId !== projectId.value) return
-    const next = { ...state.progress }
-    if (event.active) {
-      if (Object.keys(next).length === 0) {
-        state.progressSince = Date.now()
-        state.now = Date.now()
-      }
-      next[event.phase] = event.detail
-    } else {
-      delete next[event.phase]
-    }
-    state.progress = next
-    if (Object.keys(next).length === 0) state.progressSince = 0
-  })
-}
 
 export const projectId = computed(() => state.config?.selectedProjectId ?? null)
 export const project = computed(
   () => state.config?.projects.find((p) => p.id === projectId.value) ?? null,
 )
 
-/** Global targets plus this project's own; a project id wins on a clash. */
-export const openTargets = computed(() => {
+/** Global targets plus a project's own; a project id wins on a clash. */
+export function openTargetsFor(id: string | null) {
   const global = state.config?.openTargets ?? []
-  const own = project.value?.openTargets ?? []
+  const own = state.config?.projects.find((p) => p.id === id)?.openTargets ?? []
   const ids = new Set(own.map((t) => t.id))
   return [...own, ...global.filter((t) => !ids.has(t.id))]
-})
+}
+
+export const openTargets = computed(() => openTargetsFor(projectId.value))
 
 /** The logged-in GitHub user, when `gh` could tell us. */
 export const viewer = computed(() => state.overview?.viewer ?? null)
@@ -286,6 +244,7 @@ export async function persistPaneWidths() {
 
 interface CacheEntry {
   overview: Overview
+  overviewAt: number
   aheadBehind: Record<string, AheadBehind>
   selectedBranch: string | null
   at: number
@@ -300,6 +259,7 @@ function remember(id: string) {
   if (!state.overview) return
   cache.set(id, {
     overview: state.overview,
+    overviewAt: state.overviewAt,
     aheadBehind: state.aheadBehind,
     selectedBranch: state.selectedBranch,
     at: Date.now(),
@@ -319,6 +279,7 @@ export async function refresh(options: { fetch?: boolean } = {}) {
     return
   }
   const ticket = ++inFlight
+  const askedAt = Date.now()
   // The user can switch projects mid-flight; anything that lands afterwards
   // belongs to a project that is no longer on screen.
   const current = () => ticket === inFlight && projectId.value === id
@@ -333,25 +294,29 @@ export async function refresh(options: { fetch?: boolean } = {}) {
     const previous = cache.get(id)
     cache.set(id, {
       overview,
+      overviewAt: askedAt,
       aheadBehind: previous?.aheadBehind ?? {},
       selectedBranch: previous?.selectedBranch ?? null,
       at: Date.now(),
     })
     if (!current()) return
     state.overview = overview
+    state.overviewAt = askedAt
     state.error = null
-    if (state.selectedBranch && !overview.branches.some((b) => b.name === state.selectedBranch)) {
+    // A branch being created may not exist in any ref yet; its pending card
+    // is what the user is looking at, so the selection stays.
+    if (
+      state.selectedBranch &&
+      !overview.branches.some((b) => b.name === state.selectedBranch) &&
+      !hasPendingCreate(id, state.selectedBranch)
+    ) {
       state.selectedBranch = null
     }
     void loadAheadBehind()
   } catch (e) {
     if (current()) state.error = String(e)
   } finally {
-    if (current()) {
-      state.loading = false
-      state.progress = {}
-      state.progressSince = 0
-    }
+    if (current()) state.loading = false
   }
 }
 
@@ -385,6 +350,7 @@ export async function selectProject(id: string | null) {
   // straight away. The refresh below replaces it; the status line says so.
   const cached = id ? cache.get(id) : undefined
   state.overview = cached?.overview ?? null
+  state.overviewAt = cached?.overviewAt ?? 0
   state.aheadBehind = cached?.aheadBehind ?? {}
   state.selectedBranch = cached?.selectedBranch ?? null
   state.error = null
@@ -408,12 +374,8 @@ export function startBackgroundSync() {
   timers.push(
     window.setInterval(() => void refresh(), Math.max(30, cfg.prRefreshSecs) * 1000),
   )
-  // Drives the elapsed counter on the status line.
-  timers.push(
-    window.setInterval(() => {
-      if (state.progress) state.now = Date.now()
-    }, 500),
-  )
+  // Drives elapsed counters, and how long a finished task lingers in the box.
+  timers.push(window.setInterval(() => (state.now = Date.now()), 500))
 
   if (cfg.fetchOnFocus) {
     window.addEventListener('focus', onFocus)

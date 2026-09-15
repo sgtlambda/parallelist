@@ -4,7 +4,19 @@ import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
 import { api, type Workspace } from '../api'
 import { WORKSPACE_LABELS, WORKSPACE_TITLES, basename, relativeTime, shortPath } from '../format'
-import { openTargets, project, selectedRow, state } from '../store'
+import {
+  createTasksFor,
+  dismissTask,
+  elapsed,
+  hasCard,
+  normalizePath,
+  openTaskIn,
+  openTasks,
+  removalOf,
+  taskProgress,
+  type LiveTask,
+} from '../tasks'
+import { openTargets, project, projectId, selectedRow, state } from '../store'
 
 const emit = defineEmits<{
   (e: 'create'): void
@@ -14,6 +26,46 @@ const emit = defineEmits<{
 
 const showAllTargets = ref(false)
 const row = selectedRow
+
+/**
+ * One card per directory: the row's real workspaces, then create tasks that
+ * have no real card yet — running, failed, or done but not listed until the
+ * refresh lands. Keyed by path, so when the refresh swaps a task card for the
+ * real one Vue patches the element in place instead of removing and re-adding
+ * it. A real workspace carries the removal task it is subject to, if any.
+ */
+const cards = computed(() => {
+  const real = row.value?.workspaces ?? []
+  const listed = new Set(real.map((w) => normalizePath(w.path)))
+  const pending = createTasksFor(projectId.value, state.selectedBranch).filter(
+    (t) => hasCard(t) && !(t.status === 'done' && listed.has(normalizePath(t.path ?? ''))),
+  )
+  return [
+    ...real.map((workspace) => ({
+      key: normalizePath(workspace.path),
+      workspace,
+      job: null,
+      removal: removalOf(projectId.value, workspace.path),
+    })),
+    ...pending.map((job) => ({
+      key: normalizePath(job.path ?? ''),
+      workspace: null,
+      job,
+      removal: null,
+    })),
+  ]
+})
+
+/** A removal that hasn't failed: the card is on its way out. */
+function removing(removal: LiveTask | null): boolean {
+  return !!removal && removal.status !== 'failed'
+}
+
+/** The pane has something to show: a branch row, or a card for one on its
+ *  way. */
+const title = computed(
+  () => row.value?.branch.name ?? (cards.value.length ? state.selectedBranch : null),
+)
 
 const targets = computed(() => {
   const usable = openTargets.value.filter((t) => !t.requiresPr || row.value?.pr)
@@ -38,6 +90,15 @@ async function openIn(targetId: string, workspace: Workspace) {
       primary: project.value?.path ?? '',
       prUrl: row.value?.pr?.url ?? '',
     })
+  } catch (e) {
+    emit('error', String(e))
+  }
+}
+
+/** A finished create's directory is usable before the list has caught up. */
+async function openJob(targetId: string, job: LiveTask) {
+  try {
+    await openTaskIn(targetId, job)
   } catch (e) {
     emit('error', String(e))
   }
@@ -106,12 +167,12 @@ async function openPullRequest() {
   <section class="pane">
     <div class="pane-header" data-tauri-drag-region="deep">
       <span class="truncate" style="font-weight: 600">
-        {{ row ? row.branch.name : 'No branch selected' }}
+        {{ title ?? 'No branch selected' }}
       </span>
       <span class="spacer" />
     </div>
 
-    <div v-if="!row" class="pane-body">
+    <div v-if="!title" class="pane-body">
       <p class="empty">
         Pick a branch to see its pull request, how far it has drifted from
         <code>{{ state.overview?.baseBranch ?? 'the base branch' }}</code
@@ -120,7 +181,7 @@ async function openPullRequest() {
     </div>
 
     <div v-else class="pane-body detail">
-      <div class="card">
+      <div v-if="row" class="card">
         <div class="card-title">Commit</div>
         <div>{{ row.branch.subject || '—' }}</div>
         <div class="muted" style="font-size: 11.5px">
@@ -144,7 +205,7 @@ async function openPullRequest() {
       </div>
 
       <button
-        v-if="row.pr"
+        v-if="row?.pr"
         class="card pr-card"
         :title="row.pr.url"
         @click="openPullRequest"
@@ -180,61 +241,145 @@ async function openPullRequest() {
       <div>
         <div style="display: flex; flex-direction: column; gap: 14px">
           <div
-            v-for="workspace in row.workspaces"
-            :key="workspace.path"
+            v-for="item in cards"
+            :key="item.key"
             class="card workspace"
-            :class="{ stale: row.stale && workspace.kind !== 'primary' }"
+            :class="{
+              stale: item.workspace && row?.stale && item.workspace.kind !== 'primary',
+              removing: removing(item.removal),
+              pending: item.job,
+              ready: item.job?.status === 'done',
+              failed: item.job?.status === 'failed',
+            }"
+            :role="item.job ? 'button' : undefined"
+            :tabindex="item.job ? 0 : undefined"
+            :title="item.job ? 'Show the full log' : undefined"
+            @click="item.job && openTasks(item.job.id)"
+            @keydown.enter="item.job && openTasks(item.job.id)"
           >
-            <div class="card-title">{{ WORKSPACE_TITLES[workspace.kind] }}</div>
-            <div
-              v-if="workspace.modified || workspace.untracked || workspace.unpushed"
-              class="row"
-            >
-              <span v-if="workspace.modified" class="badge warn">
-                {{ workspace.modified }} changed
-              </span>
-              <span v-if="workspace.untracked" class="badge" title="Untracked files — not counted as changes">
-                {{ workspace.untracked }} untracked
-              </span>
-              <span v-if="workspace.unpushed" class="badge warn">{{ workspace.unpushed }} unpushed</span>
-            </div>
-            <div class="path-row">
-              <span class="kind-icon" :title="WORKSPACE_LABELS[workspace.kind]">
-                <Icon :name="workspace.kind" />
-              </span>
-              <code class="truncate selectable" :title="workspace.path">
-                {{ shortPath(workspace.path) }}
-              </code>
-            </div>
-            <div v-if="ownerLabel(workspace)" class="faint" style="font-size: 11px">
-              worktree of {{ ownerLabel(workspace) }}
-            </div>
+            <template v-if="item.workspace">
+              <div class="row card-head">
+                <span class="card-title">{{ WORKSPACE_TITLES[item.workspace.kind] }}</span>
+                <span class="spacer" />
+                <!-- Greyed while it goes; the badge opens the removal's log. -->
+                <button
+                  v-if="item.removal"
+                  class="badge removal"
+                  :class="{ closed: item.removal.status === 'failed' }"
+                  title="Show the log"
+                  @click="openTasks(item.removal.id)"
+                >
+                  <template v-if="item.removal.status === 'queued'">queued for removal</template>
+                  <template v-else-if="item.removal.status === 'failed'">removal failed</template>
+                  <template v-else><span class="spin tiny" /> removing</template>
+                </button>
+              </div>
+              <div
+                v-if="item.workspace.modified || item.workspace.untracked || item.workspace.unpushed"
+                class="row"
+              >
+                <span v-if="item.workspace.modified" class="badge warn">
+                  {{ item.workspace.modified }} changed
+                </span>
+                <span v-if="item.workspace.untracked" class="badge" title="Untracked files — not counted as changes">
+                  {{ item.workspace.untracked }} untracked
+                </span>
+                <span v-if="item.workspace.unpushed" class="badge warn">{{ item.workspace.unpushed }} unpushed</span>
+              </div>
+              <div class="path-row">
+                <span class="kind-icon" :title="WORKSPACE_LABELS[item.workspace.kind]">
+                  <Icon :name="item.workspace.kind" />
+                </span>
+                <code class="truncate selectable" :title="item.workspace.path">
+                  {{ shortPath(item.workspace.path) }}
+                </code>
+              </div>
+              <div v-if="ownerLabel(item.workspace)" class="faint" style="font-size: 11px">
+                worktree of {{ ownerLabel(item.workspace) }}
+              </div>
 
-            <div class="actions">
-              <button
-                v-for="target in targets"
-                :key="target.id"
-                class="btn small"
-                @click="openIn(target.id, workspace)"
-              >
-                {{ target.icon }} {{ target.label }}
-              </button>
-              <button
-                v-if="hiddenCount && !showAllTargets"
-                class="btn ghost small"
-                @click="showAllTargets = true"
-              >
-                +{{ hiddenCount }} more
-              </button>
-              <span class="spacer" />
-              <button
-                v-if="workspace.kind !== 'primary'"
-                class="btn ghost small danger"
-                @click="emit('remove', [workspace.path])"
-              >
-                Remove
-              </button>
-            </div>
+              <div class="actions">
+                <button
+                  v-for="target in targets"
+                  :key="target.id"
+                  class="btn small"
+                  :disabled="removing(item.removal)"
+                  @click="openIn(target.id, item.workspace)"
+                >
+                  {{ target.icon }} {{ target.label }}
+                </button>
+                <button
+                  v-if="hiddenCount && !showAllTargets"
+                  class="btn ghost small"
+                  @click="showAllTargets = true"
+                >
+                  +{{ hiddenCount }} more
+                </button>
+                <span class="spacer" />
+                <button
+                  v-if="item.removal?.status === 'failed'"
+                  class="btn ghost small"
+                  @click="dismissTask(item.removal.id)"
+                >
+                  Dismiss
+                </button>
+                <button
+                  v-if="item.workspace.kind !== 'primary'"
+                  class="btn ghost small danger"
+                  :disabled="removing(item.removal)"
+                  @click="emit('remove', [item.workspace.path])"
+                >
+                  Remove
+                </button>
+              </div>
+            </template>
+
+            <!-- A workspace on its way, or just arrived. The card is the
+                 create task's progress line; clicking it opens the full log.
+                 Once the task is done it stays, marked ready, until the
+                 refreshed list carries the real card for the same path. -->
+            <template v-else-if="item.job">
+              <div class="row">
+                <span class="card-title">{{ WORKSPACE_TITLES[item.job.mode ?? 'worktree'] }}</span>
+                <span class="spacer" />
+                <span v-if="item.job.status === 'running'" class="badge">
+                  <span class="spin tiny" />
+                  creating · {{ elapsed(item.job) }}
+                </span>
+                <span v-else-if="item.job.status === 'queued'" class="badge">queued</span>
+                <span v-else-if="item.job.status === 'done'" class="badge open">ready</span>
+                <span v-else class="badge closed">failed</span>
+              </div>
+              <div class="path-row">
+                <span class="kind-icon" :title="WORKSPACE_LABELS[item.job.mode ?? 'worktree']">
+                  <Icon :name="item.job.mode ?? 'worktree'" />
+                </span>
+                <code class="truncate selectable" :title="item.job.path ?? ''">
+                  {{ shortPath(item.job.path ?? '') }}
+                </code>
+              </div>
+              <div v-if="item.job.status !== 'done'" class="job-progress">
+                <div class="truncate job-step">{{ taskProgress(item.job).step || 'Starting' }}</div>
+                <code class="truncate job-line" :class="{ err: item.job.status === 'failed' }">
+                  {{ taskProgress(item.job).line }}
+                </code>
+              </div>
+              <div v-if="item.job.status === 'done'" class="actions">
+                <button
+                  v-for="target in targets.filter((t) => !t.requiresPr)"
+                  :key="target.id"
+                  class="btn small"
+                  @click.stop="openJob(target.id, item.job)"
+                >
+                  {{ target.icon }} {{ target.label }}
+                </button>
+              </div>
+              <div v-if="item.job.status === 'failed'" class="actions">
+                <button class="btn small" @click.stop="openTasks(item.job.id)">Show log</button>
+                <span class="spacer" />
+                <button class="btn ghost small" @click.stop="dismissTask(item.job.id)">Dismiss</button>
+              </div>
+            </template>
           </div>
 
           <button class="new-workspace" @click="emit('create')">+ New workspace</button>

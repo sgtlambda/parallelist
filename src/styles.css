@@ -565,18 +565,6 @@ code,
   font-variant-numeric: tabular-nums;
 }
 
-.status-line {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 14px 11px;
-  font-size: 11.5px;
-  color: var(--text-dim);
-  background: var(--bg-hover);
-  border-top: 1px solid var(--border-soft);
-}
-
 .branch {
   display: block;
   width: 100%;
@@ -748,6 +736,69 @@ code,
   border-color: color-mix(in srgb, var(--amber) 50%, transparent);
 }
 
+/* A workspace still being created. The whole card opens the log, so it
+   behaves like the PR card: a button in all but tag, since it holds buttons
+   of its own once the job has failed. */
+.workspace.pending {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  cursor: pointer;
+}
+
+.workspace.pending:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.workspace.pending:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.workspace.pending.ready {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--green) 50%, var(--border));
+}
+
+.workspace.pending.failed {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--red) 50%, transparent);
+}
+
+/* Current step, then the newest line it produced. Two lines exactly, so the
+   card can't grow and shrink as output comes and goes. */
+.job-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 11.5px;
+}
+
+.job-step,
+.job-line {
+  line-height: 1.5;
+  min-height: 1.5em;
+}
+
+.job-step {
+  color: var(--text-dim);
+}
+
+.job-line {
+  color: var(--text-faint);
+}
+
+.job-line.err {
+  color: var(--red);
+}
+
+.spin.tiny {
+  width: 9px;
+  height: 9px;
+  border-width: 1.5px;
+}
+
 .new-workspace {
   width: 100%;
   padding: 9px 10px;
@@ -859,6 +910,189 @@ code,
   box-shadow: var(--shadow);
   font-size: 12px;
   animation: fade-in 0.12s ease both;
+}
+
+/* ---------- tasks ---------- */
+
+/* The running-tasks box. Top right, over the detail pane's header, and under
+   the modal scrim: a dialog in front of it is the thing being worked on. */
+.task-box {
+  position: fixed;
+  top: 8px;
+  right: 12px;
+  z-index: 35;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 300px;
+  max-width: calc(100vw - 24px);
+  padding: 8px 11px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  animation: fade-in 0.15s ease both;
+}
+
+.task-box:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.task-box:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.task-box.failed {
+  border-color: color-mix(in srgb, var(--red) 50%, var(--border));
+}
+
+.task-box.ready {
+  border-color: color-mix(in srgb, var(--green) 45%, var(--border));
+}
+
+.task-box .row {
+  gap: 7px;
+}
+
+.task-box .actions {
+  margin-top: 5px;
+  cursor: default;
+}
+
+.task-title {
+  font-weight: 600;
+}
+
+/* One line, always, so the box can't grow and shrink as output comes and
+   goes. Command output is arbitrary text; it is truncated, never wrapped. */
+.task-line {
+  font-size: 11.5px;
+  line-height: 1.5;
+  min-height: 1.5em;
+  color: var(--text-dim);
+}
+
+.task-line.err {
+  color: var(--red);
+}
+
+.task-icon {
+  flex: none;
+  width: 12px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.task-icon.done {
+  color: var(--green);
+}
+
+.task-icon.failed {
+  color: var(--red);
+}
+
+.task-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.task-dismiss {
+  padding: 0 5px;
+  margin: -2px 0;
+}
+
+.tasks-modal {
+  max-width: 920px;
+  height: min(640px, 100%);
+}
+
+.tasks-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 270px 1fr;
+}
+
+.task-list {
+  overflow-y: auto;
+  border-right: 1px solid var(--border-soft);
+  padding: 6px 0 10px;
+}
+
+.task-group {
+  padding: 10px 14px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 14px;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.task-item .spin,
+.task-item .task-icon {
+  margin-top: 3px;
+}
+
+.task-item:hover {
+  background: var(--bg-hover);
+}
+
+.task-item.selected {
+  background: var(--bg-active);
+}
+
+.task-item-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.task-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 14px 16px;
+}
+
+.task-detail-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.task-detail-head .task-title {
+  font-size: 13px;
+}
+
+.task-log {
+  flex: 1;
+  max-height: none;
+}
+
+/* A workspace on its way out: still listed until the refresh drops it. */
+.workspace.removing > :not(.card-head) {
+  opacity: 0.5;
+}
+
+.badge.removal {
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
 }
 
 /* ---------- modal ---------- */

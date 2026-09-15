@@ -124,11 +124,6 @@ export interface RemovalImpact {
   stashes: number
 }
 
-export interface RemovalResult {
-  path: string
-  error: string | null
-}
-
 export interface Commit {
   sha: string
   subject: string
@@ -143,11 +138,6 @@ export interface BranchImpact {
   commits: Commit[]
   /** Commits reachable from this branch and from no other ref. */
   commitCount: number
-}
-
-export interface BranchDeleteResult {
-  branch: string
-  error: string | null
 }
 
 export interface OpenContext {
@@ -168,8 +158,9 @@ export const api = {
     invoke<Record<string, AheadBehind>>('ahead_behind', { id, base, branches }),
   planWorkspace: (id: string, branch: string, pr: number | null) =>
     invoke<CreatePlan>('plan_workspace', { id, branch, pr }),
-  createWorkspace: (jobId: string, request: CreateRequest) =>
-    invoke<string>('create_workspace', { jobId, request }),
+  /** Returns the task id; the work carries on in the background. */
+  createWorkspace: (request: CreateRequest, prUrl: string | null) =>
+    invoke<string>('create_workspace', { request, prUrl }),
   removalImpacts: (id: string, paths: string[]) =>
     invoke<RemovalImpact[]>('removal_impacts', { id, paths }),
   workspaceSizes: (paths: string[]) =>
@@ -177,37 +168,64 @@ export const api = {
   removeWorkspaces: (
     id: string,
     items: { path: string; kind: WorkspaceKind; deleteBranch: string | null }[],
-  ) => invoke<RemovalResult[]>('remove_workspaces', { id, items }),
+  ) => invoke<string[]>('remove_workspaces', { id, items }),
   branchImpacts: (id: string, branches: string[]) =>
     invoke<BranchImpact[]>('branch_impacts', { id, branches }),
   deleteBranches: (id: string, branches: string[]) =>
-    invoke<BranchDeleteResult[]>('delete_branches', { id, branches }),
+    invoke<string[]>('delete_branches', { id, branches }),
   openIn: (targetId: string, ctx: OpenContext) => invoke<void>('open_in', { targetId, ctx }),
   copyText: (text: string) => invoke<void>('copy_text', { text }),
+  listTasks: () => invoke<Task[]>('list_tasks'),
+  getTask: (id: string) => invoke<Task | null>('get_task', { id }),
+  setTaskAttention: (id: string, attention: boolean) =>
+    invoke<void>('set_task_attention', { id, attention }),
 }
 
-export interface ProgressEvent {
-  projectId: string
-  phase: string
-  detail: string
-  /** Phases overlap, so this reports a phase starting or finishing. */
-  active: boolean
-}
+export type TaskKind = 'refresh' | 'create' | 'remove' | 'deleteBranch'
+export type TaskStatus = 'queued' | 'running' | 'done' | 'failed'
 
-/** Refresh progress, so a multi-second load can say what it is waiting on. */
-export function onProgress(handler: (event: ProgressEvent) => void) {
-  return listen<ProgressEvent>('progress', (event) => handler(event.payload))
-}
-
-export interface LogEvent {
-  jobId: string
-  line: string
+export interface TaskLine {
+  /** Position in the task's log, never reused; a rewritten line keeps it. */
+  n: number
+  text: string
   error: boolean
 }
 
-/** Subscribe to the setup log of one create job. */
-export function onSetupLog(jobId: string, handler: (event: LogEvent) => void) {
-  return listen<LogEvent>('setup-log', (event) => {
-    if (event.payload.jobId === jobId) handler(event.payload)
-  })
+export interface TaskHeader {
+  id: string
+  projectId: string
+  kind: TaskKind
+  title: string
+  status: TaskStatus
+  /** Failed, or a finished create whose card is not on screen. */
+  attention: boolean
+  /** Epoch milliseconds. */
+  createdAt: number
+  startedAt: number | null
+  finishedAt: number | null
+  branch: string | null
+  path: string | null
+  mode: 'worktree' | 'clone' | null
+  prUrl: string | null
+  /** Registry-wide revision; a lower one is an older view of the task. */
+  rev: number
+}
+
+export interface Task extends TaskHeader {
+  log: TaskLine[]
+}
+
+/** The backend's task registry, as it changes. */
+export function onTaskEvents(handlers: {
+  header: (header: TaskHeader) => void
+  line: (taskId: string, line: TaskLine) => void
+  removed: (taskId: string) => void
+}) {
+  return Promise.all([
+    listen<TaskHeader>('task', (e) => handlers.header(e.payload)),
+    listen<{ taskId: string; line: TaskLine }>('task-line', (e) =>
+      handlers.line(e.payload.taskId, e.payload.line),
+    ),
+    listen<string>('task-removed', (e) => handlers.removed(e.payload)),
+  ]).then((unlisteners) => () => unlisteners.forEach((u) => u()))
 }

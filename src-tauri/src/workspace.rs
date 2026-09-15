@@ -266,7 +266,7 @@ pub fn conflicting_worktree(project: &ProjectConfig, branch: &str) -> Option<Bra
         })
 }
 
-fn log_step<F: FnMut(&str, bool)>(log: &mut F, msg: &str) {
+pub fn log_step<F: FnMut(&str, bool) + ?Sized>(log: &mut F, msg: &str) {
     log(&format!("\u{25b8} {msg}"), false);
 }
 
@@ -508,11 +508,12 @@ pub fn dir_size(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
-pub fn remove(
+pub fn remove<F: FnMut(&str, bool)>(
     project: &ProjectConfig,
     path: &Path,
     kind: WorkspaceKind,
     delete_branch: Option<String>,
+    mut log: F,
 ) -> Result<(), String> {
     let primary = PathBuf::from(&project.path);
     if kind == WorkspaceKind::Primary {
@@ -522,6 +523,7 @@ pub fn remove(
 
     match kind {
         WorkspaceKind::Worktree => {
+            log_step(&mut log, "Removing the worktree");
             // --force because the impact dialog has already shown the user
             // exactly what is in there.
             let out = run(
@@ -529,24 +531,39 @@ pub fn remove(
                 &["worktree", "remove", "--force", &path_str],
                 Some(&primary),
             )?;
+            log_output(&mut log, &out);
             if !out.ok() {
                 // The registration can outlive the directory; prune and retry
                 // the plain delete rather than leaving a half-removed entry.
+                log_step(&mut log, "Deleting the directory and pruning the worktree");
                 std::fs::remove_dir_all(path).ok();
                 run("git", &["worktree", "prune"], Some(&primary))?;
             }
         }
         WorkspaceKind::Clone | WorkspaceKind::Orphan => {
+            log_step(&mut log, "Deleting the directory");
             std::fs::remove_dir_all(path).map_err(|e| format!("could not delete: {e}"))?;
         }
         WorkspaceKind::Primary => unreachable!(),
     }
 
     if let Some(branch) = delete_branch {
-        run("git", &["branch", "-D", &branch], Some(&primary))?;
+        log_step(&mut log, &format!("Deleting branch {branch}"));
+        let out = run("git", &["branch", "-D", &branch], Some(&primary))?;
+        log_output(&mut log, &out);
     }
     run("git", &["worktree", "prune"], Some(&primary))?;
+    log_step(&mut log, "Done");
     Ok(())
+}
+
+/// Everything a finished git command printed, flagged as errors if it failed.
+fn log_output<F: FnMut(&str, bool)>(log: &mut F, out: &crate::proc::Output) {
+    for line in out.stderr.lines().chain(out.stdout.lines()) {
+        if !line.trim().is_empty() {
+            log(line, !out.ok());
+        }
+    }
 }
 
 /// Delete a local branch from the primary clone.

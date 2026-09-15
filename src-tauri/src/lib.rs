@@ -11,12 +11,19 @@ use git::{AheadBehind, BranchInfo, Workspace, WorkspaceKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager, State};
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
+use tasks::{Coalesced, Task, TaskContext, TaskEvent, TaskKind, TaskStatus, Tasks};
+use tauri::{Emitter, Manager, State};
+
+type RefreshSlot = Coalesced<Result<Overview, String>>;
 
 struct AppState {
     config: Mutex<AppConfig>,
     dir: PathBuf,
+    tasks: Arc<Tasks>,
+    /// One per project, so overlapping refreshes of it share runs.
+    refreshes: Mutex<HashMap<String, Arc<RefreshSlot>>>,
 }
 
 impl AppState {
@@ -37,46 +44,18 @@ impl AppState {
         *self.config.lock().unwrap() = next;
         Ok(())
     }
-}
 
-/// Emitted while a refresh is in flight so the window can say what it is
-/// waiting on. A full refresh is several seconds of network and `git status`,
-/// which is far too long to show nothing.
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProgressEvent {
-    project_id: String,
-    /// Stable id; the frontend owns the wording.
-    phase: &'static str,
-    /// Optional extra, e.g. "12 of 16".
-    detail: String,
-    /// False when the phase has finished. Phases overlap, so the frontend
-    /// tracks a set rather than a single current step.
-    active: bool,
+    fn refresh_slot(&self, id: &str) -> Arc<RefreshSlot> {
+        let mut slots = self.refreshes.lock().unwrap();
+        Arc::clone(slots.entry(id.to_string()).or_default())
+    }
 }
 
 /// Anything that can be told what stage a refresh has reached.
 pub type Report<'a> = &'a (dyn Fn(&'static str, String, bool) + Sync);
 
-fn progress_reporter(
-    app: AppHandle,
-    project_id: String,
-) -> impl Fn(&'static str, String, bool) + Sync {
-    move |phase, detail, active| {
-        let _ = app.emit(
-            "progress",
-            ProgressEvent {
-                project_id: project_id.clone(),
-                phase,
-                detail,
-                active,
-            },
-        );
-    }
-}
-
 /// One refresh of everything the three panes need.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Overview {
     pub project: ProjectConfig,
@@ -149,18 +128,80 @@ fn select_project(state: State<AppState>, id: Option<String>) -> Result<(), Stri
     state.persist(cfg)
 }
 
+/// Refresh a project. A request that lands while a refresh of the same
+/// project is running waits for the run after it, shared with every other
+/// request that arrived meanwhile — the background poll, the focus check and a
+/// finished task can all ask at once without stacking up.
 #[tauri::command]
-async fn refresh(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    id: String,
-    fetch: bool,
-) -> Result<Overview, String> {
-    let repo = state.project(&id)?;
-    let report = progress_reporter(app, id);
-    tauri::async_runtime::spawn_blocking(move || build_overview(repo, fetch, &report))
-        .await
-        .map_err(|e| e.to_string())?
+async fn refresh(state: State<'_, AppState>, id: String, fetch: bool) -> Result<Overview, String> {
+    let project = state.project(&id)?;
+    let slot = state.refresh_slot(&id);
+    let tasks = Arc::clone(&state.tasks);
+    tauri::async_runtime::spawn_blocking(move || {
+        slot.request(fetch, |fetch| refresh_task(&tasks, project, fetch))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Wording for each refresh phase: while it runs, and once it is done.
+fn phase_labels(phase: &str) -> (&'static str, &'static str) {
+    match phase {
+        "fetching" => ("Fetching from origin", "Fetched from origin"),
+        "branches" => ("Reading branches", "Read branches"),
+        "workspaces" => ("Checking working trees", "Checked working trees"),
+        "pullRequests" => ("Loading pull requests", "Loaded pull requests"),
+        _ => ("Working", "Done"),
+    }
+}
+
+/// One refresh run as a task. Each phase is a single log line that its
+/// counter rewrites in place, then its timing once it is done. The phases
+/// overlap — pull requests load alongside the git work — so they can't share
+/// one line.
+fn refresh_task(tasks: &Tasks, project: ProjectConfig, fetch: bool) -> Result<Overview, String> {
+    let id = tasks.add(
+        &project.id,
+        TaskKind::Refresh,
+        format!("Refreshing {}", project.name),
+        TaskContext::default(),
+        TaskStatus::Running,
+    );
+    let phases: Mutex<HashMap<&'static str, (Instant, String)>> = Mutex::default();
+    let report = |phase: &'static str, detail: String, active: bool| {
+        let (running, done) = phase_labels(phase);
+        let mut phases = phases.lock().unwrap();
+        if active {
+            let entry = phases
+                .entry(phase)
+                .or_insert_with(|| (Instant::now(), String::new()));
+            let text = if detail.is_empty() {
+                format!("{running}…")
+            } else {
+                format!("{running} {detail}")
+            };
+            entry.1 = detail;
+            tasks.keyed_line(&id, phase, &text, false);
+        } else if let Some((started, detail)) = phases.remove(phase) {
+            let detail = if detail.is_empty() { String::new() } else { format!(" {detail}") };
+            let secs = started.elapsed().as_secs_f32();
+            tasks.keyed_line(&id, phase, &format!("{done}{detail} · {secs:.1}s"), false);
+        }
+    };
+
+    let result = build_overview(project, fetch, &report);
+    match &result {
+        Ok(overview) => {
+            // Non-fatal, and already a banner, but the log is where someone
+            // looking into a slow or odd refresh will look.
+            for warning in &overview.warnings {
+                tasks.line(&id, warning, true);
+            }
+            tasks.finish(&id, Ok(()));
+        }
+        Err(message) => tasks.finish(&id, Err(message.clone())),
+    }
+    result
 }
 
 /// Gather everything the three panes need.
@@ -222,7 +263,7 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
 
             report("workspaces", String::new(), true);
             let workspaces = workspace::scan(&project, &base_branch, &remote_branches, &|done, total| {
-                report("workspaces", format!("{done} of {total}"), true)
+                report("workspaces", format!("{done}/{total}"), true)
             })?;
             report("workspaces", String::new(), false);
 
@@ -357,41 +398,41 @@ fn plan_workspace(
     })
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LogEvent {
-    job_id: String,
-    line: String,
-    error: bool,
-}
-
+/// Start creating a workspace and return its task id straight away. Setup
+/// steps run for minutes; the dialog closes as soon as this returns.
 #[tauri::command]
-async fn create_workspace(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    job_id: String,
+fn create_workspace(
+    state: State<AppState>,
     request: CreateRequest,
+    pr_url: Option<String>,
 ) -> Result<String, String> {
-    let repo = state.project(&request.project_id)?;
-    let base = repo
-        .base_branch
-        .clone()
-        .unwrap_or_else(|| git::detect_base_branch(&PathBuf::from(&repo.path)));
-
-    tauri::async_runtime::spawn_blocking(move || {
-        workspace::create(&repo, &base, &request, |line, error| {
-            let _ = app.emit(
-                "setup-log",
-                LogEvent {
-                    job_id: job_id.clone(),
-                    line: line.to_string(),
-                    error,
-                },
-            );
-        })
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    let project = state.project(&request.project_id)?;
+    if state.tasks.is_creating(&request.path) {
+        return Err(format!("{} is already being created", request.path));
+    }
+    let id = state.tasks.add(
+        &project.id,
+        TaskKind::Create,
+        format!("Creating {}", request.branch),
+        TaskContext {
+            branch: Some(request.branch.clone()),
+            path: Some(request.path.clone()),
+            mode: Some(request.mode.clone()),
+            pr_url,
+        },
+        TaskStatus::Queued,
+    );
+    state.tasks.spawn(
+        id.clone(),
+        Box::new(move |log| {
+            let base = project
+                .base_branch
+                .clone()
+                .unwrap_or_else(|| git::detect_base_branch(&PathBuf::from(&project.path)));
+            workspace::create(&project, &base, &request, log).map(|_| ())
+        }),
+    );
+    Ok(id)
 }
 
 /// What removing each of these would destroy, minus the size on disk.
@@ -500,38 +541,53 @@ async fn branch_impacts(
     .map_err(|e| e.to_string())
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BranchDeleteResult {
-    branch: String,
-    error: Option<String>,
+/// Removals and branch deletions for one project run one at a time: they all
+/// write refs and worktree registrations in the same clone, where concurrent
+/// `git branch -D` calls trip over `packed-refs.lock`, and parallel `rm -rf`s
+/// of `vendor/` only fight over the disk.
+fn removal_lane(project_id: &str) -> String {
+    format!("remove:{project_id}")
 }
 
-/// Deleted one at a time, in order: they all write refs in the same clone, and
-/// one refusal shouldn't abandon the rest of the sweep.
+/// Queue one task per branch and return their ids.
 #[tauri::command]
-async fn delete_branches(
-    state: State<'_, AppState>,
+fn delete_branches(
+    state: State<AppState>,
     id: String,
     branches: Vec<String>,
-) -> Result<Vec<BranchDeleteResult>, String> {
+) -> Result<Vec<String>, String> {
     let project = state.project(&id)?;
-    let base = project
-        .base_branch
-        .clone()
-        .unwrap_or_else(|| git::detect_base_branch(&PathBuf::from(&project.path)));
-    let primary = PathBuf::from(&project.path);
-    tauri::async_runtime::spawn_blocking(move || {
-        branches
-            .into_iter()
-            .map(|branch| {
-                let error = workspace::delete_branch(&primary, &base, &branch).err();
-                BranchDeleteResult { branch, error }
-            })
-            .collect()
-    })
-    .await
-    .map_err(|e| e.to_string())
+    let lane = removal_lane(&project.id);
+    Ok(branches
+        .into_iter()
+        .map(|branch| {
+            let task = state.tasks.add(
+                &project.id,
+                TaskKind::DeleteBranch,
+                format!("Deleting branch {branch}"),
+                TaskContext {
+                    branch: Some(branch.clone()),
+                    ..TaskContext::default()
+                },
+                TaskStatus::Queued,
+            );
+            let project = project.clone();
+            state.tasks.spawn_in_lane(
+                &lane,
+                task.clone(),
+                Box::new(move |log| {
+                    let primary = PathBuf::from(&project.path);
+                    let base = project
+                        .base_branch
+                        .clone()
+                        .unwrap_or_else(|| git::detect_base_branch(&primary));
+                    workspace::log_step(log, &format!("git branch -D {branch}"));
+                    workspace::delete_branch(&primary, &base, &branch)
+                }),
+            );
+            task
+        })
+        .collect())
 }
 
 #[derive(Debug, Deserialize)]
@@ -543,38 +599,71 @@ struct RemovalRequest {
     delete_branch: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RemovalResult {
-    path: String,
-    error: Option<String>,
-}
-
+/// Queue one task per workspace and return their ids. Each failure is its
+/// own task, so one refusal doesn't abandon the rest of a sweep.
 #[tauri::command]
-async fn remove_workspaces(
-    state: State<'_, AppState>,
+fn remove_workspaces(
+    state: State<AppState>,
     id: String,
     items: Vec<RemovalRequest>,
-) -> Result<Vec<RemovalResult>, String> {
-    let repo = state.project(&id)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        items
-            .into_iter()
-            .map(|item| {
-                // One failure shouldn't abandon the rest of a bulk cleanup, so
-                // each result is reported independently.
-                let error =
-                    workspace::remove(&repo, &PathBuf::from(&item.path), item.kind, item.delete_branch)
-                        .err();
-                RemovalResult {
-                    path: item.path,
-                    error,
-                }
-            })
-            .collect()
-    })
-    .await
-    .map_err(|e| e.to_string())
+) -> Result<Vec<String>, String> {
+    let project = state.project(&id)?;
+    let lane = removal_lane(&project.id);
+    Ok(items
+        .into_iter()
+        .map(|item| {
+            let name = Path::new(&item.path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| item.path.clone());
+            let task = state.tasks.add(
+                &project.id,
+                TaskKind::Remove,
+                format!("Removing {name}"),
+                TaskContext {
+                    path: Some(item.path.clone()),
+                    branch: item.delete_branch.clone(),
+                    ..TaskContext::default()
+                },
+                TaskStatus::Queued,
+            );
+            let project = project.clone();
+            state.tasks.spawn_in_lane(
+                &lane,
+                task.clone(),
+                Box::new(move |log| {
+                    workspace::remove(&project, Path::new(&item.path), item.kind, item.delete_branch, log)
+                }),
+            );
+            task
+        })
+        .collect())
+}
+
+/// Every task the registry holds, logs included. The window calls this once
+/// at load and follows the events from there.
+#[tauri::command]
+fn list_tasks(state: State<AppState>) -> Vec<Task> {
+    state.tasks.list()
+}
+
+/// One task afresh, for when the window notices it missed a log line.
+#[tauri::command]
+fn get_task(state: State<AppState>, id: String) -> Option<Task> {
+    state.tasks.get(&id)
+}
+
+/// Flag a task for the user's attention, or dismiss it into the history.
+#[tauri::command]
+fn set_task_attention(state: State<AppState>, id: String, attention: bool) {
+    state.tasks.set_attention(&id, attention);
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskLinePayload<'a> {
+    task_id: &'a str,
+    line: &'a tasks::LogLine,
 }
 
 #[derive(Debug, Deserialize)]
@@ -655,9 +744,21 @@ pub fn run() {
             std::thread::spawn(|| {
                 proc::login_path();
             });
+            let handle = app.handle().clone();
+            let tasks = Arc::new(Tasks::new(move |event| {
+                let _ = match event {
+                    TaskEvent::Header(header) => handle.emit("task", header),
+                    TaskEvent::Line { task_id, line } => {
+                        handle.emit("task-line", TaskLinePayload { task_id, line })
+                    }
+                    TaskEvent::Removed(id) => handle.emit("task-removed", id),
+                };
+            }));
             app.manage(AppState {
                 config: Mutex::new(config),
                 dir,
+                tasks,
+                refreshes: Mutex::default(),
             });
             Ok(())
         })
@@ -678,6 +779,9 @@ pub fn run() {
             delete_branches,
             open_in,
             copy_text,
+            list_tasks,
+            get_task,
+            set_task_attention,
         ])
         .run(tauri::generate_context!())
         .expect("error while running switcheroo");

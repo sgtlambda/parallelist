@@ -14,7 +14,6 @@ import {
   openCleanup,
   openTargets,
   project,
-  describeProgress,
   refresh,
   staleWorkspacePaths,
   state,
@@ -320,13 +319,6 @@ function dirty(row: Row): boolean {
       </button>
     </div>
 
-    <!-- Refreshing over data we already have: a quiet line rather than a
-         spinner that hides the list. Sits below the scroll area so it can
-         never push the rows down. -->
-    <div v-if="describeProgress()" class="status-line">
-      <span class="spin" />
-      <span>{{ describeProgress() }}…</span>
-    </div>
     <ContextMenu
       :open="actions.open"
       :x="actions.x"
