@@ -33,8 +33,12 @@ const others = computed(() => Math.max(0, boxTasks.value.length - 1))
  * render — the finished task's checkmark — for the whole exit.
  *
  * Inside, a different featured task cross-fades in while `layout` eases the
- * box to its new height (the Ready buttons, a longer title). A task changing
- * state in place is not a swap: the spinner just gives way to the check.
+ * box to its new height (the Ready buttons, a longer title). The fades
+ * overlap: `popLayout` pins the outgoing content where it was so the incoming
+ * content takes its place at once. `wait` faded one fully out before the
+ * other came in, which read as a blank beat whenever a finished task handed
+ * the slot to one still running. A task changing state in place is not a
+ * swap: the spinner just gives way to the check.
  */
 const tucked = { opacity: 0, y: -6, scale: 0.97 }
 const settled = { opacity: 1, y: 0, scale: 1 }
@@ -78,15 +82,14 @@ async function reveal(task: LiveTask) {
         @click="openTasks(featured.id)"
         @keydown.enter="openTasks(featured.id)"
       >
-        <AnimatePresence mode="wait" :initial="false">
+        <AnimatePresence mode="popLayout" :initial="false">
           <motion.div
             :key="featured.id"
             class="task-box-body"
             layout="position"
             :initial="{ opacity: 0 }"
-            :animate="{ opacity: 1 }"
-            :exit="{ opacity: 0 }"
-            :transition="{ duration: 0.12 }"
+            :animate="{ opacity: 1, transition: { duration: 0.18, ease: 'easeOut' } }"
+            :exit="{ opacity: 0, transition: { duration: 0.12, ease: 'easeIn' } }"
           >
             <div class="row">
               <span v-if="featured.status === 'running'" class="spin tiny" />
