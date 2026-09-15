@@ -121,7 +121,11 @@ redundant complexity and are not.
   `task-removed` events (header revisions and line numbers make the events
   that race the listing harmless). The top-right `TaskBox` features one task
   (anything asking for attention, else the oldest running) with a `+N` count;
-  clicking it opens `TasksDialog`. **Tasks cannot be cancelled** — decided,
+  clicking it opens `TasksDialog`. The box animates with `motion-v` (enter,
+  lift-away exit, height via `layout`), chosen over hand-rolled CSS. That
+  doubled the JS bundle (~48 → ~95 KB gzipped), accepted for an app loaded from
+  disk; `LazyMotion` + `m` was measured and saves nothing, because the package
+  entry pulls in the whole engine. **Tasks cannot be cancelled** — decided,
   not overlooked. Scheduling, also decided:
   - Refreshes of one project are **coalesced** (`Coalesced` in `tasks.rs`): a
     request during a run waits for the *next* run, shared by everyone who

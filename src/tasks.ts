@@ -13,8 +13,9 @@ import { projectId, refresh, selectProject, selectedRow, state } from './store'
 /** The bound the backend keeps, so both sides trim the same lines. */
 const MAX_LINES = 5000
 
-/** How long a task that worked stays in the box after finishing. */
-const LINGER_MS = 3000
+/** How long a task that worked stays in the box after finishing: long
+ *  enough for its checkmark to draw in and be seen, then it lifts away. */
+const LINGER_MS = 1200
 
 export interface LiveTask extends Task {
   /** The most recently written line, rewritten or new. For a refresh that is
