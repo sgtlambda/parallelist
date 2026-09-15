@@ -90,7 +90,11 @@ redundant complexity and are not.
    feature. Window dragging uses `data-tauri-drag-region="deep"` and requires
    `core:window:allow-start-dragging`, which is **not** part of `core:default`
    and must be granted explicitly in `capabilities/`. Without it the attribute
-   is a silent no-op.
+   is a silent no-op. A `"deep"` region skips clickable descendants
+   (buttons, inputs, anything with `role="button"` or a `tabindex`) — that is
+   what lets the whole sidebar drag the window while its project rows still
+   click and reorder. Anything *non*-clickable that needs pointer events
+   inside a deep region must opt out with `data-tauri-drag-region="false"`.
 
 8. **Modified and untracked files are counted separately.** `git status
    --porcelain` lists both, and conflating them overstates the case badly: a

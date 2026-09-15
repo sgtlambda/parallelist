@@ -140,7 +140,11 @@ async function onMenuSelect(action: string) {
 </script>
 
 <template>
-  <aside class="pane sidebar">
+  <!-- The whole column moves the window, like a Finder sidebar. Tauri's
+       "deep" region never claims clickable elements, so the project rows —
+       buttons — still select on click and reorder on drag, and so do the
+       footer buttons. The context menu is teleported out of this subtree. -->
+  <aside class="pane sidebar" data-tauri-drag-region="deep">
     <div class="pane-body">
       <div class="section-title">Projects</div>
       <button
