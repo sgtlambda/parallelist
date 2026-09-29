@@ -103,6 +103,25 @@ redundant complexity and are not.
    Only `modified` and `unpushed` drive the warning badges and the removal
    impact dialog.
 
+9. **Every worktree git command runs in the clone that owns the worktree**,
+   which `workspace::owning_clone` resolves — not in the main workspace. Git
+   keeps one worktree registry per clone, so a worktree of a *secondary* clone
+   is invisible to the main one: `git worktree remove` there fails with "is not
+   a working tree" and `git worktree prune` there prunes nothing. That left the
+   registration alive after the directory was deleted, `scan()` read it back out
+   of `git worktree list`, and the workspace reappeared on every refresh while
+   the task reported success — the removal path swallowed the error. A surviving
+   registration is now a failure, and it is not cosmetic: git refuses to re-add
+   a worktree at a "missing but already registered" path, so a stale entry also
+   blocks re-creating the workspace. Covered by
+   `removes_a_worktree_that_hangs_off_a_secondary_clone`.
+
+10. **Paths from git are compared resolved** (`workspace::resolve`). Git reports
+    symlinks resolved — on macOS `/var/...` comes back as `/private/var/...` —
+    while paths in `config.json` are however the user typed them, so comparing
+    them raw is a false mismatch. `resolve` keeps the leaf as written, so a
+    directory that has already been deleted still compares.
+
 ## Conventions
 
 - **The UI says "Project"; the code says "repo"** (`RepoConfig`, `repoId`,

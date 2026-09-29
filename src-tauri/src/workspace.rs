@@ -23,12 +23,13 @@ use std::path::{Path, PathBuf};
 /// `remote_branches` is passed in rather than recomputed: the caller has
 /// already listed the refs, and doing it twice was costing a redundant pair of
 /// `for-each-ref` calls on every refresh.
-pub fn scan(
-    project: &ProjectConfig,
-    base: &str,
-    remote_branches: &HashSet<String>,
-    report: &(dyn Fn(usize, usize) + Sync),
-) -> Result<Vec<Workspace>, String> {
+/// Every directory beside the project that belongs to it: the clones (the main
+/// workspace first, then siblings pointing at the same remote) and the orphans
+/// — directories named like ours that are no longer git repos at all.
+///
+/// Read from `.git/config` rather than by spawning git, so scanning a folder
+/// with a hundred projects in it stays instant.
+fn siblings(project: &ProjectConfig) -> Result<(Vec<PathBuf>, Vec<PathBuf>), String> {
     let primary = PathBuf::from(&project.path);
     let parent = primary
         .parent()
@@ -40,9 +41,6 @@ pub fn scan(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_default();
 
-    // Sibling directories that are full clones of the same remote. Read from
-    // .git/config rather than by spawning git, so scanning a folder with a
-    // hundred projects in it stays instant.
     let mut clones = vec![primary.clone()];
     let mut orphans = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&parent) {
@@ -65,6 +63,83 @@ pub fn scan(
             }
         }
     }
+    Ok((clones, orphans))
+}
+
+/// A path in the form git reports it.
+///
+/// git resolves symlinks — on macOS `/var/...` comes back as `/private/var/...`
+/// — while the paths in `config.json` are however the user typed them. Comparing
+/// the two raw is a false mismatch, which here would mean deciding a worktree is
+/// still registered when it is not. The leaf is kept as written so a directory
+/// that has already been deleted still resolves.
+fn resolve(path: &Path) -> PathBuf {
+    if let Ok(real) = std::fs::canonicalize(path) {
+        return real;
+    }
+    match (path.parent(), path.file_name()) {
+        (Some(parent), Some(name)) => match std::fs::canonicalize(parent) {
+            Ok(real) => real.join(name),
+            Err(_) => path.to_path_buf(),
+        },
+        _ => path.to_path_buf(),
+    }
+}
+
+/// Which clone a worktree is registered against.
+///
+/// Worktrees of a *secondary* clone are invisible to the main workspace: git
+/// keeps a registry per clone, so `git worktree remove` run in the main
+/// workspace fails with "is not a working tree" and `git worktree prune` there
+/// has nothing to prune. The registration then outlives the directory, the
+/// next scan reads it straight back out of `git worktree list`, and the
+/// workspace appears to be unremovable.
+///
+/// The `.git` pointer file answers this without spawning anything. Once the
+/// directory is gone — exactly the state the bug above leaves behind — the
+/// only way left is to ask each clone what it still has registered.
+fn owning_clone(project: &ProjectConfig, path: &Path) -> PathBuf {
+    let primary = PathBuf::from(&project.path);
+    if path == primary {
+        return primary;
+    }
+
+    // "gitdir: /Code/repo-clone/.git/worktrees/repo-feature" -> /Code/repo-clone
+    if let Ok(text) = std::fs::read_to_string(path.join(".git")) {
+        if let Some(dir) = text.strip_prefix("gitdir:").map(str::trim) {
+            if let Some(root) = Path::new(dir)
+                .ancestors()
+                .find(|a| a.file_name().is_some_and(|n| n == ".git"))
+                .and_then(Path::parent)
+            {
+                return root.to_path_buf();
+            }
+        }
+    }
+
+    let Ok((clones, _)) = siblings(project) else {
+        return primary;
+    };
+    let wanted = resolve(path);
+    clones
+        .into_iter()
+        .find(|clone| {
+            git::worktrees(clone)
+                .unwrap_or_default()
+                .iter()
+                .any(|(p, _, _)| resolve(p) == wanted)
+        })
+        .unwrap_or(primary)
+}
+
+pub fn scan(
+    project: &ProjectConfig,
+    base: &str,
+    remote_branches: &HashSet<String>,
+    report: &(dyn Fn(usize, usize) + Sync),
+) -> Result<Vec<Workspace>, String> {
+    let primary = PathBuf::from(&project.path);
+    let (clones, orphans) = siblings(project)?;
 
     /// A workspace we know about but haven't inspected the working tree of yet.
     struct Entry {
@@ -520,6 +595,10 @@ pub fn remove<F: FnMut(&str, bool)>(
         return Err("refusing to remove the main workspace".into());
     }
     let path_str = path.to_string_lossy().to_string();
+    // Not `primary`: a worktree of a secondary clone is registered there and
+    // nowhere else, and git commands aimed at the wrong clone quietly do
+    // nothing. See `owning_clone`.
+    let owner = owning_clone(project, path);
 
     match kind {
         WorkspaceKind::Worktree => {
@@ -529,15 +608,32 @@ pub fn remove<F: FnMut(&str, bool)>(
             let out = run(
                 "git",
                 &["worktree", "remove", "--force", &path_str],
-                Some(&primary),
+                Some(&owner),
             )?;
             log_output(&mut log, &out);
             if !out.ok() {
                 // The registration can outlive the directory; prune and retry
                 // the plain delete rather than leaving a half-removed entry.
                 log_step(&mut log, "Deleting the directory and pruning the worktree");
-                std::fs::remove_dir_all(path).ok();
-                run("git", &["worktree", "prune"], Some(&primary))?;
+                if path.exists() {
+                    std::fs::remove_dir_all(path).map_err(|e| format!("could not delete: {e}"))?;
+                }
+                let out = run("git", &["worktree", "prune"], Some(&owner))?;
+                log_output(&mut log, &out);
+                // Deleting the directory and swallowing the rest used to report
+                // success while the registration survived, so the workspace came
+                // back on the next scan and the task log claimed it had gone.
+                // A surviving entry is a failure and has to say so.
+                if git::worktrees(&owner)
+                    .unwrap_or_default()
+                    .iter()
+                    .any(|(p, _, _)| resolve(p) == resolve(path))
+                {
+                    return Err(format!(
+                        "{path_str} is still registered as a worktree of {}",
+                        owner.to_string_lossy()
+                    ));
+                }
             }
         }
         WorkspaceKind::Clone | WorkspaceKind::Orphan => {
@@ -547,12 +643,16 @@ pub fn remove<F: FnMut(&str, bool)>(
         WorkspaceKind::Primary => unreachable!(),
     }
 
+    // The owner holds the branch and the registry we just changed — unless the
+    // owner *was* what we deleted (removing a whole clone), in which case the
+    // main workspace is the only one left to tidy.
+    let home = if owner.is_dir() { &owner } else { &primary };
     if let Some(branch) = delete_branch {
         log_step(&mut log, &format!("Deleting branch {branch}"));
-        let out = run("git", &["branch", "-D", &branch], Some(&primary))?;
+        let out = run("git", &["branch", "-D", &branch], Some(home))?;
         log_output(&mut log, &out);
     }
-    run("git", &["worktree", "prune"], Some(&primary))?;
+    run("git", &["worktree", "prune"], Some(home))?;
     log_step(&mut log, "Done");
     Ok(())
 }
@@ -642,6 +742,85 @@ mod tests {
         assert!(delete_branch(&dir, "main", "leftover").is_err());
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn removes_a_worktree_that_hangs_off_a_secondary_clone() {
+        let root = std::env::temp_dir().join(format!("switcheroo-own-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+
+        let g = |args: &[&str], cwd: &Path| {
+            let out = run("git", args, Some(cwd)).expect("git ran");
+            assert!(out.ok(), "git {args:?} failed: {}", out.stderr);
+        };
+
+        // A bare "remote" so the two clones look related to `siblings`.
+        let remote = root.join("origin.git");
+        std::fs::create_dir_all(&remote).unwrap();
+        g(&["init", "--quiet", "--bare", "-b", "main", "."], &remote);
+
+        let primary = root.join("repo");
+        std::fs::create_dir_all(&primary).unwrap();
+        repo_with_branch(&primary, "feature");
+        let url = remote.to_string_lossy().to_string();
+        g(&["remote", "add", "origin", &url], &primary);
+
+        // The secondary clone, which is where the worktree will live.
+        let clone = root.join("repo-clone");
+        g(
+            &["clone", "--quiet", "--local", &primary.to_string_lossy(), &clone.to_string_lossy()],
+            &root,
+        );
+        g(&["remote", "set-url", "origin", &url], &clone);
+
+        let worktree = root.join("repo-feature");
+        g(
+            &["worktree", "add", "--quiet", &worktree.to_string_lossy(), "feature"],
+            &clone,
+        );
+
+        let project = ProjectConfig {
+            id: "t".into(),
+            name: "t".into(),
+            path: primary.to_string_lossy().to_string(),
+            base_branch: Some("main".into()),
+            path_template: "{parent}/{project}-{slug}".into(),
+            setup_steps: Vec::new(),
+            open_targets: Vec::new(),
+        };
+
+        // The main workspace has never heard of this worktree, so aiming git
+        // there is the bug: it fails, and pruning there prunes nothing.
+        assert_eq!(resolve(&owning_clone(&project, &worktree)), resolve(&clone));
+
+        remove(&project, &worktree, WorkspaceKind::Worktree, None, |_, _| {})
+            .expect("removes the worktree");
+
+        assert!(!worktree.exists(), "directory survived");
+        let registered = git::worktrees(&clone).unwrap();
+        assert!(
+            !registered.iter().any(|(p, _, _)| resolve(p) == resolve(&worktree)),
+            "registration survived, so the workspace comes back: {registered:?}"
+        );
+
+        // And again with the directory already gone, which is the state the
+        // old code left behind: the path still resolves to its clone.
+        let stale = root.join("repo-stale");
+        g(
+            &["worktree", "add", "--quiet", &stale.to_string_lossy(), "-b", "stale"],
+            &clone,
+        );
+        std::fs::remove_dir_all(&stale).unwrap();
+        assert_eq!(resolve(&owning_clone(&project, &stale)), resolve(&clone));
+        remove(&project, &stale, WorkspaceKind::Worktree, None, |_, _| {})
+            .expect("clears a registration whose directory is gone");
+        assert!(
+            !git::worktrees(&clone).unwrap().iter().any(|(p, _, _)| resolve(p) == resolve(&stale)),
+            "stale registration survived"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
