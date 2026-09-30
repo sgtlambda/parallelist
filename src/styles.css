@@ -204,7 +204,7 @@ code,
 .pane-header.search input[type='search'] {
   align-self: stretch;
   height: 100%;
-  padding: 0 40px 0 12px;
+  padding: 0 68px 0 12px;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -215,6 +215,10 @@ code,
   top: 50%;
   right: 8px;
   transform: translateY(-50%);
+}
+
+.pane-header.search .btn.clear {
+  right: 36px;
 }
 
 .pane-body {

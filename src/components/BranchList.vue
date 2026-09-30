@@ -221,6 +221,14 @@ function dirty(row: Row): boolean {
         placeholder="Search branches, PRs, authors…"
         style="flex: 1; min-width: 0"
       />
+      <button
+        v-if="state.search"
+        class="btn ghost small icon clear"
+        title="Clear search"
+        @click="state.search = ''"
+      >
+        <Icon name="close" />
+      </button>
       <button class="btn ghost small icon" title="Actions" @click="openActions">
         <Icon name="more" />
       </button>
