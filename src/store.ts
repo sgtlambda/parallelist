@@ -266,8 +266,14 @@ function remember(id: string) {
   })
 }
 
+/** How each project's list was left: its tab and search term. Kept apart from
+ *  `cache` because that one only exists once a refresh has landed, and a
+ *  search typed while the first one is still loading should survive too. */
+const views = new Map<string, { filter: Filter; search: string }>()
+
 export function dropCached(id: string) {
   cache.delete(id)
+  views.delete(id)
 }
 
 let inFlight = 0
@@ -342,7 +348,13 @@ async function loadAheadBehind() {
 
 export async function selectProject(id: string | null) {
   const leaving = projectId.value
-  if (leaving && leaving !== id) remember(leaving)
+  if (leaving && leaving !== id) {
+    remember(leaving)
+    views.set(leaving, { filter: state.filter, search: state.search })
+    const view = id ? views.get(id) : undefined
+    state.filter = view?.filter ?? 'active'
+    state.search = view?.search ?? ''
+  }
 
   if (state.config) state.config.selectedProjectId = id
 
