@@ -33,13 +33,21 @@ const row = selectedRow
  * refresh lands. Keyed by path, so when the refresh swaps a task card for the
  * real one Vue patches the element in place instead of removing and re-adding
  * it. A real workspace carries the removal task it is subject to, if any.
+ *
+ * The directory is a real worktree as soon as `git worktree add` returns, well
+ * before setup steps finish, so a refresh mid-create lists it. Until the task
+ * is done its card holds that slot and the real one waits — otherwise the
+ * same path shows twice, and the half-installed one offers Open and Remove.
  */
 const cards = computed(() => {
-  const real = row.value?.workspaces ?? []
-  const listed = new Set(real.map((w) => normalizePath(w.path)))
+  const listed = new Set((row.value?.workspaces ?? []).map((w) => normalizePath(w.path)))
   const pending = createTasksFor(projectId.value, state.selectedBranch).filter(
     (t) => hasCard(t) && !(t.status === 'done' && listed.has(normalizePath(t.path ?? ''))),
   )
+  const claimed = new Set(
+    pending.filter((t) => t.status !== 'done').map((t) => normalizePath(t.path ?? '')),
+  )
+  const real = (row.value?.workspaces ?? []).filter((w) => !claimed.has(normalizePath(w.path)))
   return [
     ...real.map((workspace) => ({
       key: normalizePath(workspace.path),
