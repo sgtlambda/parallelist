@@ -1114,12 +1114,13 @@ code,
 
 /* ---------- tasks ---------- */
 
-/* The running-tasks box. Top right, over the detail pane's header, and under
-   the modal scrim: a dialog in front of it is the thing being worked on. */
+/* The running-tasks box. Bottom left, raised past the 44px footer strips
+   ("Add project", "Add branch") so it never covers them, and under the modal
+   scrim: a dialog in front of it is the thing being worked on. */
 .task-box {
   position: fixed;
-  bottom: 12px;
-  right: 12px;
+  bottom: 56px;
+  left: 12px;
   z-index: 35;
   width: 300px;
   max-width: calc(100vw - 24px);

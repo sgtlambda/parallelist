@@ -17,7 +17,7 @@ import { openTaskIn, targetBusy, targetTitle } from '../openIn'
 const emit = defineEmits<{ (e: 'error', message: string): void }>()
 
 /**
- * The bottom-right box: one featured task, and a count of the rest. The featured
+ * The bottom-left box: one featured task, and a count of the rest. The featured
  * task is the first of `boxTasks` — something asking for attention, else the
  * oldest running — so it only changes when that task is dealt with or
  * finishes, never because another one printed a line. Clicking opens the

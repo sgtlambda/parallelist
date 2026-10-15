@@ -16,6 +16,11 @@ const MAX_LINES = 5000
 /** How long a task that worked stays in the box after finishing: long
  *  enough for its checkmark to draw in and be seen, then it lifts away. */
 const LINGER_MS = 1200
+/** How long the box keeps a task that asks for attention. It stays flagged
+ *  (cards, the dialog) after that; the box just stops showing it. */
+const ATTENTION_MS = 10_000
+/** The "Ready" notice matters less than a failure, so it goes sooner. */
+const READY_MS = 6_000
 
 export interface LiveTask extends Task {
   /** The most recently written line, rewritten or new. For a refresh that is
@@ -162,12 +167,19 @@ const oldest = (key: (t: LiveTask) => number) => (a: LiveTask, b: LiveTask) => k
 
 /**
  * Everything the box has to show, the featured task first: tasks asking for
- * attention, so a failure can't hide behind a long install; then running,
+ * attention (for `ATTENTION_MS`, then they leave the box), so a failure can't
+ * hide behind a long install; then running,
  * then queued, each oldest first; then tasks that just finished.
  */
 export const boxTasks = computed<LiveTask[]>(() => {
   const all = tasks.value
-  const attention = all.filter((t) => t.attention).sort(oldest((t) => t.finishedAt ?? t.createdAt))
+  const attention = all
+    .filter(
+      (t) =>
+        t.attention &&
+        state.now - (t.finishedAt ?? t.createdAt) < (t.status === 'failed' ? ATTENTION_MS : READY_MS),
+    )
+    .sort(oldest((t) => t.finishedAt ?? t.createdAt))
   const running = all
     .filter((t) => t.status === 'running' && !t.attention)
     .sort(oldest((t) => t.startedAt ?? t.createdAt))
