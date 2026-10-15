@@ -659,6 +659,11 @@ code,
   align-items: center;
   gap: 7px;
   margin-top: 3px;
+  /* Always one badge tall (its line-height plus padding and border), whether
+     or not the row has any. Badges arrive with the first scan, after the
+     peek has drawn the list, and would otherwise grow the row under the
+     cursor. */
+  height: calc(10.5px * 1.55 + 4px);
   font-size: 11.5px;
   min-width: 0;
   overflow: hidden;

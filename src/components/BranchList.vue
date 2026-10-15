@@ -21,6 +21,7 @@ import {
   visibleRows,
 } from '../store'
 import { relativeTime } from '../format'
+import { atRisk, rowBadges } from '../status'
 
 const tabs = computed(() => [
   { id: 'active' as const, label: 'Active', title: 'Open PR, has a workspace, or recently committed to', count: counts.value.active },
@@ -205,11 +206,6 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
     path: c.path,
   }))
 }
-
-/** Only real work counts here: untracked strays are not "uncommitted". */
-function dirty(row: Row): boolean {
-  return row.workspaces.some((c) => c.modified > 0 || c.unpushed > 0)
-}
 </script>
 
 <template>
@@ -309,11 +305,19 @@ function dirty(row: Row): boolean {
             #{{ row.pr.number }}
             {{ row.pr.isDraft && row.pr.state === 'open' ? 'draft' : row.pr.state }}
           </span>
-          <span v-if="dirty(row)" class="badge warn">uncommitted</span>
-          <!-- Stale says the workspace can go; uncommitted says it can't yet.
-               The second is the one to act on, so it stands alone. -->
           <span
-            v-if="row.stale && !dirty(row)"
+            v-for="badge in rowBadges(row.workspaces)"
+            :key="badge.key"
+            class="badge"
+            :class="{ warn: badge.warn }"
+            :title="badge.title"
+          >
+            {{ badge.text }}
+          </span>
+          <!-- Stale says the workspace can go; the badges above say it can't
+               yet. Those are the ones to act on, so they stand alone. -->
+          <span
+            v-if="row.stale && !row.workspaces.some(atRisk)"
             class="badge warn"
             title="Merged or deleted on origin — the workspace can be removed"
           >

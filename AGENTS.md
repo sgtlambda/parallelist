@@ -67,8 +67,11 @@ redundant complexity and are not.
    launched from the Dock does not. Test the packaged app the way the user
    launches it, or reproduce with `env -i PATH=/usr/bin:/bin`.
 
-3. **`scan()` takes the ref set as an argument** instead of recomputing it. It
-   used to call `git::branches` again, repeating the expensive `--merged` pass.
+3. **`workspace::list` is not `workspace::scan`.** `list` is the cheap
+   discovery (one `git worktree list` per clone); `scan` adds a `git status`
+   per workspace. Anything that only needs kinds and branches — the removal
+   impacts, for one — uses `list`, rather than paying for the full status of
+   every workspace to look up the few it was asked about.
 
 4. **Working trees are inspected on a small thread pool.** Sequential
    `git status` across 16 workspaces was ~3.8s; in parallel it is ~0.55s. On a
@@ -121,6 +124,53 @@ redundant complexity and are not.
     while paths in `config.json` are however the user typed them, so comparing
     them raw is a false mismatch. `resolve` keeps the leaf as written, so a
     directory that has already been deleted still compares.
+
+11. **"Unpushed" means origin has the commit in no form** (`status::unpushed`).
+    Counting `@{u}..HEAD` was wrong both ways on the user's real workspaces:
+    it reported commits that a rebase on another machine had put on origin
+    under new hashes, and commits merged to origin through another branch.
+    And it reported *zero* for branches that had never been pushed, because
+    they had no upstream to compare with — so Cleanup offered real work up
+    as costing "nothing". Now a commit counts only if it is on no
+    `origin/*` ref, is not a `--cherry-pick` copy of one on the upstream or
+    base branch, and its changes aren't already all in the base branch (a
+    `merge-tree` that changes nothing — this is what catches squash merges).
+    "Behind" is neutral information, never a warning. Each filter has a
+    test in `status.rs` modelled on the workspace that needed it.
+
+12. **Unknown is never clean.** When git can't be asked about a workspace
+    (missing directory, timeout, corrupt index), its status is `null` with
+    a `statusError`, shown as "status unknown" and treated as at risk.
+    Defaulting the counts to zero is how a broken workspace used to look
+    perfectly clean. `null` with *no* `statusError` means "not asked yet":
+    the `peek` that fills the list while a project's first refresh runs
+    (local refs plus `workspace::list`, ~0.3s against several seconds). It
+    gets a quiet "checking…" on the card and no row badge, but `atRisk`
+    still treats it as at risk.
+
+13. **Removal impact is counted per kind**, because the kinds lose different
+    things. A worktree's stashes live in its clone (`refs/stash` is shared)
+    and survive it; its commits survive on its branch unless that branch is
+    deleted too. A clone takes every branch it has, its stashes, and strands
+    any worktrees registered against it (one real clone held work on dozens of
+    branches while its card counted 1).
+
+14. **Fetching fetches secondary clones too.** A clone's `origin/*` only
+    moves when something fetches in that clone, and every status measured
+    there is against it. Left to the user, one was seven weeks stale.
+
+15. **A failed create removes what it made**, and a clone of a branch that
+    was never pushed takes it from the main workspace *before* repointing
+    origin. Right after `git clone --local` the branch is visible as
+    `origin/<branch>`, because the main workspace was the origin. The
+    `fetch --prune` from the real remote then deletes that ref, the checkout
+    fails, and the directory used to stay behind holding only `.git`. A
+    never-checked-out clone like that reads as a workspace with every file
+    deleted, and it takes the suggested path,
+    so each retry landed one suffix further on: `-b`, then `-c`. Covered by
+    `clones_a_branch_that_was_never_pushed` and
+    `a_failed_create_leaves_nothing_behind`.
+
 
 ## Conventions
 
@@ -179,6 +229,11 @@ redundant complexity and are not.
   only the review step; confirming queues one task per item and closes. The
   card stays, marked "removing", until the refresh drops it, and comes back
   to life with "removal failed" if the task fails.
+- **`src/status.ts` is the only place a workspace-state badge is defined.**
+  The branch list, the workspace card and Cleanup each used to spell their
+  own, and drifted: the list said "uncommitted" for unpushed commits while
+  the card beside it said "unpushed". The numbers behind them come from
+  `src-tauri/src/status.rs`.
 - **`src/components/Icon.vue` is the only place a glyph is defined.** Call sites
   ask for a semantic name (`<Icon name="worktree" />`), never a picture, so the
   icon set can be swapped by editing one file.
@@ -198,8 +253,12 @@ cd src-tauri && cargo run --example probe -- ~/Code/some-repo
 ```
 
 `probe` exercises the entire git/gh layer headlessly and prints branches,
-workspaces, the sniffed setup recipe, PRs, and whether every workspace resolves to
-a branch row. It found two real bugs in one session — prefer it to guessing.
+workspaces with their status, what removing each would lose, the sniffed setup
+recipe, PRs, and whether every workspace resolves to a branch row. It found two
+real bugs in one session — prefer it to guessing. Given a second argument it
+also writes the overview as JSON, exactly as the frontend receives it, so UI
+logic like `src/status.ts` can be run against real data (bundle it with the
+esbuild under `node_modules/.pnpm`).
 
 To check SVG or other rendered output, `qlmanage -t -s 900 -o <dir> file.svg`
 renders through WebKit, the same engine the app uses. ImageMagick's built-in SVG

@@ -3,6 +3,7 @@ pub mod config;
 pub mod gh;
 pub mod git;
 pub mod proc;
+pub mod status;
 pub mod tasks;
 
 use workspace::{BranchConflict, CreateRequest, RemovalImpact};
@@ -13,6 +14,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use proc::parallel_map;
 use tasks::{Coalesced, Task, TaskContext, TaskEvent, TaskKind, TaskStatus, Tasks};
 use tauri::{Emitter, Manager, State};
 
@@ -244,82 +246,38 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
             let mut warnings = Vec::new();
             if fetch {
                 report("fetching", String::new(), true);
+                // Secondary clones too, alongside the main one. Each keeps its
+                // own `origin/*`, which only a fetch in that clone moves, and
+                // every status measured there — unpushed, behind — is against
+                // it. Left alone, a clone's snapshot is as old as the last time
+                // someone fetched in it by hand: weeks, in practice.
+                let mut repos = vec![path.clone()];
+                repos.extend(workspace::secondary_clones(&project));
+                let results = parallel_map(repos, |repo| (repo.clone(), git::fetch(repo)));
                 // Non-fatal: everything below still works from local refs, it
                 // is just one cycle stale.
-                if let Err(e) = git::fetch(&path) {
-                    warnings.push(format!("Couldn't reach origin — showing what's on disk. {e}"));
+                for (repo, result) in results {
+                    let Err(e) = result else { continue };
+                    warnings.push(if repo == path {
+                        format!("Couldn't reach origin — showing what's on disk. {e}")
+                    } else {
+                        format!("Couldn't fetch in {} — its status may be out of date. {e}", repo.display())
+                    });
                 }
                 report("fetching", String::new(), false);
             }
 
             report("branches", String::new(), true);
             let mut branches = git::branches(&path, &base_branch)?;
-            let remote_branches: std::collections::HashSet<String> = branches
-                .iter()
-                .filter(|b| b.has_remote)
-                .map(|b| b.name.clone())
-                .collect();
             report("branches", String::new(), false);
 
             report("workspaces", String::new(), true);
-            let workspaces = workspace::scan(&project, &base_branch, &remote_branches, &|done, total| {
+            let workspaces = workspace::scan(&project, &base_branch, &|done, total| {
                 report("workspaces", format!("{done}/{total}"), true)
             })?;
             report("workspaces", String::new(), false);
 
-            // A secondary clone is an independent repository, so a branch
-            // checked out there may not exist in the primary at all. Without
-            // this those workspaces have no row to attach to and vanish from the
-            // list while still being counted under Cleanup.
-            //
-            // Only branches that are actually checked out get added. Merging
-            // every ref from every clone would drag in that clone's stale
-            // origin/* snapshot and resurrect hundreds of dead branches.
-            let mut extra: Vec<BranchInfo> = Vec::new();
-            for workspace in &workspaces {
-                let Some(name) = workspace.branch.as_deref() else {
-                    continue;
-                };
-                if branches.iter().any(|b| b.name == name) || extra.iter().any(|b| b.name == name) {
-                    continue;
-                }
-                let Some((sha, when, author, subject)) =
-                    git::head_commit(&PathBuf::from(&workspace.path))
-                else {
-                    continue;
-                };
-                // A clone keeps its own remote-tracking ref, which survives the
-                // branch being deleted on origin — the only evidence left that
-                // it was ever pushed.
-                let was_pushed = crate::proc::run(
-                    "git",
-                    &[
-                        "show-ref",
-                        "--verify",
-                        "--quiet",
-                        &format!("refs/remotes/origin/{name}"),
-                    ],
-                    Some(&PathBuf::from(&workspace.path)),
-                )
-                .map(|out| out.ok())
-                .unwrap_or(false);
-
-                extra.push(BranchInfo {
-                    name: name.to_string(),
-                    has_remote: false,
-                    has_local: true,
-                    was_pushed,
-                    sha,
-                    committed_at: when,
-                    author,
-                    subject,
-                    merged: false,
-                });
-            }
-            if !extra.is_empty() {
-                branches.extend(extra);
-                branches.sort_by_key(|b| std::cmp::Reverse(b.committed_at));
-            }
+            add_clone_only_branches(&mut branches, &workspaces);
 
             Ok((branches, workspaces, warnings))
         });
@@ -349,6 +307,115 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
         viewer,
         warnings,
     })
+}
+
+/// Rows for branches that only a secondary clone has. A clone is an
+/// independent repository, so a branch checked out there may not exist in the
+/// primary at all. Without this those workspaces have no row to attach to and
+/// vanish from the list while still being counted under Cleanup.
+///
+/// Only branches that are actually checked out get added. Merging every ref
+/// from every clone would drag in that clone's stale origin/* snapshot and
+/// resurrect hundreds of dead branches.
+fn add_clone_only_branches(branches: &mut Vec<BranchInfo>, workspaces: &[Workspace]) {
+    let mut extra: Vec<BranchInfo> = Vec::new();
+    for workspace in workspaces {
+        let Some(name) = workspace.branch.as_deref() else {
+            continue;
+        };
+        if branches.iter().any(|b| b.name == name) || extra.iter().any(|b| b.name == name) {
+            continue;
+        }
+        let Some((sha, when, author, subject)) =
+            git::head_commit(&PathBuf::from(&workspace.path))
+        else {
+            continue;
+        };
+        // A clone keeps its own remote-tracking ref, which survives the
+        // branch being deleted on origin — the only evidence left that
+        // it was ever pushed.
+        let was_pushed = crate::proc::run(
+            "git",
+            &[
+                "show-ref",
+                "--verify",
+                "--quiet",
+                &format!("refs/remotes/origin/{name}"),
+            ],
+            Some(&PathBuf::from(&workspace.path)),
+        )
+        .map(|out| out.ok())
+        .unwrap_or(false);
+
+        extra.push(BranchInfo {
+            name: name.to_string(),
+            has_remote: false,
+            has_local: true,
+            was_pushed,
+            sha,
+            committed_at: when,
+            author,
+            subject,
+            merged: false,
+        });
+    }
+    if !extra.is_empty() {
+        branches.extend(extra);
+        branches.sort_by_key(|b| std::cmp::Reverse(b.committed_at));
+    }
+}
+
+/// What is on disk right now, for a project nothing has been shown for yet:
+/// local refs and `workspace::list`, without fetching, asking GitHub or
+/// running a `git status`. A fraction of a second where a full refresh takes
+/// several, so the list has something in it while that runs and replaces it.
+///
+/// Statuses come back `None` with no `status_error` — not yet asked, as
+/// opposed to unknown. The frontend shows no badge for that but still treats
+/// it as at risk (`atRisk` in `src/status.ts`).
+pub fn peek_overview(project: ProjectConfig) -> Result<Overview, String> {
+    let path = PathBuf::from(&project.path);
+    if !git::is_git_repo(&path) {
+        return Err(format!("{} is no longer a git repository", project.path));
+    }
+    let base_branch = project
+        .base_branch
+        .clone()
+        .unwrap_or_else(|| git::detect_base_branch(&path));
+    let slug = git::origin_url(&path).ok().and_then(|u| git::origin_slug(&u));
+
+    let mut branches = git::branches(&path, &base_branch)?;
+    let workspaces: Vec<Workspace> = workspace::list(&project)?
+        .into_iter()
+        .map(|entry| Workspace {
+            path: entry.path.to_string_lossy().to_string(),
+            kind: entry.kind,
+            branch: entry.branch,
+            owner: entry.owner,
+            status: None,
+            status_error: None,
+        })
+        .collect();
+    add_clone_only_branches(&mut branches, &workspaces);
+
+    Ok(Overview {
+        project,
+        base_branch,
+        slug,
+        branches,
+        workspaces,
+        pull_requests: HashMap::new(),
+        viewer: None,
+        warnings: Vec::new(),
+    })
+}
+
+#[tauri::command]
+async fn peek(state: State<'_, AppState>, id: String) -> Result<Overview, String> {
+    let project = state.project(&id)?;
+    tauri::async_runtime::spawn_blocking(move || peek_overview(project))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Ahead/behind for just the branches currently on screen. Each one costs a
@@ -453,13 +520,14 @@ async fn removal_impacts(
         .unwrap_or_else(|| git::detect_base_branch(&PathBuf::from(&project.path)));
 
     tauri::async_runtime::spawn_blocking(move || {
-        let remote_branches = git::remote_branch_names(&PathBuf::from(&project.path));
-        let known = workspace::scan(&project, &base, &remote_branches, &|_, _| {}).unwrap_or_default();
+        // Kind and branch only, so the listing rather than a full scan: every
+        // path is inspected below anyway, and only the chosen ones.
+        let known = workspace::list(&project).unwrap_or_default();
         parallel_map(paths, |path| {
-            let found = known.iter().find(|w| w.path == *path);
+            let found = known.iter().find(|w| w.path.to_string_lossy() == path.as_str());
             let kind = found.map(|w| w.kind).unwrap_or(WorkspaceKind::Orphan);
             let branch = found.and_then(|w| w.branch.clone());
-            workspace::removal_impact(&PathBuf::from(path), kind, branch)
+            workspace::removal_impact(&PathBuf::from(path), kind, branch, &base)
         })
     })
     .await
@@ -479,29 +547,6 @@ async fn workspace_sizes(paths: Vec<String>) -> Result<HashMap<String, u64>, Str
     })
     .await
     .map_err(|e| e.to_string())
-}
-
-/// Run `f` over every item on a small pool, preserving order.
-fn parallel_map<T, R>(items: Vec<T>, f: impl Fn(&T) -> R + Sync) -> Vec<R>
-where
-    T: Sync,
-    R: Send,
-{
-    if items.is_empty() {
-        return Vec::new();
-    }
-    let workers = items.len().min(8);
-    let chunk = items.len().div_ceil(workers);
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = items
-            .chunks(chunk)
-            .map(|chunk| scope.spawn(|| chunk.iter().map(&f).collect::<Vec<_>>()))
-            .collect();
-        handles
-            .into_iter()
-            .flat_map(|h| h.join().unwrap_or_default())
-            .collect()
-    })
 }
 
 /// What deleting a branch would cost: the commits no other ref holds.
@@ -769,6 +814,7 @@ pub fn run() {
             remove_project,
             select_project,
             refresh,
+            peek,
             ahead_behind,
             plan_workspace,
             create_workspace,
@@ -785,4 +831,68 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running switcheroo");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::proc::run;
+
+    /// A secondary clone's `origin/*` only moves when something fetches in
+    /// that clone, and every status measured there is against it.
+    #[test]
+    fn a_fetching_refresh_fetches_secondary_clones_too() {
+        let root = std::env::temp_dir().join(format!("switcheroo-fetch-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+        let g = |cwd: &Path, args: &[&str]| {
+            let out = run("git", args, Some(cwd)).expect("git ran");
+            assert!(out.ok(), "git {args:?} failed: {}", out.stderr);
+            out.stdout.trim().to_string()
+        };
+
+        let remote = root.join("origin.git");
+        std::fs::create_dir_all(&remote).unwrap();
+        g(&remote, &["init", "--quiet", "--bare", "-b", "main", "."]);
+        let url = remote.to_string_lossy().to_string();
+        // Siblings in one directory, so the scan finds the clone; the pusher
+        // lives elsewhere so it doesn't.
+        std::fs::create_dir_all(root.join("code")).unwrap();
+        std::fs::create_dir_all(root.join("elsewhere")).unwrap();
+        let pusher = root.join("elsewhere/pusher");
+        g(&root, &["clone", "--quiet", &url, &pusher.to_string_lossy()]);
+        g(&pusher, &["config", "user.email", "test@example.com"]);
+        g(&pusher, &["config", "user.name", "Test"]);
+        g(&pusher, &["commit", "--quiet", "--allow-empty", "-m", "base"]);
+        g(&pusher, &["push", "--quiet", "-u", "origin", "main"]);
+
+        let primary = root.join("code/repo");
+        let clone = root.join("code/repo-b");
+        g(&root, &["clone", "--quiet", &url, &primary.to_string_lossy()]);
+        g(&root, &["clone", "--quiet", &url, &clone.to_string_lossy()]);
+
+        g(&pusher, &["commit", "--quiet", "--allow-empty", "-m", "news"]);
+        g(&pusher, &["push", "--quiet", "origin", "main"]);
+        let news = g(&pusher, &["rev-parse", "HEAD"]);
+
+        let project = ProjectConfig::new(primary.clone(), "t".into());
+        let overview = build_overview(project, true, &|_, _, _| {}).expect("builds");
+        // Under /var, which git reports as /private/var: the kinds are only
+        // right if the paths are compared resolved.
+        let kinds: Vec<_> = overview.workspaces.iter().map(|w| w.kind).collect();
+        assert_eq!(kinds, [WorkspaceKind::Primary, WorkspaceKind::Clone]);
+        let fetch_warnings: Vec<_> = overview.warnings.iter().filter(|w| w.contains("fetch")).collect();
+        assert!(fetch_warnings.is_empty(), "{fetch_warnings:?}");
+
+        assert_eq!(g(&clone, &["rev-parse", "origin/main"]), news, "the clone was not fetched");
+        let behind = overview
+            .workspaces
+            .iter()
+            .find(|w| w.kind == WorkspaceKind::Clone)
+            .and_then(|w| w.status)
+            .map(|s| s.behind);
+        assert_eq!(behind, Some(1), "measured against the fresh snapshot");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
 }

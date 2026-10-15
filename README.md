@@ -132,9 +132,12 @@ The branch list's menu has two sweeps, each counting what it would offer:
   their own start unticked. A single branch can also be deleted straight from
   its right-click menu.
 
-Each row shows what removing it would destroy — uncommitted changes, unpushed
-commits, stashes, size on disk. Nothing is blocked; you just get to see the
-bill first.
+Each row shows what removing it would destroy — uncommitted changes, commits
+origin has in no form (not as a rebased copy, not squashed into the base
+branch), and for a clone its stashes, its other branches and any worktrees that
+hang off it — plus size on disk. A workspace that couldn't be checked says so
+rather than claiming to be empty. In a sweep, anything with something to lose
+starts unticked. Nothing is blocked; you just get to see the bill first.
 
 Confirming closes the dialog straight away. Each workspace and branch becomes
 its own task, run one at a time per project in the background; the cards being

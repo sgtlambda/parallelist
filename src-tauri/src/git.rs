@@ -1,6 +1,7 @@
 //! Everything Switcheroo knows about a repository, derived from `git`.
 
 use crate::proc::{run, run_timeout, Output, NETWORK_TIMEOUT};
+use crate::status::Status;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -60,14 +61,11 @@ pub struct Workspace {
     pub branch: Option<String>,
     /// Which clone a worktree hangs off. `None` for a clone's own root.
     pub owner: Option<String>,
-    /// Modified or staged *tracked* files.
-    pub modified: u32,
-    /// Untracked files and directories. Kept separate because a stray
-    /// `.DS_Store` is not work you can lose.
-    pub untracked: u32,
-    pub unpushed: u32,
-    /// The branch is gone from origin, or merged into the base branch.
-    pub branch_gone: bool,
+    /// `None` when there is nothing to ask (an orphan) or git couldn't be
+    /// asked, in which case `status_error` says why. Never zeros standing in
+    /// for "unknown": that is how a broken workspace used to look clean.
+    pub status: Option<Status>,
+    pub status_error: Option<String>,
 }
 
 pub fn is_git_repo(path: &Path) -> bool {
@@ -252,27 +250,6 @@ fn merged_branches(repo: &Path, base: &str) -> Result<std::collections::HashSet<
         .collect())
 }
 
-/// Just the names of branches that exist on origin.
-pub fn remote_branch_names(repo: &Path) -> std::collections::HashSet<String> {
-    git(
-        &[
-            "for-each-ref",
-            "--format=%(refname)",
-            "refs/remotes/origin",
-        ],
-        repo,
-    )
-    .map(|out| {
-        out.lines()
-            .into_iter()
-            .filter_map(|l| l.strip_prefix("refs/remotes/origin/"))
-            .filter(|n| *n != "HEAD")
-            .map(|n| n.to_string())
-            .collect()
-    })
-    .unwrap_or_default()
-}
-
 /// Commit metadata for whatever a workspace currently has at HEAD.
 ///
 /// Used for branches that exist only inside a secondary clone, where the
@@ -372,50 +349,6 @@ pub fn worktrees(clone: &Path) -> Result<Vec<WorktreeEntry>, String> {
     }
     flush(&mut path, &mut head, &mut branch, &mut list);
     Ok(list)
-}
-
-/// What is sitting in a working tree, split by kind.
-///
-/// `git status --porcelain` reports modified tracked files and untracked ones
-/// in the same list, and conflating them overstates the case badly: a worktree
-/// whose only "change" is a `.DS_Store` would be reported as having
-/// uncommitted work, which is exactly what an IDE would show as clean.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct WorkingTree {
-    pub modified: u32,
-    pub untracked: u32,
-}
-
-pub fn working_tree(path: &Path) -> WorkingTree {
-    let Ok(out) = git(&["status", "--porcelain"], path) else {
-        return WorkingTree::default();
-    };
-    let mut tree = WorkingTree::default();
-    for line in out.lines() {
-        // Porcelain v1: "?? path" is untracked, anything else is tracked.
-        if line.starts_with("??") {
-            tree.untracked += 1;
-        } else {
-            tree.modified += 1;
-        }
-    }
-    tree
-}
-
-/// Commits on this branch that origin doesn't have. Zero when there's no
-/// upstream, since there is then nothing we can claim would be lost.
-pub fn unpushed_count(path: &Path) -> u32 {
-    git(&["rev-list", "--count", "@{u}..HEAD"], path)
-        .ok()
-        .filter(|o| o.ok())
-        .and_then(|o| o.stdout.trim().parse().ok())
-        .unwrap_or(0)
-}
-
-pub fn stash_count(path: &Path) -> u32 {
-    git(&["stash", "list"], path)
-        .map(|o| o.lines().len() as u32)
-        .unwrap_or(0)
 }
 
 /// A commit, for showing what deleting a ref would throw away.

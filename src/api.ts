@@ -62,12 +62,23 @@ export interface Workspace {
   branch: string | null
   /** Which clone a worktree hangs off. Null for a clone's own root. */
   owner: string | null
-  /** Modified or staged tracked files. */
+  /** Null for an orphan, or when git couldn't be asked — then `statusError`
+   *  says why. Null with no `statusError` on anything else means not asked
+   *  yet (`api.peek`). Never zeros standing in for "unknown". */
+  status: WorkspaceStatus | null
+  statusError: string | null
+}
+
+/** What a workspace holds. `status.rs` defines each count exactly. */
+export interface WorkspaceStatus {
+  /** Tracked files with changes, staged or not. */
   modified: number
   /** Untracked entries — noise like `.DS_Store`, not work at risk. */
   untracked: number
+  /** Commits origin has in no form: no branch, no rebased copy, no squash. */
   unpushed: number
-  branchGone: boolean
+  /** Commits its upstream on origin has that it doesn't. */
+  behind: number
 }
 
 export interface PullRequest {
@@ -118,10 +129,17 @@ export interface RemovalImpact {
   path: string
   kind: WorkspaceKind
   branch: string | null
-  modified: number
-  untracked: number
-  unpushed: number
+  status: WorkspaceStatus | null
+  /** Something couldn't be measured: unknown, not safe. */
+  error: string | null
+  /** Commits that exist nowhere else once this is gone. */
+  commits: number
+  /** A worktree's branch keeps `commits` unless it is deleted too. */
+  commitsNeedBranchDelete: boolean
+  /** Only a clone's own: a worktree's stashes live in its clone. */
   stashes: number
+  /** Worktrees of a clone, stranded by its removal. */
+  dependents: string[]
 }
 
 export interface Commit {
@@ -154,6 +172,9 @@ export const api = {
   removeProject: (id: string) => invoke<void>('remove_project', { id }),
   selectProject: (id: string | null) => invoke<void>('select_project', { id }),
   refresh: (id: string, fetch: boolean) => invoke<Overview>('refresh', { id, fetch }),
+  /** What is on disk, without fetching, GitHub or any `git status`: shown
+   *  while the first refresh of a project runs. */
+  peek: (id: string) => invoke<Overview>('peek', { id }),
   aheadBehind: (id: string, base: string, branches: string[]) =>
     invoke<Record<string, AheadBehind>>('ahead_behind', { id, base, branches }),
   planWorkspace: (id: string, branch: string, pr: number | null) =>

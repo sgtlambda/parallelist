@@ -297,6 +297,29 @@ pub fn spawn_shell_detached(script: &str, cwd: Option<&Path>) -> Result<(), Stri
     Ok(())
 }
 
+/// Run `f` over every item on a small pool, preserving order.
+pub fn parallel_map<T, R>(items: Vec<T>, f: impl Fn(&T) -> R + Sync) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+{
+    if items.is_empty() {
+        return Vec::new();
+    }
+    let workers = items.len().min(8);
+    let chunk = items.len().div_ceil(workers);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = items
+            .chunks(chunk)
+            .map(|chunk| scope.spawn(|| chunk.iter().map(&f).collect::<Vec<_>>()))
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap_or_default())
+            .collect()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

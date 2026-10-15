@@ -4,6 +4,7 @@ import { api, type BranchImpact, type RemovalImpact } from '../api'
 import Icon from './Icon.vue'
 import { WORKSPACE_LABELS, bytes, relativeTime, shortPath } from '../format'
 import { projectId, state } from '../store'
+import { commitsLost, impactBadges, impactSummary } from '../status'
 import { useEscape } from '../useEscape'
 
 const props = defineProps<{
@@ -35,7 +36,7 @@ watch(
   async (isOpen) => {
     if (!isOpen) return
     const { paths, branches } = props
-    selected.value = new Set(paths)
+    selected.value = new Set()
     selectedBranches.value = new Set()
     impacts.value = []
     branchImpacts.value = []
@@ -50,10 +51,16 @@ watch(
       ])
       impacts.value = workspaces
       branchImpacts.value = refs
-      // One branch named on its own is what the user came here for. In a
-      // sweep, only the ones that cost nothing are ticked: a branch still
-      // holding commits is listed to be noticed, not deleted by default.
-      const singled = branches.length === 1 && paths.length === 0
+      // One item named on its own is what the user came here for. In a
+      // sweep, only the ones that cost nothing are ticked: anything still
+      // holding work — or that couldn't be checked — is listed to be
+      // noticed, not deleted by default.
+      const singled = branches.length + paths.length === 1
+      selected.value = new Set(
+        workspaces
+          .filter((i) => singled || impactBadges(i, deleteBranches.value).length === 0)
+          .map((i) => i.path),
+      )
       selectedBranches.value = new Set(
         refs.filter((r) => singled || r.commitCount === 0).map((r) => r.branch),
       )
@@ -94,11 +101,26 @@ const chosenCount = computed(() => chosen.value.length + chosenBranches.value.le
 
 const totals = computed(() => ({
   size: chosen.value.reduce((sum, i) => sum + (sizes.value[i.path] ?? 0), 0),
-  modified: chosen.value.reduce((sum, i) => sum + i.modified, 0),
-  unpushed: chosen.value.reduce((sum, i) => sum + i.unpushed, 0),
+  modified: chosen.value.reduce((sum, i) => sum + (i.status?.modified ?? 0), 0),
+  unpushed: chosen.value.reduce((sum, i) => sum + commitsLost(i, deleteBranches.value), 0),
   stashes: chosen.value.reduce((sum, i) => sum + i.stashes, 0),
+  stranded: chosen.value.reduce((sum, i) => sum + i.dependents.length, 0),
+  unknown: chosen.value.filter((i) => i.error).length,
   commits: chosenBranches.value.reduce((sum, b) => sum + b.commitCount, 0),
 }))
+
+/** The banner's sentence, naming only what is actually at stake. */
+const destroys = computed(() => {
+  const t = totals.value
+  const parts = [
+    t.modified && `${t.modified} uncommitted change(s)`,
+    t.unpushed && `${t.unpushed} unpushed commit(s)`,
+    t.stashes && `${t.stashes} stash(es)`,
+  ].filter(Boolean)
+  if (!parts.length) return ''
+  const last = parts.pop()
+  return `This will destroy ${parts.length ? `${parts.join(', ')} and ${last}` : last}.`
+})
 
 /**
  * Queue a task per workspace and per branch, then get out of the way. They
@@ -189,14 +211,17 @@ async function remove() {
                 <span v-else class="faint">measuring…</span>
               </td>
               <td>
-                <span v-if="impact.modified" class="badge warn">{{ impact.modified }} changed</span>
-                <span v-if="impact.unpushed" class="badge warn">{{ impact.unpushed }} unpushed</span>
-                <span v-if="impact.stashes" class="badge warn">{{ impact.stashes }} stashed</span>
                 <span
-                  v-if="!impact.modified && !impact.unpushed && !impact.stashes"
-                  class="faint"
+                  v-for="badge in impactBadges(impact, deleteBranches)"
+                  :key="badge.key"
+                  class="badge"
+                  :class="{ warn: badge.warn }"
+                  :title="badge.title"
                 >
-                  {{ impact.untracked ? `nothing (${impact.untracked} untracked)` : 'nothing' }}
+                  {{ badge.text }}
+                </span>
+                <span v-if="!impactBadges(impact, deleteBranches).length" class="faint">
+                  {{ impactSummary(impact, deleteBranches) }}
                 </span>
               </td>
             </tr>
@@ -248,9 +273,16 @@ async function remove() {
           <span>Also delete the local branch of removed worktrees</span>
         </label>
 
-        <div v-if="totals.modified || totals.unpushed || totals.stashes" class="banner">
-          This will destroy {{ totals.modified }} uncommitted change(s),
-          {{ totals.unpushed }} unpushed commit(s) and {{ totals.stashes }} stash(es).
+        <div v-if="destroys" class="banner">{{ destroys }}</div>
+
+        <div v-if="totals.stranded" class="banner">
+          {{ totals.stranded }} worktree(s) hang off a clone being removed and
+          will stop working without it.
+        </div>
+
+        <div v-if="totals.unknown" class="banner">
+          {{ totals.unknown }} workspace(s) couldn't be fully checked, so they may
+          hold work this dialog can't see.
         </div>
 
         <div v-if="totals.commits" class="banner">

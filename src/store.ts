@@ -256,7 +256,8 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>()
 
 function remember(id: string) {
-  if (!state.overview) return
+  // Only a real refresh sets `overviewAt`; a peek is not worth keeping.
+  if (!state.overview || state.overviewAt === 0) return
   cache.set(id, {
     overview: state.overview,
     overviewAt: state.overviewAt,
@@ -290,6 +291,7 @@ export async function refresh(options: { fetch?: boolean } = {}) {
   // belongs to a project that is no longer on screen.
   const current = () => ticket === inFlight && projectId.value === id
   state.loading = state.overview === null
+  if (state.loading) void peek(id, current)
   try {
     // One round-trip: the backend runs the git work and the GitHub queries
     // concurrently. A failed fetch comes back as a warning rather than an
@@ -323,6 +325,25 @@ export async function refresh(options: { fetch?: boolean } = {}) {
     if (current()) state.error = String(e)
   } finally {
     if (current()) state.loading = false
+  }
+}
+
+/** Nothing on screen for this project yet: show what is on disk while the
+ *  full refresh runs. Branches and workspaces only — no PRs, and no status,
+ *  which `status.ts` reads as "not asked yet". Discarded if the refresh got
+ *  there first, and never cached, so it can't outlive the real thing. */
+async function peek(id: string, current: () => boolean) {
+  try {
+    const overview = await api.peek(id)
+    if (!current() || state.overview) return
+    state.overview = overview
+    // Zero, which also keeps it out of `cache`: nothing that finished before
+    // it is known to be reflected, so create cards hold on until the real
+    // refresh lands.
+    state.overviewAt = 0
+    state.loading = false
+  } catch {
+    /* the refresh reports whatever went wrong */
   }
 }
 

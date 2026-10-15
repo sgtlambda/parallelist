@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 use std::time::Instant;
-use switcheroo_lib::{build_overview, workspace, config::ProjectConfig, gh, git};
+use switcheroo_lib::{build_overview, peek_overview, workspace, config::ProjectConfig, gh, git};
 
 fn main() {
-    let path = PathBuf::from(std::env::args().nth(1).expect("usage: probe <repo path>"));
+    let path = PathBuf::from(std::env::args().nth(1).expect("usage: probe <repo path> [overview.json]"));
     let base = git::detect_base_branch(&path);
     println!("base branch: {base}");
 
@@ -28,20 +28,39 @@ fn main() {
         println!("  [{}] {}", if s.default_enabled { "x" } else { " " }, s.label);
     }
 
-    let remote_branches: std::collections::HashSet<String> = branches
-        .iter()
-        .filter(|b| b.has_remote)
-        .map(|b| b.name.clone())
-        .collect();
     let t = Instant::now();
-    let workspaces = workspace::scan(&repo, &base, &remote_branches, &|_, _| {}).unwrap();
+    let workspaces = workspace::scan(&repo, &base, &|_, _| {}).unwrap();
     println!("\n{} workspaces (scan took {:?}):", workspaces.len(), t.elapsed());
     for c in &workspaces {
+        let status = match (&c.status, &c.status_error) {
+            (Some(s), _) => format!(
+                "modified={} untracked={} unpushed={} behind={}",
+                s.modified, s.untracked, s.unpushed, s.behind
+            ),
+            (None, Some(e)) => format!("status unknown: {e}"),
+            (None, None) => "no status".to_string(),
+        };
+        println!("  {:?} {:<58} branch={:?} {status}", c.kind, c.path, c.branch);
+    }
+
+    // What Cleanup would say about removing each one. Read-only.
+    let t = Instant::now();
+    println!("\nremoval impacts:");
+    for c in workspaces.iter().filter(|c| c.kind != git::WorkspaceKind::Primary) {
+        let one = Instant::now();
+        let i = workspace::removal_impact(&PathBuf::from(&c.path), c.kind, c.branch.clone(), &base);
         println!(
-            "  {:?} {:<58} branch={:?} modified={} untracked={} unpushed={} gone={}",
-            c.kind, c.path, c.branch, c.modified, c.untracked, c.unpushed, c.branch_gone
+            "  {:<58} {:>6.0?} commits={}{} stashes={} dependents={} error={:?}",
+            c.path,
+            one.elapsed(),
+            i.commits,
+            if i.commits_need_branch_delete { " (if branch deleted)" } else { "" },
+            i.stashes,
+            i.dependents.len(),
+            i.error
         );
     }
+    println!("  (took {:?})", t.elapsed());
 
     if let Some(b) = branches.iter().find(|b| b.has_remote && b.name != base) {
         println!("\nplan for {}:", b.name);
@@ -75,6 +94,12 @@ fn main() {
     // End-to-end: does every workspace have a branch row to attach to?
     let t = Instant::now();
     let overview = build_overview(ProjectConfig::new(path.clone(), "probe".into()), false, &|_, _, _| {}).unwrap();
+    // `probe <repo> <file>` also writes the overview exactly as the frontend
+    // receives it, for checking UI logic against real data headlessly.
+    if let Some(out) = std::env::args().nth(2) {
+        std::fs::write(&out, serde_json::to_string_pretty(&overview).unwrap()).unwrap();
+        println!("\noverview written to {out}");
+    }
     println!("\n--- overview: {} branch rows, built in {:?} ---", overview.branches.len(), t.elapsed());
     for c in &overview.workspaces {
         if let Some(b) = c.branch.as_deref() {
@@ -90,4 +115,20 @@ fn main() {
             );
         }
     }
+
+    // The quick pass shown while that runs: it should have the same rows.
+    let t = Instant::now();
+    let peek = peek_overview(ProjectConfig::new(path.clone(), "probe".into())).unwrap();
+    let names = |o: &switcheroo_lib::Overview| {
+        let mut n: Vec<String> = o.branches.iter().map(|b| b.name.clone()).collect();
+        n.sort();
+        n
+    };
+    println!(
+        "\n--- peek: {} branch rows, {} workspaces, built in {:?}; rows {} the overview's ---",
+        peek.branches.len(),
+        peek.workspaces.len(),
+        t.elapsed(),
+        if names(&peek) == names(&overview) { "match" } else { "DIFFER from" }
+    );
 }

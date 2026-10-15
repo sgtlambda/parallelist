@@ -17,6 +17,7 @@ import {
   type LiveTask,
 } from '../tasks'
 import { openTargets, project, projectId, selectedRow, state } from '../store'
+import { workspaceBadges } from '../status'
 
 const emit = defineEmits<{
   (e: 'create'): void
@@ -282,17 +283,16 @@ async function openPullRequest() {
                   <template v-else><span class="spin tiny" /> removing</template>
                 </button>
               </div>
-              <div
-                v-if="item.workspace.modified || item.workspace.untracked || item.workspace.unpushed"
-                class="row"
-              >
-                <span v-if="item.workspace.modified" class="badge warn">
-                  {{ item.workspace.modified }} changed
+              <div v-if="workspaceBadges(item.workspace).length" class="row" style="flex-wrap: wrap">
+                <span
+                  v-for="badge in workspaceBadges(item.workspace)"
+                  :key="badge.key"
+                  class="badge"
+                  :class="{ warn: badge.warn }"
+                  :title="badge.title"
+                >
+                  {{ badge.text }}
                 </span>
-                <span v-if="item.workspace.untracked" class="badge" title="Untracked files — not counted as changes">
-                  {{ item.workspace.untracked }} untracked
-                </span>
-                <span v-if="item.workspace.unpushed" class="badge warn">{{ item.workspace.unpushed }} unpushed</span>
               </div>
               <div class="path-row">
                 <span class="kind-icon" :title="WORKSPACE_LABELS[item.workspace.kind]">

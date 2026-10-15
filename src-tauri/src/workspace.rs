@@ -8,21 +8,13 @@
 
 use crate::config::{ProjectConfig, SetupStep};
 use crate::git::{self, Workspace, WorkspaceKind};
+use crate::status::{self, Status};
 use crate::proc::{run, run_shell_streaming};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::path::{Path, PathBuf};
 
-/// Everything on disk that belongs to this repo.
-///
-/// The per-workspace `git status` is the slow part here — a few hundred
-/// milliseconds each on a large working tree — so the workspaces are inspected
-/// on a small pool of threads and `report` is called as each one lands.
-///
-/// `remote_branches` is passed in rather than recomputed: the caller has
-/// already listed the refs, and doing it twice was costing a redundant pair of
-/// `for-each-ref` calls on every refresh.
 /// Every directory beside the project that belongs to it: the clones (the main
 /// workspace first, then siblings pointing at the same remote) and the orphans
 /// — directories named like ours that are no longer git repos at all.
@@ -64,6 +56,14 @@ fn siblings(project: &ProjectConfig) -> Result<(Vec<PathBuf>, Vec<PathBuf>), Str
         }
     }
     Ok((clones, orphans))
+}
+
+/// The project's other clones: everything `siblings` finds but the main
+/// workspace itself.
+pub fn secondary_clones(project: &ProjectConfig) -> Vec<PathBuf> {
+    siblings(project)
+        .map(|(clones, _)| clones.into_iter().skip(1).collect())
+        .unwrap_or_default()
 }
 
 /// A path in the form git reports it.
@@ -132,34 +132,37 @@ fn owning_clone(project: &ProjectConfig, path: &Path) -> PathBuf {
         .unwrap_or(primary)
 }
 
-pub fn scan(
-    project: &ProjectConfig,
-    base: &str,
-    remote_branches: &HashSet<String>,
-    report: &(dyn Fn(usize, usize) + Sync),
-) -> Result<Vec<Workspace>, String> {
+/// A workspace on disk, before anything has been asked of its working tree.
+#[derive(Debug, Clone)]
+pub struct Entry {
+    pub path: PathBuf,
+    pub branch: Option<String>,
+    pub kind: WorkspaceKind,
+    pub owner: Option<String>,
+}
+
+/// Every workspace that belongs to this repo: each clone's worktrees (the
+/// clone's own root among them), then the orphans. Cheap: one `git worktree
+/// list` per clone and no `git status`.
+pub fn list(project: &ProjectConfig) -> Result<Vec<Entry>, String> {
     let primary = PathBuf::from(&project.path);
     let (clones, orphans) = siblings(project)?;
-
-    /// A workspace we know about but haven't inspected the working tree of yet.
-    struct Entry {
-        path: PathBuf,
-        branch: Option<String>,
-        kind: WorkspaceKind,
-        owner: Option<String>,
-    }
 
     let mut entries: Vec<Entry> = Vec::new();
     let mut seen = HashSet::new();
 
+    // Resolved, because git reports paths with symlinks resolved and the
+    // config has them as typed. See `resolve`.
+    let main = resolve(&primary);
     for clone in &clones {
         let owner = clone.to_string_lossy().to_string();
+        let root = resolve(clone);
         for (path, branch, _head) in git::worktrees(clone).unwrap_or_default() {
             if !seen.insert(path.clone()) {
                 continue;
             }
-            let is_root = &path == clone;
-            let kind = if path == primary {
+            let is_root = resolve(&path) == root;
+            let kind = if resolve(&path) == main {
                 WorkspaceKind::Primary
             } else if is_root {
                 WorkspaceKind::Clone
@@ -183,7 +186,20 @@ pub fn scan(
             owner: None,
         });
     }
+    Ok(entries)
+}
 
+/// Every workspace with its status.
+///
+/// The per-workspace `git status` is the slow part — a few hundred
+/// milliseconds each on a large working tree — so the workspaces are inspected
+/// on a small pool of threads and `report` is called as each one lands.
+pub fn scan(
+    project: &ProjectConfig,
+    base: &str,
+    report: &(dyn Fn(usize, usize) + Sync),
+) -> Result<Vec<Workspace>, String> {
+    let entries = list(project)?;
     let total = entries.len();
     if total == 0 {
         return Ok(Vec::new());
@@ -203,29 +219,22 @@ pub fn scan(
                         .map(|entry| {
                             // An orphan has no git dir, so there is nothing to
                             // ask git about and no process worth spawning.
-                            let (tree, unpushed) = if entry.kind == WorkspaceKind::Orphan {
-                                (git::WorkingTree::default(), 0)
+                            let (status, status_error) = if entry.kind == WorkspaceKind::Orphan {
+                                (None, None)
                             } else {
-                                (
-                                    git::working_tree(&entry.path),
-                                    git::unpushed_count(&entry.path),
-                                )
+                                match status::inspect(&entry.path, base) {
+                                    Ok(s) => (Some(s), None),
+                                    Err(e) => (None, Some(e)),
+                                }
                             };
                             report(done.fetch_add(1, Ordering::Relaxed) + 1, total);
-                            let gone = entry
-                                .branch
-                                .as_ref()
-                                .map(|b| b != base && !remote_branches.contains(b))
-                                .unwrap_or(entry.kind == WorkspaceKind::Orphan);
                             Workspace {
                                 path: entry.path.to_string_lossy().to_string(),
                                 kind: entry.kind,
                                 branch: entry.branch.clone(),
                                 owner: entry.owner.clone(),
-                                modified: tree.modified,
-                                untracked: tree.untracked,
-                                unpushed,
-                                branch_gone: gone,
+                                status,
+                                status_error,
                             }
                         })
                         .collect::<Vec<_>>()
@@ -362,15 +371,48 @@ pub fn create<F: FnMut(&str, bool)>(
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
 
-    match req.mode.as_str() {
-        "worktree" => create_worktree(&primary, base, req, &mut log)?,
-        "clone" => create_clone(&primary, req, &mut log)?,
+    let made = match req.mode.as_str() {
+        "worktree" => create_worktree(&primary, base, req, &mut log),
+        "clone" => create_clone(&primary, req, &mut log),
         other => return Err(format!("unknown workspace mode '{other}'")),
+    };
+    if let Err(e) = made {
+        abandon(&primary, &target, &req.mode, &mut log);
+        return Err(e);
     }
 
     run_setup_steps(project, &primary, &target, &req.branch, &req.steps, &mut log);
     log_step(&mut log, "Done");
     Ok(req.path.clone())
+}
+
+/// Take away whatever a failed create left at `target`.
+///
+/// The directory is ours: `create` refuses a path that already exists. Left
+/// behind, a half-made clone — `.git` and nothing else, never checked out —
+/// shows up as a workspace with every file deleted, and it occupies the
+/// suggested path, so the retry lands on `-b`, then `-c`. That trail was found
+/// on disk, three clones deep.
+fn abandon<F: FnMut(&str, bool)>(primary: &Path, target: &Path, mode: &str, log: &mut F) {
+    if !target.exists() {
+        return;
+    }
+    log_step(log, "Removing the unfinished workspace");
+    if mode == "worktree" {
+        let path = target.to_string_lossy();
+        let removed = run("git", &["worktree", "remove", "--force", &path], Some(primary))
+            .map(|o| o.ok())
+            .unwrap_or(false);
+        if removed {
+            return;
+        }
+    }
+    if let Err(e) = std::fs::remove_dir_all(target) {
+        log(&format!("could not delete {}: {e}", target.display()), true);
+    }
+    if mode == "worktree" {
+        let _ = run("git", &["worktree", "prune"], Some(primary));
+    }
 }
 
 fn create_worktree<F: FnMut(&str, bool)>(
@@ -463,15 +505,35 @@ fn create_clone<F: FnMut(&str, bool)>(
     }
 
     let target = PathBuf::from(&req.path);
+    let branch = &req.branch;
+
+    // A branch that exists only in the main workspace. Straight after the
+    // clone it is visible here as `origin/<branch>` — the main workspace was
+    // the origin — but repointing origin and fetching with --prune deletes
+    // that ref, and with it the only way to reach the branch. Take it now.
+    // No upstream: there is nothing on origin to track.
+    let local_only = !req.new_branch && !has_ref(primary, &format!("refs/remotes/origin/{branch}"))?
+        && has_ref(primary, &format!("refs/heads/{branch}"))?;
+    if local_only {
+        log_step(log, &format!("Taking {branch} from the main workspace"));
+        let start = format!("refs/remotes/origin/{branch}");
+        let out = run("git", &["branch", "--no-track", branch, &start], Some(&target))?;
+        log_output(log, &out);
+        if !out.ok() {
+            return Err(format!("could not take {branch} from the main workspace: {}", out.stderr.trim()));
+        }
+    }
+
     log_step(log, &format!("Pointing origin at {origin}"));
     run("git", &["remote", "set-url", "origin", &origin], Some(&target))?
         .text()?;
     run("git", &["fetch", "origin", "--prune", "--quiet"], Some(&target))?.text()?;
 
-    let branch = &req.branch;
     log_step(log, &format!("Checking out {branch}"));
     let remote_ref = format!("origin/{branch}");
-    let workspace = if req.new_branch {
+    let workspace = if local_only {
+        run("git", &["checkout", branch], Some(&target))?
+    } else if req.new_branch {
         let start = req.from.clone().unwrap_or_else(|| "HEAD".to_string());
         run(
             "git",
@@ -492,6 +554,10 @@ fn create_clone<F: FnMut(&str, bool)>(
         return Err(format!("workspace failed: {}", workspace.stderr.trim()));
     }
     Ok(())
+}
+
+fn has_ref(repo: &Path, refname: &str) -> Result<bool, String> {
+    Ok(run("git", &["show-ref", "--verify", "--quiet", refname], Some(repo))?.ok())
 }
 
 fn run_setup_steps<F: FnMut(&str, bool)>(
@@ -533,34 +599,84 @@ fn run_setup_steps<F: FnMut(&str, bool)>(
 
 /// What removing a workspace would destroy. Shown in the confirm dialog; it
 /// never blocks the removal, it just makes sure the cost is visible.
+///
+/// Counted per kind, because the kinds lose different things. A worktree's
+/// branch, stashes and other refs live in the clone it hangs off and outlive
+/// it; a clone takes all of its own with it.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemovalImpact {
     pub path: String,
     pub kind: WorkspaceKind,
     pub branch: Option<String>,
-    pub modified: u32,
-    pub untracked: u32,
-    pub unpushed: u32,
+    /// The working tree, as the workspace card shows it. `None` for an orphan
+    /// or when git couldn't be asked.
+    pub status: Option<Status>,
+    /// Why some of this couldn't be measured. Set means "unknown", not "safe".
+    pub error: Option<String>,
+    /// Commits that exist nowhere else once this is gone: not on origin in
+    /// any form, and on no other local branch that survives the removal.
+    pub commits: u32,
+    /// A worktree on a branch only loses `commits` if that branch is deleted
+    /// along with it. Everything else loses them regardless.
+    pub commits_need_branch_delete: bool,
+    /// Stashes that go with it. Always 0 for a worktree: `refs/stash` belongs
+    /// to the clone, and stashing from a worktree puts it there.
     pub stashes: u32,
+    /// Worktrees registered against a clone. Its removal strands them: their
+    /// `.git` points into the deleted directory.
+    pub dependents: Vec<String>,
 }
 
-pub fn removal_impact(path: &Path, kind: WorkspaceKind, branch: Option<String>) -> RemovalImpact {
-    let is_git = git::is_git_repo(path);
-    let tree = if is_git {
-        git::working_tree(path)
-    } else {
-        git::WorkingTree::default()
-    };
-    RemovalImpact {
+pub fn removal_impact(
+    path: &Path,
+    kind: WorkspaceKind,
+    branch: Option<String>,
+    base: &str,
+) -> RemovalImpact {
+    let mut impact = RemovalImpact {
         path: path.to_string_lossy().to_string(),
         kind,
-        branch,
-        modified: tree.modified,
-        untracked: tree.untracked,
-        unpushed: if is_git { git::unpushed_count(path) } else { 0 },
-        stashes: if is_git { git::stash_count(path) } else { 0 },
+        branch: branch.clone(),
+        status: None,
+        error: None,
+        commits: 0,
+        commits_need_branch_delete: kind == WorkspaceKind::Worktree && branch.is_some(),
+        stashes: 0,
+        dependents: Vec::new(),
+    };
+    if kind == WorkspaceKind::Orphan {
+        return impact;
     }
+    let measured = (|| -> Result<(), String> {
+        impact.status = Some(status::inspect(path, base)?);
+        match kind {
+            WorkspaceKind::Clone => {
+                impact.commits = status::unpushed_anywhere(path, base)?.len() as u32;
+                impact.stashes = status::stash_count(path)?;
+                let own = resolve(path);
+                impact.dependents = git::worktrees(path)?
+                    .into_iter()
+                    .map(|(p, _, _)| p)
+                    .filter(|p| resolve(p) != own)
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect();
+            }
+            _ => {
+                let upstream = branch.as_deref().and_then(|b| status::origin_upstream(path, b));
+                let unpushed = status::unpushed(path, "HEAD", upstream.as_deref(), base)?;
+                if !unpushed.is_empty() {
+                    let lost = status::held_only_by(path, "HEAD", branch.as_deref())?;
+                    impact.commits = unpushed.intersection(&lost).count() as u32;
+                }
+            }
+        }
+        Ok(())
+    })();
+    if let Err(e) = measured {
+        impact.error = Some(e);
+    }
+    impact
 }
 
 /// `du -sk` rather than a recursive walk: node_modules makes the walk slow,
@@ -819,6 +935,176 @@ mod tests {
             !git::worktrees(&clone).unwrap().iter().any(|(p, _, _)| resolve(p) == resolve(&stale)),
             "stale registration survived"
         );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Each kind loses different things: a worktree's stash and branch live
+    /// in its clone, a clone takes everything of its own with it.
+    #[test]
+    fn counts_what_each_kind_of_removal_actually_loses() {
+        let root = std::env::temp_dir().join(format!("switcheroo-impact-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+        let g = |cwd: &Path, args: &[&str]| {
+            let out = run("git", args, Some(cwd)).expect("git ran");
+            assert!(out.ok(), "git {args:?} failed: {}", out.stderr);
+        };
+        let commit = |cwd: &Path, name: &str| {
+            std::fs::write(cwd.join(name), name).unwrap();
+            g(cwd, &["add", "-A"]);
+            g(cwd, &["commit", "--quiet", "-m", name]);
+        };
+
+        let remote = root.join("origin.git");
+        std::fs::create_dir_all(&remote).unwrap();
+        g(&remote, &["init", "--quiet", "--bare", "-b", "main", "."]);
+        let primary = root.join("repo");
+        g(&root, &["clone", "--quiet", &remote.to_string_lossy(), "repo"]);
+        g(&primary, &["config", "user.email", "test@example.com"]);
+        g(&primary, &["config", "user.name", "Test"]);
+        commit(&primary, "base");
+        g(&primary, &["push", "--quiet", "-u", "origin", "main"]);
+
+        // A worktree on a never-pushed branch with two commits and a stash.
+        let worktree = root.join("repo-feature");
+        g(&primary, &["worktree", "add", "--quiet", "--no-track", "-b", "feature", &worktree.to_string_lossy(), "origin/main"]);
+        commit(&worktree, "one");
+        commit(&worktree, "two");
+        std::fs::write(worktree.join("one"), "stashed").unwrap();
+        g(&worktree, &["stash", "--quiet"]);
+
+        let impact = removal_impact(&worktree, WorkspaceKind::Worktree, Some("feature".into()), "main");
+        assert_eq!(impact.error, None);
+        assert_eq!(impact.commits, 2);
+        assert!(impact.commits_need_branch_delete, "the branch keeps them");
+        assert_eq!(impact.stashes, 0, "the stash lives in the clone and survives");
+
+        // A second branch holding the older commit: only the newer is lost.
+        g(&primary, &["branch", "backup", "feature~1"]);
+        let impact = removal_impact(&worktree, WorkspaceKind::Worktree, Some("feature".into()), "main");
+        assert_eq!(impact.commits, 1);
+
+        // Detached, the commits are lost whatever happens to branches.
+        g(&worktree, &["checkout", "--quiet", "--detach"]);
+        commit(&worktree, "three");
+        let impact = removal_impact(&worktree, WorkspaceKind::Worktree, None, "main");
+        assert_eq!(impact.commits, 1);
+        assert!(!impact.commits_need_branch_delete);
+
+        // A clone: its other branches, its stash and its worktrees go too.
+        let clone = root.join("repo-b");
+        g(&root, &["clone", "--quiet", &remote.to_string_lossy(), "repo-b"]);
+        g(&clone, &["config", "user.email", "test@example.com"]);
+        g(&clone, &["config", "user.name", "Test"]);
+        g(&clone, &["checkout", "--quiet", "--no-track", "-b", "side"]);
+        commit(&clone, "side-work");
+        g(&clone, &["checkout", "--quiet", "main"]);
+        commit(&clone, "main-work");
+        std::fs::write(clone.join("base"), "stashed").unwrap();
+        g(&clone, &["stash", "--quiet"]);
+        let hanging = root.join("repo-b-wt");
+        g(&clone, &["worktree", "add", "--quiet", "--detach", &hanging.to_string_lossy()]);
+
+        let impact = removal_impact(&clone, WorkspaceKind::Clone, Some("main".into()), "main");
+        assert_eq!(impact.error, None);
+        assert_eq!(impact.commits, 2, "main-work and side-work");
+        assert_eq!(impact.stashes, 1);
+        assert_eq!(impact.dependents.len(), 1, "{:?}", impact.dependents);
+
+        // Unknown is not clean.
+        let gone = removal_impact(&root.join("missing"), WorkspaceKind::Worktree, None, "main");
+        assert!(gone.error.is_some());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A main workspace with origin, a pushed `main`, and `local-only`: a
+    /// branch with a commit of its own that was never pushed.
+    fn project_with_local_only_branch(root: &Path) -> ProjectConfig {
+        let g = |cwd: &Path, args: &[&str]| {
+            let out = run("git", args, Some(cwd)).expect("git ran");
+            assert!(out.ok(), "git {args:?} failed: {}", out.stderr);
+        };
+        std::fs::remove_dir_all(root).ok();
+        std::fs::create_dir_all(root.join("origin.git")).unwrap();
+        g(&root.join("origin.git"), &["init", "--quiet", "--bare", "-b", "main", "."]);
+        let primary = root.join("repo");
+        g(root, &["clone", "--quiet", &root.join("origin.git").to_string_lossy(), "repo"]);
+        g(&primary, &["config", "user.email", "test@example.com"]);
+        g(&primary, &["config", "user.name", "Test"]);
+        std::fs::write(primary.join("a"), "a").unwrap();
+        g(&primary, &["add", "-A"]);
+        g(&primary, &["commit", "--quiet", "-m", "base"]);
+        g(&primary, &["push", "--quiet", "-u", "origin", "main"]);
+        g(&primary, &["checkout", "--quiet", "--no-track", "-b", "local-only"]);
+        std::fs::write(primary.join("b"), "b").unwrap();
+        g(&primary, &["add", "-A"]);
+        g(&primary, &["commit", "--quiet", "-m", "never pushed"]);
+        g(&primary, &["checkout", "--quiet", "main"]);
+        ProjectConfig {
+            id: "t".into(),
+            name: "t".into(),
+            path: primary.to_string_lossy().to_string(),
+            base_branch: Some("main".into()),
+            path_template: "{parent}/{project}-{slug}".into(),
+            setup_steps: Vec::new(),
+            open_targets: Vec::new(),
+        }
+    }
+
+    fn request(root: &Path, dir: &str, branch: &str, mode: &str) -> CreateRequest {
+        CreateRequest {
+            project_id: "t".into(),
+            branch: branch.into(),
+            path: root.join(dir).to_string_lossy().to_string(),
+            mode: mode.into(),
+            new_branch: false,
+            from: None,
+            steps: Vec::new(),
+        }
+    }
+
+    /// Repointing origin and pruning used to delete the only ref the clone
+    /// had to such a branch, so the checkout failed and left `.git` alone in
+    /// the directory.
+    #[test]
+    fn clones_a_branch_that_was_never_pushed() {
+        let root = std::env::temp_dir().join(format!("switcheroo-localclone-{}", std::process::id()));
+        let project = project_with_local_only_branch(&root);
+        let req = request(&root, "repo-b", "local-only", "clone");
+
+        create(&project, "main", &req, |_, _| {}).expect("creates the clone");
+        let clone = root.join("repo-b");
+        assert!(clone.join("b").exists(), "the branch's own commit is checked out");
+        let current = run("git", &["branch", "--show-current"], Some(&clone)).unwrap().stdout;
+        assert_eq!(current.trim(), "local-only");
+        let status = status::inspect(&clone, "main").unwrap();
+        assert_eq!((status.modified, status.unpushed), (0, 1), "{status:?}");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Whatever fails, the directory goes with it: left behind it reads as a
+    /// workspace with every file deleted and takes the path from the retry.
+    #[test]
+    fn a_failed_create_leaves_nothing_behind() {
+        let root = std::env::temp_dir().join(format!("switcheroo-failcreate-{}", std::process::id()));
+        let project = project_with_local_only_branch(&root);
+
+        // A clone of a branch that exists nowhere fails after `git clone`
+        // has already made the directory.
+        let req = request(&root, "repo-nope", "no-such-branch", "clone");
+        let mut log = Vec::new();
+        assert!(create(&project, "main", &req, |line, _| log.push(line.to_string())).is_err());
+        assert!(!root.join("repo-nope").exists(), "left behind; log: {log:?}");
+
+        // A worktree of the branch the main workspace already has.
+        let req = request(&root, "repo-main", "main", "worktree");
+        assert!(create(&project, "main", &req, |_, _| {}).is_err());
+        assert!(!root.join("repo-main").exists());
+        let registered = git::worktrees(&root.join("repo")).unwrap();
+        assert_eq!(registered.len(), 1, "{registered:?}");
 
         std::fs::remove_dir_all(&root).ok();
     }
