@@ -5,7 +5,7 @@ import Icon from './Icon.vue'
 import TerminalMark from './TerminalMark.vue'
 import TerminalPane from './TerminalPane.vue'
 import type { Workspace } from '../api'
-import { WORKSPACE_LABELS, WORKSPACE_TITLES, basename, relativeTime, shortPath } from '../format'
+import { WORKSPACE_LABELS, WORKSPACE_TITLES, ago, basename, shortPath } from '../format'
 import {
   createTasksFor,
   dismissTask,
@@ -289,7 +289,7 @@ async function openPullRequest() {
         <div class="card-title">Commit</div>
         <div>{{ row.branch.subject || '—' }}</div>
         <div class="muted" style="font-size: 11.5px">
-          {{ row.branch.author }} · {{ relativeTime(row.branch.committedAt) }} ago ·
+          {{ row.branch.author }} · {{ ago(row.branch.committedAt) }} ·
           <code class="selectable">{{ row.branch.sha.slice(0, 8) }}</code>
         </div>
         <div class="row" style="flex-wrap: wrap">

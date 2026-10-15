@@ -257,7 +257,7 @@ async function remove() {
                   <div v-for="commit in impact.commits" :key="commit.sha" class="commit">
                     <code class="faint">{{ commit.sha.slice(0, 8) }}</code>
                     <span class="truncate">{{ commit.subject }}</span>
-                    <span class="faint">{{ relativeTime(commit.committedAt) }}</span>
+                    <span class="age faint">{{ relativeTime(commit.committedAt) }}</span>
                   </div>
                   <div v-if="impact.commitCount > impact.commits.length" class="faint">
                     + {{ impact.commitCount - impact.commits.length }} more
