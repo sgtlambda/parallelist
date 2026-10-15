@@ -111,6 +111,10 @@ export interface Overview {
   pullRequests: Record<string, PullRequest>
   viewer: string | null
   warnings: string[]
+  /** Workspaces whose directory was deleted while their terminal is still
+   *  open — by the program in it, typically — as they last looked. Listed
+   *  until the backend closes the terminal, once nothing in it needs you. */
+  removed: Workspace[]
 }
 
 export interface AheadBehind {
@@ -227,7 +231,8 @@ export const api = {
   terminalClose: (path: string) => invoke<void>('terminal_close', { path }),
   terminalList: () => invoke<TerminalInfo[]>('terminal_list'),
   /** The terminal on screen in the focused window, or null. */
-  terminalViewing: (path: string | null) => invoke<void>('terminal_viewing', { path }),
+  terminalViewing: (path: string | null, focused: boolean) =>
+    invoke<void>('terminal_viewing', { path, focused }),
 }
 
 /** Output as raw bytes, then the exit code once the shell is gone. */

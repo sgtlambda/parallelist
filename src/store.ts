@@ -17,6 +17,10 @@ export interface Row {
   branch: BranchInfo
   pr: PullRequest | null
   workspaces: Workspace[]
+  /** Deleted from under a terminal that is still open (`Overview.removed`):
+   *  not on disk, so counted nowhere, but listed so the terminal can be
+   *  reached. */
+  removed: Workspace[]
   aheadBehind: AheadBehind | null
   /** Finished work — merged or closed — with a workspace still on disk. */
   stale: boolean
@@ -74,16 +78,22 @@ export const looseWorkspaces = computed(() =>
   (state.overview?.workspaces ?? []).filter((c) => c.kind === 'orphan' || !c.branch),
 )
 
-export const rows = computed<Row[]>(() => {
-  const ov = state.overview
-  if (!ov) return []
+export function groupByBranch(workspaces: Workspace[]): Map<string, Workspace[]> {
   const byBranch = new Map<string, Workspace[]>()
-  for (const c of ov.workspaces) {
+  for (const c of workspaces) {
     if (!c.branch) continue
     const list = byBranch.get(c.branch) ?? []
     list.push(c)
     byBranch.set(c.branch, list)
   }
+  return byBranch
+}
+
+export const rows = computed<Row[]>(() => {
+  const ov = state.overview
+  if (!ov) return []
+  const byBranch = groupByBranch(ov.workspaces)
+  const removedByBranch = groupByBranch(ov.removed ?? [])
   return ov.branches.map((branch) => {
     const pr = ov.pullRequests[branch.name] ?? null
     const workspaces = byBranch.get(branch.name) ?? []
@@ -91,6 +101,7 @@ export const rows = computed<Row[]>(() => {
       branch,
       pr,
       workspaces,
+      removed: removedByBranch.get(branch.name) ?? [],
       aheadBehind: state.aheadBehind[branch.name] ?? null,
       // Finished work, not merely absent from origin. A branch that was
       // never pushed is also "not on origin", and treating that as stale
@@ -157,7 +168,8 @@ export const danglingBranches = computed(() =>
 function isActive(row: Row, activeDays: number): boolean {
   if (row.pr?.state === 'open') return true
   // Anything on disk is active by definition — it's occupying a directory.
-  if (row.workspaces.length > 0) return true
+  // So is a terminal still open in one that has just been removed.
+  if (row.workspaces.length > 0 || row.removed.length > 0) return true
   // Finished work with no workspace left is done, however recently it was
   // committed. Without this a branch merged yesterday outranks one that is
   // still open, purely on recency.
