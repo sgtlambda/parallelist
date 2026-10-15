@@ -20,6 +20,14 @@
 //! flag, kept here so a webview reload doesn't forget it, set when `done`
 //! arrives while the terminal isn't the one being viewed and cleared once it
 //! is. The frontend says which one that is (`Terminals::view`).
+//!
+//! A terminal can outlive its directory: Claude Code often removes its own
+//! worktree once it has merged it, from inside the very shell it runs in.
+//! Removing a workspace through the app closes its terminal first; one
+//! removed from inside is closed **once nothing in it needs the user** —
+//! not while its program works or is blocked on an answer, not while a turn
+//! that ended there is unseen, and not while it is on screen (`reap`). Until
+//! then it stays reachable from the overview's `removed` list.
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
@@ -149,6 +157,31 @@ impl Terminal {
         std::mem::take(&mut self.status.lock().unwrap().ready)
     }
 
+    /// Its directory is gone and nothing in it needs the user any more: the
+    /// program in it is neither working nor blocked on an answer, no turn
+    /// ended there unseen, and it isn't on screen. `shown` is the terminal
+    /// that is.
+    fn outlived(&self, shown: Option<&str>) -> bool {
+        if shown == Some(self.info.path.as_str()) {
+            return false;
+        }
+        let status = self.status.lock().unwrap();
+        if status.ready || matches!(status.state.as_deref(), Some("working" | "blocked")) {
+            return false;
+        }
+        drop(status);
+        !Path::new(&self.info.path).exists()
+    }
+
+    /// SIGHUP to the shell alone is enough: it leads the terminal's session,
+    /// and when it exits the kernel hangs up on the foreground job too
+    /// (`closing_hangs_up_on_the_foreground_job`; an explicit `killpg` of
+    /// that group was tried and made no difference). Jobs the user put in
+    /// the background are the shell's to hang up, as in any terminal.
+    fn hang_up(&self) {
+        let _ = self.killer.lock().unwrap().kill();
+    }
+
     /// Send to the attached sink, if any; drop it if its receiver is gone.
     fn deliver(output: &mut Output, chunk: Chunk) {
         if let Some(sink) = &output.sink {
@@ -171,6 +204,9 @@ pub struct Terminals {
     hook: Option<Hook>,
     /// The terminal the user is looking at: on screen, in the focused window.
     viewing: Arc<Mutex<Option<String>>>,
+    /// The terminal on screen, focused window or not. Switching to another
+    /// app is not leaving it.
+    shown: Arc<Mutex<Option<String>>>,
 }
 
 /// Variables the shell must not inherit. A Finder-launched app has almost no
@@ -194,6 +230,7 @@ impl Terminals {
             by_path: Arc::default(),
             hook: Some(hook),
             viewing: Arc::default(),
+            shown: Arc::default(),
         }
     }
 
@@ -307,6 +344,7 @@ impl Terminals {
         let reading = Arc::clone(&term);
         let status_hook = self.hook.clone();
         let viewing = Arc::clone(&self.viewing);
+        let shown = Arc::clone(&self.shown);
         std::thread::spawn(move || {
             let mut buf = vec![0u8; 64 * 1024];
             let mut scanner = StatusScanner::default();
@@ -323,6 +361,11 @@ impl Terminals {
                         if reading.follow_status(scanner.feed(&buf[..n]), viewed) {
                             if let Some(hook) = &status_hook {
                                 hook(TerminalEvent::Status(&reading.info()));
+                            }
+                            // Claude Code finishing the turn in which it
+                            // removed its own worktree, typically.
+                            if reading.outlived(shown.lock().unwrap().as_deref()) {
+                                reading.hang_up();
                             }
                         }
                     }
@@ -389,28 +432,46 @@ impl Terminals {
         let Ok(term) = self.get(path) else {
             return false;
         };
-        // SIGHUP to the shell alone is enough: it leads the terminal's session,
-        // and when it exits the kernel hangs up on the foreground job too
-        // (`closing_hangs_up_on_the_foreground_job`; an explicit `killpg` of
-        // that group was tried and made no difference). Jobs the user put in
-        // the background are the shell's to hang up, as in any terminal.
-        let _ = term.killer.lock().unwrap().kill();
+        term.hang_up();
         true
     }
 
-    /// Which terminal the user is looking at, if any. Looking at one clears
-    /// its ready flag, which is reported like any status change.
-    pub fn view(&self, path: Option<&str>) {
+    /// Close every terminal whose directory has gone and that nothing in
+    /// needs the user any more (`Terminal::outlived`), and return their
+    /// paths. Asked whenever that may have just become true: a refresh that
+    /// may be the first to notice the directory is gone, the user leaving a
+    /// terminal, and its program going quiet (in the reader).
+    pub fn reap(&self) -> Vec<String> {
+        let shown = self.shown.lock().unwrap().clone();
+        let terms: Vec<Arc<Terminal>> = self.by_path.lock().unwrap().values().cloned().collect();
+        terms
+            .into_iter()
+            .filter(|term| term.outlived(shown.as_deref()))
+            .map(|term| {
+                term.hang_up();
+                term.info.path.clone()
+            })
+            .collect()
+    }
+
+    /// Which terminal is on screen, if any, and whether its window has
+    /// focus — together, whether the user is looking at it. Looking at one
+    /// clears its ready flag, which is reported like any status change.
+    /// Leaving one may be the last thing a removed workspace's terminal was
+    /// waiting for.
+    pub fn view(&self, path: Option<&str>, focused: bool) {
         let path = path.map(key);
-        *self.viewing.lock().unwrap() = path.clone();
-        let Some(term) = path.and_then(|p| self.get(&p).ok()) else {
-            return;
-        };
-        if term.seen() {
-            if let Some(hook) = &self.hook {
-                hook(TerminalEvent::Status(&term.info()));
+        *self.shown.lock().unwrap() = path.clone();
+        let viewing = path.filter(|_| focused);
+        *self.viewing.lock().unwrap() = viewing.clone();
+        if let Some(term) = viewing.and_then(|p| self.get(&p).ok()) {
+            if term.seen() {
+                if let Some(hook) = &self.hook {
+                    hook(TerminalEvent::Status(&term.info()));
+                }
             }
         }
+        self.reap();
     }
 
     pub fn list(&self) -> Vec<TerminalInfo> {
@@ -745,7 +806,7 @@ mod tests {
         assert_eq!(next(), (Some("done".into()), true), "ended while nobody looked");
         assert!(terminals.list()[0].ready);
 
-        terminals.view(Some(&path));
+        terminals.view(Some(&path), true);
         assert_eq!(next(), (Some("done".into()), false), "seen");
 
         report(&terminals, &path, "working");
@@ -753,6 +814,80 @@ mod tests {
         report(&terminals, &path, "done");
         assert_eq!(next(), (Some("done".into()), false), "ended in plain sight");
         assert!(terminals.close(&path));
+    }
+
+    /// Claude Code removing its own worktree: the terminal stays while the
+    /// turn runs, while its end is unseen and while it is on screen, and
+    /// closes once the user has seen it and left.
+    #[test]
+    fn a_removed_workspace_keeps_its_terminal_until_nothing_needs_the_user() {
+        let dir = temp_dir("removed");
+        let path = dir.to_string_lossy().to_string();
+        let (hook, statuses) = status_hook();
+        let terminals = Terminals::new(hook);
+        let (tx, rx) = sink();
+        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals
+            .write(
+                &path,
+                b"sh -c 'while read s; do printf \"\\033]7501;state=%s\\007\" \"$s\"; done'\n",
+            )
+            .unwrap();
+        let next = || statuses.recv_timeout(Duration::from_secs(5)).expect("a status");
+
+        report(&terminals, &path, "working");
+        assert_eq!(next(), (Some("working".into()), false));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(terminals.reap().is_empty(), "still working");
+
+        report(&terminals, &path, "done");
+        assert_eq!(next(), (Some("done".into()), true));
+        assert!(terminals.reap().is_empty(), "its last turn is unseen");
+
+        terminals.view(Some(&path), true);
+        assert_eq!(next(), (Some("done".into()), false), "seen");
+        terminals.view(Some(&path), false);
+        assert_eq!(terminals.list().len(), 1, "on screen in another app's shadow");
+
+        terminals.view(None, true);
+        read_until(&rx, "<exit");
+        assert!(terminals.list().is_empty());
+    }
+
+    /// Nothing needs the user in a plain shell, or once the program in it
+    /// goes quiet: the directory going is enough, as removing it through
+    /// the app would have closed it too.
+    #[test]
+    fn a_terminal_with_nothing_to_show_goes_with_its_directory() {
+        let dir = temp_dir("removed-idle");
+        let path = dir.to_string_lossy().to_string();
+        let terminals = Terminals::new(Arc::new(|_| {}));
+        let (tx, rx) = sink();
+        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.write(&path, b"echo up\n").unwrap();
+        read_until(&rx, "up");
+        assert!(terminals.reap().is_empty(), "the directory is still there");
+
+        // Quiet the moment it reports so, without waiting for a refresh.
+        terminals
+            .write(
+                &path,
+                b"sh -c 'while read s; do printf \"\\033]7501;state=%s\\007\" \"$s\"; done'\n",
+            )
+            .unwrap();
+        report(&terminals, &path, "working");
+        std::thread::sleep(Duration::from_millis(200));
+        std::fs::remove_dir_all(&dir).unwrap();
+        report(&terminals, &path, "idle");
+        read_until(&rx, "<exit");
+
+        let dir = temp_dir("removed-plain");
+        let path = dir.to_string_lossy().to_string();
+        let (tx, rx) = sink();
+        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(terminals.reap(), [path]);
+        read_until(&rx, "<exit");
     }
 
     /// The probe is answered, so a program that waits for the answer starts

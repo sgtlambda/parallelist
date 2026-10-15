@@ -67,12 +67,23 @@ const cards = computed(() => {
       key: normalizePath(workspace.path),
       workspace,
       job: null,
+      gone: null,
       removal: removalOf(projectId.value, workspace.path),
+    })),
+    // Removed from inside its own terminal, which is still open. Same key as
+    // the card it was, so that card is patched in place.
+    ...(row.value?.removed ?? []).map((gone) => ({
+      key: normalizePath(gone.path),
+      workspace: null,
+      job: null,
+      gone,
+      removal: null,
     })),
     ...pending.map((job) => ({
       key: normalizePath(job.path ?? ''),
       workspace: null,
       job,
+      gone: null,
       removal: null,
     })),
   ]
@@ -105,13 +116,21 @@ const hiddenCount = computed(() => {
 const terminal = computed(() => {
   const path = terminalFor(projectId.value, state.selectedBranch)
   if (!path) return null
-  return row.value?.workspaces.find((w) => normalizePath(w.path) === path) ?? null
+  const listed = [...(row.value?.workspaces ?? []), ...(row.value?.removed ?? [])]
+  return listed.find((w) => normalizePath(w.path) === path) ?? null
 })
+
+/** The terminal on screen outlived its workspace: it closes once you leave
+ *  it, unless its program is still working or waiting on you. */
+const terminalOrphaned = computed(
+  () => !!terminal.value && !!row.value?.removed.includes(terminal.value),
+)
 
 /** A card was clicked. A create opens its log; a workspace opens its
  *  terminal. Buttons on the card stop their clicks, so they never get here. */
 function activate(item: (typeof cards.value)[number], event: Event) {
   if (item.job) return openTasks(item.job.id)
+  if (item.gone) return showTerminal(projectId.value, state.selectedBranch, item.gone.path)
   if (!item.workspace || removing(item.removal)) return
   // Drag-selecting the path ends in a click on the card; that was a copy, not
   // a request for a terminal.
@@ -174,6 +193,15 @@ const originState = computed(() => {
   if (!branch) return null
   const base = state.overview?.baseBranch ?? 'the base branch'
 
+  // Listed only for a removed workspace's terminal (`Overview.removed`).
+  if (!branch.hasLocal && !branch.hasRemote) {
+    return {
+      text: 'branch deleted',
+      cls: '',
+      title: 'Deleted along with its workspace, from inside the terminal that is still open.',
+    }
+  }
+
   if (!branch.hasRemote && branch.merged) {
     return {
       text: 'merged · gone from origin',
@@ -235,6 +263,13 @@ async function openPullRequest() {
       >
         <Icon :name="terminal.kind" :size="12" />
         <span class="truncate">{{ basename(terminal.path) }}</span>
+      </span>
+      <span
+        v-if="terminalOrphaned"
+        class="badge"
+        title="Its directory was deleted from inside this terminal. It closes once you leave it, unless what runs in it is still working or waiting on you."
+      >
+        removed
       </span>
       <span class="spacer" />
       <span v-if="terminal" class="zoom">
@@ -301,7 +336,7 @@ async function openPullRequest() {
           >
             {{ originState.text }}
           </span>
-          <span v-if="!row.branch.hasLocal" class="badge">remote only</span>
+          <span v-if="!row.branch.hasLocal && row.branch.hasRemote" class="badge">remote only</span>
           <span v-if="row.aheadBehind" class="badge">
             ↑{{ row.aheadBehind.ahead }} ahead · ↓{{ row.aheadBehind.behind }} behind
           </span>
@@ -350,7 +385,7 @@ async function openPullRequest() {
             class="card workspace"
             :class="{
               stale: item.workspace && row?.stale && item.workspace.kind !== 'primary',
-              removing: removing(item.removal),
+              removing: removing(item.removal) || item.gone,
               pending: item.job,
               ready: item.job?.status === 'done',
               failed: item.job?.status === 'failed',
@@ -446,6 +481,31 @@ async function openPullRequest() {
                 >
                   Remove
                 </button>
+              </div>
+            </template>
+
+            <!-- Removed from inside its own terminal, which is still open.
+                 Greyed like a removal in progress; clicking it opens the
+                 terminal, which closes once nothing in it needs you. -->
+            <template v-else-if="item.gone">
+              <div class="row card-head">
+                <span class="card-title">{{ WORKSPACE_TITLES[item.gone.kind] }}</span>
+                <span class="spacer" />
+                <span
+                  class="badge"
+                  title="Its directory was deleted from inside its terminal. The terminal closes once you have seen it and left, unless what runs in it is still working or waiting on you."
+                >
+                  removed
+                </span>
+                <TerminalMark class="terminal-hint live" :paths="[item.gone.path]" :size="13" />
+              </div>
+              <div class="path-row">
+                <span class="kind-icon" :title="WORKSPACE_LABELS[item.gone.kind]">
+                  <Icon :name="item.gone.kind" />
+                </span>
+                <code class="truncate selectable" :title="item.gone.path">
+                  {{ shortPath(item.gone.path) }}
+                </code>
               </div>
             </template>
 

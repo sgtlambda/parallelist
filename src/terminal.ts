@@ -10,7 +10,7 @@ import {
   type TerminalInfo,
   type TerminalMessage,
 } from './api'
-import { goToBranch, projectId as currentProject, saveConfig, state } from './store'
+import { goToBranch, projectId as currentProject, refresh, saveConfig, state } from './store'
 import { normalizePath } from './tasks'
 
 /**
@@ -322,17 +322,19 @@ export function attach(path: string, host: HTMLElement) {
   reportViewing()
 }
 
-let viewingSent: string | null | undefined
+let viewingSent: string | undefined
 
-/** Tell the backend which terminal the user is looking at: the one on
- *  screen, while the window has focus. A turn that ends there isn't
- *  `ready`, and looking at a ready one is what clears it. */
+/** Tell the backend which terminal is on screen, and whether the window has
+ *  focus: together, whether the user is looking at it. A turn that ends
+ *  there isn't `ready`, and looking at a ready one is what clears it.
+ *  Leaving one whose workspace was removed lets it close. */
 function reportViewing(focused = document.hasFocus()) {
-  let viewing: string | null = null
-  if (focused) for (const s of sessions.values()) if (s.el.isConnected) viewing = s.path
-  if (viewing === viewingSent) return
-  viewingSent = viewing
-  void api.terminalViewing(viewing).catch(() => {})
+  let shown: string | null = null
+  for (const s of sessions.values()) if (s.el.isConnected) shown = s.path
+  const sent = `${shown}\0${focused}`
+  if (sent === viewingSent) return
+  viewingSent = sent
+  void api.terminalViewing(shown, focused).catch(() => {})
 }
 
 /**
@@ -406,6 +408,8 @@ export async function syncTerminals(): Promise<() => void> {
       statuses.delete(key)
       // An attached session hears it on its own channel, with the exit code.
       if (!sessions.has(key)) active.delete(key)
+      // Its workspace was removed, and its card was all that was left of it.
+      if (state.overview?.removed?.some((w) => normalizePath(w.path) === key)) void refresh()
     }),
     onTerminalStatus(setStatus),
   ])

@@ -259,6 +259,18 @@ redundant complexity and are not.
   - Closing sends SIGHUP to the shell; the kernel hangs up on its foreground
     job when it exits (tested — an explicit `killpg` made no difference).
     Removing a workspace closes its terminal first.
+  - **A workspace removed from inside its own terminal** — Claude Code
+    does this routinely once it has merged its branch — keeps the
+    terminal until nothing in it needs the user: not while its program
+    works or is blocked, not while a turn that ended there is unseen, not
+    while it is on screen (`Terminals::reap`, asked on refresh, on leaving
+    a terminal and when its program goes quiet). Until then the overview
+    lists it under `removed`, as last seen, with its branch's row put back
+    (neither local nor remote: "branch deleted") if that went too, and its
+    card shows greyed as "removed". Before this the shell lived on
+    unreachable: the project lit up with a terminal no row could show.
+    "On screen" is reported apart from focus, so switching apps isn't
+    leaving it.
   - "Active", which the project list, branch list and cards mark, means the
     shell is running.
   - **Claude Code's status comes from OSC 7501** (its "Program Status

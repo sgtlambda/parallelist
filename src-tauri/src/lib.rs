@@ -28,6 +28,9 @@ struct AppState {
     /// One per project, so overlapping refreshes of it share runs.
     refreshes: Mutex<HashMap<String, Arc<RefreshSlot>>>,
     terminals: Arc<terminal::Terminals>,
+    /// How each workspace with a terminal last looked, for when it is removed
+    /// from inside that terminal (`keep_removed`).
+    last_seen: Mutex<LastSeen>,
 }
 
 impl AppState {
@@ -73,6 +76,9 @@ pub struct Overview {
     /// Non-fatal problems (no `gh`, not logged in, fetch failed) surfaced as a
     /// banner instead of an error dialog, so the rest still renders.
     pub warnings: Vec<String>,
+    /// Workspaces whose directory is gone while their terminal is still open,
+    /// as they last looked (`keep_removed`).
+    pub removed: Vec<Workspace>,
 }
 
 #[tauri::command]
@@ -141,11 +147,80 @@ async fn refresh(state: State<'_, AppState>, id: String, fetch: bool) -> Result<
     let project = state.project(&id)?;
     let slot = state.refresh_slot(&id);
     let tasks = Arc::clone(&state.tasks);
-    tauri::async_runtime::spawn_blocking(move || {
+    let mut overview = tauri::async_runtime::spawn_blocking(move || {
         slot.request(fetch, |fetch| refresh_task(&tasks, project, fetch))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    keep_removed(&state, &mut overview);
+    Ok(overview)
+}
+
+/// Per terminal path: the workspace there, and its branch's row.
+type LastSeen = HashMap<String, (Workspace, Option<BranchInfo>)>;
+
+/// Close the terminals that have outlived their workspace, and put back the
+/// ones that still need the user, so they stay reachable.
+///
+/// Claude Code often removes its own worktree, from inside the terminal it
+/// runs in, once it has merged it — usually deleting the branch too. Removing
+/// a workspace through the app closes its terminal first; removed from inside,
+/// it can still be mid-turn, blocked on an answer, or holding a final message
+/// nobody has read. `Terminals::reap` closes it once none of that holds. Until
+/// then its card is listed under `removed`, with its branch's row as last seen
+/// if the branch has gone too, so the terminal has somewhere to be opened from
+/// rather than lighting up the project with nothing to click on.
+fn keep_removed(state: &AppState, overview: &mut Overview) {
+    let closed = state.terminals.reap();
+    let live: Vec<_> = state
+        .terminals
+        .list()
+        .into_iter()
+        .filter(|t| !closed.contains(&t.path))
+        .collect();
+    track_removed(&mut state.last_seen.lock().unwrap(), &live, overview);
+}
+
+fn track_removed(seen: &mut LastSeen, live: &[terminal::TerminalInfo], overview: &mut Overview) {
+    let same = |a: &str, b: &str| a.trim_end_matches('/') == b.trim_end_matches('/');
+    for t in live.iter().filter(|t| t.project_id == overview.project.id) {
+        if let Some(w) = overview.workspaces.iter().find(|w| same(&w.path, &t.path)) {
+            let branch = w
+                .branch
+                .as_deref()
+                .and_then(|name| overview.branches.iter().find(|b| b.name == name));
+            seen.insert(t.path.clone(), (w.clone(), branch.cloned()));
+            continue;
+        }
+        // Not listed but still there is not a removal: a terminal opened
+        // before the workspace's create finished, say.
+        if Path::new(&t.path).exists() {
+            continue;
+        }
+        let Some((workspace, branch)) = seen.get(&t.path) else {
+            continue;
+        };
+        overview.removed.push(Workspace {
+            status: None,
+            status_error: None,
+            ..workspace.clone()
+        });
+        if let Some(branch) = branch {
+            if !overview.branches.iter().any(|b| b.name == branch.name) {
+                // On no ref any more: neither local nor on origin, which no
+                // listed branch otherwise is.
+                overview.branches.push(BranchInfo {
+                    has_local: false,
+                    has_remote: false,
+                    ..branch.clone()
+                });
+                overview.branches.sort_by_key(|b| std::cmp::Reverse(b.committed_at));
+            }
+        }
+    }
+    // Every project's terminals, not just this one's: a terminal that has
+    // closed takes what was remembered about it along.
+    seen.retain(|path, _| live.iter().any(|t| &t.path == path));
 }
 
 /// Wording for each refresh phase: while it runs, and once it is done.
@@ -308,6 +383,7 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
         pull_requests,
         viewer,
         warnings,
+        removed: Vec::new(),
     })
 }
 
@@ -409,15 +485,18 @@ pub fn peek_overview(project: ProjectConfig) -> Result<Overview, String> {
         pull_requests: HashMap::new(),
         viewer: None,
         warnings: Vec::new(),
+        removed: Vec::new(),
     })
 }
 
 #[tauri::command]
 async fn peek(state: State<'_, AppState>, id: String) -> Result<Overview, String> {
     let project = state.project(&id)?;
-    tauri::async_runtime::spawn_blocking(move || peek_overview(project))
+    let mut overview = tauri::async_runtime::spawn_blocking(move || peek_overview(project))
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())??;
+    keep_removed(&state, &mut overview);
+    Ok(overview)
 }
 
 /// Ahead/behind for just the branches currently on screen. Each one costs a
@@ -770,10 +849,10 @@ fn terminal_list(state: State<AppState>) -> Vec<terminal::TerminalInfo> {
     state.terminals.list()
 }
 
-/// The terminal on screen in the focused window, or none.
+/// The terminal on screen, if any, and whether its window has focus.
 #[tauri::command]
-fn terminal_viewing(state: State<AppState>, path: Option<String>) {
-    state.terminals.view(path.as_deref());
+fn terminal_viewing(state: State<AppState>, path: Option<String>, focused: bool) {
+    state.terminals.view(path.as_deref(), focused);
 }
 
 #[derive(Clone, Serialize)]
@@ -887,6 +966,7 @@ pub fn run() {
                 dir,
                 tasks,
                 refreshes: Mutex::default(),
+                last_seen: Mutex::default(),
                 terminals: Arc::new(terminal::Terminals::new(Arc::new(move |event| {
                     let _ = match event {
                         terminal::TerminalEvent::Exit(info) => {
@@ -936,6 +1016,78 @@ pub fn run() {
 mod tests {
     use super::*;
     use crate::proc::run;
+
+    /// Claude Code merging its branch, deleting it and removing its own
+    /// worktree, while its terminal is still open: the card and the row come
+    /// back as last seen, and go once the terminal does.
+    #[test]
+    fn a_workspace_removed_under_its_terminal_stays_listed_while_it_is_open() {
+        let root = std::env::temp_dir().join(format!("switcheroo-removed-{}", std::process::id()));
+        let dir = root.join("repo-feature");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.to_string_lossy().to_string();
+        let project = ProjectConfig::new(root.join("repo"), "repo".into());
+        let branch = BranchInfo {
+            name: "feature".into(),
+            has_remote: false,
+            has_local: true,
+            was_pushed: false,
+            sha: "abc".into(),
+            committed_at: 1,
+            author: "a".into(),
+            subject: "s".into(),
+            merged: true,
+        };
+        let workspace = Workspace {
+            path: path.clone(),
+            kind: WorkspaceKind::Worktree,
+            branch: Some("feature".into()),
+            owner: Some(project.path.clone()),
+            status: None,
+            status_error: Some("x".into()),
+        };
+        let overview = |branches: Vec<BranchInfo>, workspaces: Vec<Workspace>| Overview {
+            project: project.clone(),
+            base_branch: "main".into(),
+            slug: None,
+            branches,
+            workspaces,
+            pull_requests: HashMap::new(),
+            viewer: None,
+            warnings: Vec::new(),
+            removed: Vec::new(),
+        };
+        let live = vec![terminal::TerminalInfo {
+            path: path.clone(),
+            project_id: project.id.clone(),
+            status: Some("done".into()),
+            ready: true,
+        }];
+        let mut seen = LastSeen::new();
+
+        let mut listed = overview(vec![branch.clone()], vec![workspace.clone()]);
+        track_removed(&mut seen, &live, &mut listed);
+        assert!(listed.removed.is_empty());
+
+        let mut gone = overview(Vec::new(), Vec::new());
+        track_removed(&mut seen, &live, &mut gone);
+        assert!(gone.removed.is_empty(), "not removed while the directory is there");
+
+        std::fs::remove_dir_all(&root).unwrap();
+        let mut gone = overview(Vec::new(), Vec::new());
+        track_removed(&mut seen, &live, &mut gone);
+        assert_eq!(gone.removed.len(), 1);
+        assert_eq!(gone.removed[0].path, path);
+        assert_eq!(gone.removed[0].status_error, None, "nothing left to measure");
+        let row = &gone.branches[0];
+        assert_eq!(row.name, "feature");
+        assert!(!row.has_local && !row.has_remote, "on no ref");
+
+        let mut after = overview(Vec::new(), Vec::new());
+        track_removed(&mut seen, &[], &mut after);
+        assert!(after.removed.is_empty() && after.branches.is_empty());
+        assert!(seen.is_empty(), "forgotten with its terminal");
+    }
 
     /// A secondary clone's `origin/*` only moves when something fetches in
     /// that clone, and every status measured there is against it.

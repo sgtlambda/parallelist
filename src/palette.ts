@@ -2,7 +2,7 @@ import { computed, reactive, ref } from 'vue'
 import { api, type BranchInfo, type Overview, type Workspace } from './api'
 import { basename } from './format'
 import { fuzzyMatch } from './fuzzy'
-import { knownOverview, projectId, state } from './store'
+import { groupByBranch, knownOverview, projectId, state } from './store'
 import { terminalActive, terminalMark } from './terminal'
 
 /**
@@ -99,13 +99,8 @@ const entries = computed<Entry[]>(() => {
   for (const p of state.config?.projects ?? []) {
     const ov = latest(p.id)?.overview
     if (!ov) continue
-    const byBranch = new Map<string, Workspace[]>()
-    for (const w of ov.workspaces) {
-      if (!w.branch) continue
-      const list = byBranch.get(w.branch) ?? []
-      list.push(w)
-      byBranch.set(w.branch, list)
-    }
+    // A removed workspace's terminal can still be waiting on the user.
+    const byBranch = groupByBranch([...ov.workspaces, ...(ov.removed ?? [])])
     for (const branch of ov.branches) {
       const workspaces = byBranch.get(branch.name) ?? []
       const paths = workspaces.map((w) => w.path)
