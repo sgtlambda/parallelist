@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke, type Channel } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
 export type WorkspaceKind = 'primary' | 'worktree' | 'clone' | 'orphan'
@@ -200,6 +200,34 @@ export const api = {
   getTask: (id: string) => invoke<Task | null>('get_task', { id }),
   setTaskAttention: (id: string, attention: boolean) =>
     invoke<void>('set_task_attention', { id, attention }),
+  /** Attach to the workspace's terminal, starting a shell if it has none.
+   *  Resolves true for a new shell; an existing one replays its recent
+   *  output into the channel first. */
+  terminalOpen: (
+    projectId: string,
+    path: string,
+    cols: number,
+    rows: number,
+    channel: Channel<TerminalMessage>,
+  ) => invoke<boolean>('terminal_open', { projectId, path, cols, rows, channel }),
+  terminalWrite: (path: string, data: string) => invoke<void>('terminal_write', { path, data }),
+  terminalResize: (path: string, cols: number, rows: number) =>
+    invoke<void>('terminal_resize', { path, cols, rows }),
+  terminalClose: (path: string) => invoke<void>('terminal_close', { path }),
+  terminalList: () => invoke<TerminalInfo[]>('terminal_list'),
+}
+
+/** Output as raw bytes, then the exit code once the shell is gone. */
+export type TerminalMessage = ArrayBuffer | { exit: number }
+
+export interface TerminalInfo {
+  path: string
+  projectId: string
+}
+
+/** A shell exited, whether or not anything was attached to it. */
+export function onTerminalExit(handler: (path: string) => void) {
+  return listen<string>('terminal-exit', (e) => handler(e.payload))
 }
 
 export type TaskKind = 'refresh' | 'create' | 'remove' | 'deleteBranch'

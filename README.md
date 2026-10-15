@@ -79,6 +79,14 @@ when its branch exists nowhere else.
 
 `⌘F` search (or just start typing) · `⌘R` fetch now · `⌘N` new workspace of the selected branch.
 
+Click a workspace card to swap the right-hand pane for a terminal in that
+workspace — your login shell, in its directory. Each branch remembers whether it
+was showing its overview or a terminal, and each terminal keeps running while
+you look at other branches and projects; a terminal icon marks the projects,
+branches and workspaces that have one. `‹` goes back to the overview, `×`
+closes the terminal and hangs up on its shell. Removing a workspace closes its
+terminal first.
+
 ## Creating a workspace
 
 The dialog suggests a directory from the repo's path template

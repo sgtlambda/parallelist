@@ -11,8 +11,10 @@ import TaskBox from './components/TaskBox.vue'
 import TasksDialog from './components/TasksDialog.vue'
 import { setHomeDirectory } from './format'
 import { startTaskSync } from './tasks'
+import { syncTerminals } from './terminal'
 import {
   DETAIL_RANGE,
+  MIDDLE_MIN,
   SIDEBAR_RANGE,
   cleanupBranches,
   cleanupOpen,
@@ -51,11 +53,14 @@ function startDrag(edge: Edge, event: PointerEvent) {
   dragging.value = edge
   const startX = event.clientX
   const startSidebar = sidebarWidth.value
-  const startDetail = detailWidth.value
+  // As drawn, not as stored: a window narrower than it was when the width was
+  // set squeezes the pane (`--detail-fit`), and the drag starts from there.
+  const startDetail = Math.max(
+    DETAIL_RANGE.min,
+    Math.min(detailWidth.value, window.innerWidth - startSidebar - MIDDLE_MIN),
+  )
   const target = event.currentTarget as HTMLElement
   target.setPointerCapture(event.pointerId)
-
-  const MIDDLE_MIN = 300
 
   const onMove = (move: PointerEvent) => {
     const delta = move.clientX - startX
@@ -128,6 +133,7 @@ function onKey(event: KeyboardEvent) {
 }
 
 let stopTaskSync: (() => void) | null = null
+let stopTerminalSync: (() => void) | null = null
 
 onMounted(async () => {
   // Purely cosmetic: without it paths render absolute rather than under `~`.
@@ -139,6 +145,7 @@ onMounted(async () => {
 
   // Before the first refresh, so its task is in the box from the start.
   stopTaskSync = await startTaskSync()
+  stopTerminalSync = await syncTerminals()
   await loadConfig()
   await refresh({ fetch: true })
   startBackgroundSync()
@@ -148,6 +155,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopTaskSync?.()
+  stopTerminalSync?.()
   stopBackgroundSync()
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('contextmenu', onContextMenu)
@@ -157,7 +165,12 @@ onUnmounted(() => {
 <template>
   <div
     class="app"
-    :style="{ '--sidebar-w': `${sidebarWidth}px`, '--detail-w': `${detailWidth}px` }"
+    :style="{
+      '--sidebar-w': `${sidebarWidth}px`,
+      '--detail-w': `${detailWidth}px`,
+      '--detail-min': `${DETAIL_RANGE.min}px`,
+      '--middle-min': `${MIDDLE_MIN}px`,
+    }"
   >
     <!-- Full-width strip under the overlay title bar: clears the traffic
          lights and gives the window somewhere to be dragged from. -->
@@ -180,7 +193,7 @@ onUnmounted(() => {
     <div
       class="splitter"
       :class="{ dragging: dragging === 'detail' }"
-      :style="{ right: `${detailWidth}px` }"
+      :style="{ right: 'var(--detail-fit)' }"
       @pointerdown="startDrag('detail', $event)"
     />
 

@@ -22,6 +22,7 @@ import {
 } from '../store'
 import { relativeTime } from '../format'
 import { atRisk, rowBadges } from '../status'
+import { terminalActive } from '../terminal'
 
 const tabs = computed(() => [
   { id: 'active' as const, label: 'Active', title: 'Open PR, has a workspace, or recently committed to', count: counts.value.active },
@@ -296,6 +297,13 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
             </span>
           </span>
           <span class="spacer" />
+          <span
+            v-if="row.workspaces.some((w) => terminalActive(w.path))"
+            class="terminal-mark"
+            title="Active terminal"
+          >
+            <Icon name="terminal" :size="12" />
+          </span>
           <span class="faint" style="font-size: 11px">{{ relativeTime(row.branch.committedAt) }}</span>
         </div>
 

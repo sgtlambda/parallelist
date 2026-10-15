@@ -2,6 +2,7 @@
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
+import TerminalPane from './TerminalPane.vue'
 import { api, type Workspace } from '../api'
 import { WORKSPACE_LABELS, WORKSPACE_TITLES, basename, relativeTime, shortPath } from '../format'
 import {
@@ -18,6 +19,7 @@ import {
 } from '../tasks'
 import { openTargets, project, projectId, selectedRow, state } from '../store'
 import { workspaceBadges } from '../status'
+import { closeTerminal, showOverview, showTerminal, terminalActive, terminalFor } from '../terminal'
 
 const emit = defineEmits<{
   (e: 'create'): void
@@ -84,6 +86,34 @@ const targets = computed(() => {
 const hiddenCount = computed(() => {
   return openTargets.value.filter((t) => (!t.requiresPr || row.value?.pr) && !t.primary).length
 })
+
+/** The workspace whose terminal the pane shows instead of the overview. Only
+ *  while that workspace is listed on the row: during a load, or once it has
+ *  been removed, the overview shows — but the branch keeps asking for the
+ *  terminal, so it comes back when the workspace does. */
+const terminal = computed(() => {
+  const path = terminalFor(projectId.value, state.selectedBranch)
+  if (!path) return null
+  return row.value?.workspaces.find((w) => normalizePath(w.path) === path) ?? null
+})
+
+/** A card was clicked. A create opens its log; a workspace opens its
+ *  terminal. Buttons on the card stop their clicks, so they never get here. */
+function activate(item: (typeof cards.value)[number], event: Event) {
+  if (item.job) return openTasks(item.job.id)
+  if (!item.workspace || removing(item.removal)) return
+  // Drag-selecting the path ends in a click on the card; that was a copy, not
+  // a request for a terminal.
+  const selection = window.getSelection()
+  if (
+    selection &&
+    !selection.isCollapsed &&
+    (event.currentTarget as Node).contains(selection.anchorNode)
+  ) {
+    return
+  }
+  showTerminal(projectId.value, state.selectedBranch, item.workspace.path)
+}
 
 const reviewLabel: Record<string, string> = {
   APPROVED: 'approved',
@@ -175,13 +205,41 @@ async function openPullRequest() {
 <template>
   <section class="pane">
     <div class="pane-header" data-tauri-drag-region="deep">
-      <span class="truncate" style="font-weight: 600">
+      <button
+        v-if="terminal"
+        class="btn ghost small icon"
+        title="Back to the overview"
+        @click="showOverview(projectId, state.selectedBranch)"
+      >
+        <Icon name="back" />
+      </button>
+      <span class="truncate" style="font-weight: 600; flex: 0 1 auto">
         {{ title ?? 'No branch selected' }}
       </span>
+      <span
+        v-if="terminal"
+        class="terminal-where"
+        :title="`${WORKSPACE_LABELS[terminal.kind]}\n${terminal.path}`"
+      >
+        <Icon :name="terminal.kind" :size="12" />
+        <span class="truncate">{{ basename(terminal.path) }}</span>
+      </span>
       <span class="spacer" />
+      <button
+        v-if="terminal"
+        class="btn ghost small icon"
+        title="Close the terminal — hangs up on its shell"
+        @click="closeTerminal(terminal.path)"
+      >
+        <Icon name="close" />
+      </button>
     </div>
 
-    <div v-if="!title" class="pane-body">
+    <div v-if="terminal" class="pane-body terminal-body">
+      <TerminalPane :path="terminal.path" />
+    </div>
+
+    <div v-else-if="!title" class="pane-body">
       <p class="empty">
         Pick a branch to see its pull request, how far it has drifted from
         <code>{{ state.overview?.baseBranch ?? 'the base branch' }}</code
@@ -260,11 +318,11 @@ async function openPullRequest() {
               ready: item.job?.status === 'done',
               failed: item.job?.status === 'failed',
             }"
-            :role="item.job ? 'button' : undefined"
-            :tabindex="item.job ? 0 : undefined"
+            :role="removing(item.removal) ? undefined : 'button'"
+            :tabindex="removing(item.removal) ? undefined : 0"
             :title="item.job ? 'Show the full log' : undefined"
-            @click="item.job && openTasks(item.job.id)"
-            @keydown.enter="item.job && openTasks(item.job.id)"
+            @click="activate(item, $event)"
+            @keydown.enter.self="activate(item, $event)"
           >
             <template v-if="item.workspace">
               <div class="row card-head">
@@ -276,12 +334,20 @@ async function openPullRequest() {
                   class="badge removal"
                   :class="{ closed: item.removal.status === 'failed' }"
                   title="Show the log"
-                  @click="openTasks(item.removal.id)"
+                  @click.stop="openTasks(item.removal.id)"
                 >
                   <template v-if="item.removal.status === 'queued'">queued for removal</template>
                   <template v-else-if="item.removal.status === 'failed'">removal failed</template>
                   <template v-else><span class="spin tiny" /> removing</template>
                 </button>
+                <span
+                  v-if="!removing(item.removal)"
+                  class="terminal-hint"
+                  :class="{ live: terminalActive(item.workspace.path) }"
+                  :title="terminalActive(item.workspace.path) ? 'Active terminal' : 'Open a terminal here'"
+                >
+                  <Icon name="terminal" />
+                </span>
               </div>
               <div v-if="workspaceBadges(item.workspace).length" class="row" style="flex-wrap: wrap">
                 <span
@@ -312,14 +378,14 @@ async function openPullRequest() {
                   :key="target.id"
                   class="btn small"
                   :disabled="removing(item.removal)"
-                  @click="openIn(target.id, item.workspace)"
+                  @click.stop="openIn(target.id, item.workspace)"
                 >
                   {{ target.icon }} {{ target.label }}
                 </button>
                 <button
                   v-if="hiddenCount && !showAllTargets"
                   class="btn ghost small"
-                  @click="showAllTargets = true"
+                  @click.stop="showAllTargets = true"
                 >
                   +{{ hiddenCount }} more
                 </button>
@@ -327,7 +393,7 @@ async function openPullRequest() {
                 <button
                   v-if="item.removal?.status === 'failed'"
                   class="btn ghost small"
-                  @click="dismissTask(item.removal.id)"
+                  @click.stop="dismissTask(item.removal.id)"
                 >
                   Dismiss
                 </button>
@@ -335,7 +401,7 @@ async function openPullRequest() {
                   v-if="item.workspace.kind !== 'primary'"
                   class="btn ghost small danger"
                   :disabled="removing(item.removal)"
-                  @click="emit('remove', [item.workspace.path])"
+                  @click.stop="emit('remove', [item.workspace.path])"
                 >
                   Remove
                 </button>

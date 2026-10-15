@@ -35,6 +35,12 @@ export const GLYPHS = {
   // can be drawn in with a dash of 23 (see `.icon-draw`).
   check: '<path d="M20 6 9 17l-5-5"/>',
 
+  // prompt and cursor: a terminal in the workspace.
+  terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
+
+  // chevron left: back to where this came from.
+  back: '<path d="m15 18-6-6 6-6"/>',
+
   // x: dismiss / clear.
   close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 

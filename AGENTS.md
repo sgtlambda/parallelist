@@ -237,6 +237,30 @@ redundant complexity and are not.
 - **`src/components/Icon.vue` is the only place a glyph is defined.** Call sites
   ask for a semantic name (`<Icon name="worktree" />`), never a picture, so the
   icon set can be swapped by editing one file.
+- **Terminals live in the detail pane, one per workspace.** Clicking a
+  workspace card swaps the pane to that workspace's terminal; every button on
+  the card stops its click. What each branch shows (overview or which
+  terminal) is remembered per project + branch, in memory only.
+  - The shells are a backend registry (`src-tauri/src/terminal.rs`, portable-pty),
+    keyed by workspace path, for the same reason tasks are: a webview reload
+    must not orphan a shell running a dev server. Each keeps a 512 KB backlog;
+    opening a live one attaches and replays it instead of starting another.
+  - The webview side (`src/terminal.ts`, xterm 6 with the default DOM
+    renderer) gives each session its own element, `open()`ed once and
+    *re-parented* between hosts, never rebuilt — that is what keeps
+    scrollback and selection across switching branches and projects.
+  - Output travels on a Tauri `Channel` as raw bytes. Input is **one write in
+    flight per terminal**, with keystrokes typed meanwhile batched into the
+    next: a write per keystroke as independent invokes arrived out of order
+    (`$TERM` became `$TREM`).
+  - The shell is the user's login shell with `PATH` from the login shell, the
+    launching terminal's identity and the build tooling's variables stripped,
+    and `LANG` filled in when a Dock launch left it empty.
+  - Closing sends SIGHUP to the shell; the kernel hangs up on its foreground
+    job when it exits (tested — an explicit `killpg` made no difference).
+    Removing a workspace closes its terminal first.
+  - "Active", which the project list, branch list and cards mark, means the
+    shell is running.
 - Error messages that say "git repository" are factual statements about git and
   should stay that way, even though the UI otherwise says "project".
 

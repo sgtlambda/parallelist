@@ -225,7 +225,12 @@ export async function saveConfig(next: AppConfig) {
 }
 
 export const SIDEBAR_RANGE = { min: 170, max: 380 }
-export const DETAIL_RANGE = { min: 280, max: 560 }
+/** No ceiling of its own: a terminal wants all the room it can get. The
+ *  window bounds it, leaving the branch list `MIDDLE_MIN`. */
+export const DETAIL_RANGE = { min: 280, max: Number.POSITIVE_INFINITY }
+/** Narrowest the branch list gets. Enough for a truncated name and its age;
+ *  the folder name and the badges give way first. */
+export const MIDDLE_MIN = 180
 
 export const sidebarWidth = computed(() => state.config?.sidebarWidth ?? 216)
 export const detailWidth = computed(() => state.config?.detailWidth ?? 360)

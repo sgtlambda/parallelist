@@ -5,6 +5,7 @@ pub mod git;
 pub mod proc;
 pub mod status;
 pub mod tasks;
+pub mod terminal;
 
 use workspace::{BranchConflict, CreateRequest, RemovalImpact};
 use config::{AppConfig, ProjectConfig};
@@ -26,6 +27,7 @@ struct AppState {
     tasks: Arc<Tasks>,
     /// One per project, so overlapping refreshes of it share runs.
     refreshes: Mutex<HashMap<String, Arc<RefreshSlot>>>,
+    terminals: Arc<terminal::Terminals>,
 }
 
 impl AppState {
@@ -673,10 +675,16 @@ fn remove_workspaces(
                 TaskStatus::Queued,
             );
             let project = project.clone();
+            let terminals = Arc::clone(&state.terminals);
             state.tasks.spawn_in_lane(
                 &lane,
                 task.clone(),
                 Box::new(move |log| {
+                    // A shell in the directory — or a dev server still writing
+                    // into it — goes before the directory does.
+                    if terminals.close(&item.path) {
+                        log("Closed its terminal", false);
+                    }
                     workspace::remove(&project, Path::new(&item.path), item.kind, item.delete_branch, log)
                 }),
             );
@@ -702,6 +710,64 @@ fn get_task(state: State<AppState>, id: String) -> Option<Task> {
 #[tauri::command]
 fn set_task_attention(state: State<AppState>, id: String, attention: bool) {
     state.tasks.set_attention(&id, attention);
+}
+
+fn pty_size(cols: u16, rows: u16) -> portable_pty::PtySize {
+    portable_pty::PtySize {
+        rows: rows.max(1),
+        cols: cols.max(1),
+        pixel_width: 0,
+        pixel_height: 0,
+    }
+}
+
+/// Attach to the workspace's terminal, starting a shell if it has none.
+/// Output arrives on `channel` as raw bytes, then `{ "exit": code }` once.
+/// Returns whether a new shell was started.
+#[tauri::command]
+fn terminal_open(
+    state: State<AppState>,
+    project_id: String,
+    path: String,
+    cols: u16,
+    rows: u16,
+    channel: tauri::ipc::Channel,
+) -> Result<bool, String> {
+    use tauri::ipc::InvokeResponseBody;
+    let sink: terminal::Sink = Box::new(move |chunk| {
+        let body = match chunk {
+            terminal::Chunk::Data(bytes) => InvokeResponseBody::Raw(bytes),
+            terminal::Chunk::Exit(code) => {
+                InvokeResponseBody::Json(serde_json::json!({ "exit": code }).to_string())
+            }
+        };
+        channel.send(body).is_ok()
+    });
+    let command = terminal::Terminals::shell_command(&path);
+    state
+        .terminals
+        .open(&project_id, &path, pty_size(cols, rows), command, sink)
+}
+
+#[tauri::command]
+fn terminal_write(state: State<AppState>, path: String, data: String) -> Result<(), String> {
+    state.terminals.write(&path, data.as_bytes())
+}
+
+#[tauri::command]
+fn terminal_resize(state: State<AppState>, path: String, cols: u16, rows: u16) -> Result<(), String> {
+    state.terminals.resize(&path, pty_size(cols, rows))
+}
+
+#[tauri::command]
+fn terminal_close(state: State<AppState>, path: String) {
+    state.terminals.close(&path);
+}
+
+/// Running terminals, for a webview that has just (re)loaded to mark.
+#[tauri::command]
+fn terminal_list(state: State<AppState>) -> Vec<terminal::TerminalInfo> {
+    state.terminals.list()
 }
 
 #[derive(Clone, Serialize)]
@@ -790,6 +856,7 @@ pub fn run() {
                 proc::login_path();
             });
             let handle = app.handle().clone();
+            let exit_handle = app.handle().clone();
             let tasks = Arc::new(Tasks::new(move |event| {
                 let _ = match event {
                     TaskEvent::Header(header) => handle.emit("task", header),
@@ -804,6 +871,9 @@ pub fn run() {
                 dir,
                 tasks,
                 refreshes: Mutex::default(),
+                terminals: Arc::new(terminal::Terminals::new(Arc::new(move |info| {
+                    let _ = exit_handle.emit("terminal-exit", &info.path);
+                }))),
             });
             Ok(())
         })
@@ -828,6 +898,11 @@ pub fn run() {
             list_tasks,
             get_task,
             set_task_attention,
+            terminal_open,
+            terminal_write,
+            terminal_resize,
+            terminal_close,
+            terminal_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running switcheroo");

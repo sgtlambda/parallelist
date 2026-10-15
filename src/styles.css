@@ -139,7 +139,14 @@ code,
 .app {
   position: relative;
   display: grid;
-  grid-template-columns: var(--sidebar-w) minmax(300px, 1fr) var(--detail-w);
+  /* The detail pane's stored width, squeezed to fit the window: the width can
+     be set on a big screen, and a terminal makes a wide one normal. The branch
+     list keeps `--middle-min` until the detail pane is down to its own. */
+  --detail-fit: min(
+    var(--detail-w),
+    max(var(--detail-min), 100vw - var(--sidebar-w) - var(--middle-min))
+  );
+  grid-template-columns: var(--sidebar-w) minmax(var(--middle-min), 1fr) var(--detail-fit);
   height: 100%;
 }
 
@@ -522,6 +529,19 @@ code,
   color: var(--text-dim);
 }
 
+/* An active terminal somewhere under this project or branch. On a selected
+   row the accent is the background, so it takes the row's text colour. */
+.terminal-mark {
+  display: flex;
+  flex: none;
+  color: var(--accent);
+}
+
+.project-item.selected .terminal-mark,
+.branch.selected .terminal-mark {
+  color: var(--accent-fg);
+}
+
 /* ---------- branch list ---------- */
 
 .tabs {
@@ -743,6 +763,73 @@ code,
 
 .workspace.stale {
   border-color: color-mix(in srgb, var(--amber) 50%, transparent);
+}
+
+/* A workspace card opens its terminal. Buttons on it do their own thing. */
+.workspace[role='button'] {
+  cursor: pointer;
+}
+
+.workspace[role='button']:not(.pending):hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.workspace[role='button']:not(.pending):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Says what clicking the card does; lit when the workspace's terminal is
+   active. */
+.terminal-hint {
+  display: flex;
+  color: var(--text-faint);
+  opacity: 0.5;
+  transition: opacity 0.12s ease;
+}
+
+.workspace:hover .terminal-hint,
+.terminal-hint.live {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* Which workspace the terminal is in, after the branch name in the header. */
+.terminal-where {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 2 auto;
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.terminal-body {
+  display: flex;
+  overflow: hidden;
+}
+
+.terminal-host {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The xterm's own element. Padding here is inside what the fit addon
+   measures, so the grid of cells stays clear of the pane edges. */
+.terminal-surface {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 8px 4px 4px 12px;
+  background: var(--bg-raised);
+}
+
+.terminal-surface .xterm {
+  height: 100%;
 }
 
 /* A workspace still being created. The whole card opens the log, so it
