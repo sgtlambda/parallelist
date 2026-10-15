@@ -74,7 +74,7 @@ export const looseWorkspaces = computed(() =>
   (state.overview?.workspaces ?? []).filter((c) => c.kind === 'orphan' || !c.branch),
 )
 
-const rows = computed<Row[]>(() => {
+export const rows = computed<Row[]>(() => {
   const ov = state.overview
   if (!ov) return []
   const byBranch = new Map<string, Workspace[]>()

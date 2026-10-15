@@ -36,6 +36,12 @@ import {
 } from './store'
 
 const createOpen = ref(false)
+const createBranch = ref('')
+
+function openCreate(branch: string) {
+  createBranch.value = branch
+  createOpen.value = true
+}
 
 /** Suppress WebKit's page context menu, which is pure web-app tell — except
  *  over editable or selectable text, where Cut/Copy/Paste is the right menu. */
@@ -143,7 +149,7 @@ function onKey(event: KeyboardEvent) {
     case 'n':
       if (state.selectedBranch) {
         event.preventDefault()
-        createOpen.value = true
+        openCreate(state.selectedBranch)
       }
       break
   }
@@ -194,9 +200,9 @@ onUnmounted(() => {
     <div class="titlebar" data-tauri-drag-region />
 
     <ProjectSidebar @error="state.error = $event" />
-    <BranchList />
+    <BranchList @create="openCreate('')" />
     <DetailPane
-      @create="createOpen = true"
+      @create="openCreate(state.selectedBranch ?? '')"
       @remove="openCleanup($event, [], 'Remove workspace')"
       @error="state.error = $event"
     />
@@ -214,7 +220,7 @@ onUnmounted(() => {
       @pointerdown="startDrag('list', $event)"
     />
 
-    <CreateDialog :open="createOpen" @close="createOpen = false" />
+    <CreateDialog :open="createOpen" :initial-branch="createBranch" @close="createOpen = false" />
     <CleanupDialog
       :open="cleanupOpen"
       :paths="cleanupPaths"

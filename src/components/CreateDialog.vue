@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { api, type CreateRequest } from '../api'
 import { shortPath } from '../format'
 import { isActive, normalizePath, tasks } from '../tasks'
-import { project, projectId, selectedRow, state } from '../store'
+import { project, projectId, rows, state } from '../store'
 import { useEscape } from '../useEscape'
 
-const props = defineProps<{ open: boolean }>()
+/** `initialBranch` fills the branch field: the selected branch from its
+ *  workspace cards, empty from "Add branch". */
+const props = defineProps<{ open: boolean; initialBranch: string }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const branch = ref('')
+const branchInput = ref<HTMLInputElement | null>(null)
 const path = ref('')
 const mode = ref<'worktree' | 'clone'>('worktree')
 const steps = ref<string[]>([])
@@ -19,6 +22,10 @@ useEscape(
   () => props.open,
   () => emit('close'),
 )
+
+/** The row for the branch as typed, not the selected one: the field can name
+ *  any branch, or one that doesn't exist yet and so has no PR. */
+const row = computed(() => rows.value.find((r) => r.branch.name === branch.value.trim()) ?? null)
 
 const setupSteps = computed(() => project.value?.setupSteps ?? [])
 const base = computed(() => state.overview?.baseBranch ?? 'main')
@@ -50,8 +57,14 @@ watch(
   () => props.open,
   async (isOpen) => {
     if (!isOpen) return
-    branch.value = state.selectedBranch ?? ''
+    branch.value = props.initialBranch
+    // An empty branch has no plan to load, so nothing would replace the last
+    // opening's directory and conflict.
+    path.value = ''
+    conflict.value = null
+    mode.value = 'worktree'
     steps.value = setupSteps.value.filter((s) => s.defaultEnabled).map((s) => s.id)
+    if (!branch.value) void nextTick(() => branchInput.value?.focus())
     await loadPlan()
   },
 )
@@ -67,7 +80,7 @@ async function loadPlan() {
   if (!id || !name) return
   const ticket = ++planTicket
   try {
-    const plan = await api.planWorkspace(id, name, selectedRow.value?.pr?.number ?? null)
+    const plan = await api.planWorkspace(id, name, row.value?.pr?.number ?? null)
     if (ticket !== planTicket) return
     path.value = plan.suggestedPath
     conflict.value = plan.conflict
@@ -101,7 +114,7 @@ async function submit() {
   }
 
   try {
-    await api.createWorkspace(request, selectedRow.value?.pr?.url ?? null)
+    await api.createWorkspace(request, row.value?.pr?.url ?? null)
   } catch (e) {
     state.error = String(e)
     return
@@ -123,7 +136,7 @@ async function submit() {
       <div class="modal-body">
         <div class="field">
           <label for="branch">Branch</label>
-          <input id="branch" v-model="branch" />
+          <input id="branch" ref="branchInput" v-model="branch" />
           <span v-if="isNewBranch" class="hint">
             Doesn't exist yet — it will be created from <code>origin/{{ base }}</code> with no
             upstream set, so your first push goes to its own branch.

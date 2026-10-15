@@ -175,7 +175,7 @@ async function onMenuSelect(action: string) {
       </p>
     </div>
 
-    <div class="pane-header" style="border-top: 1px solid var(--border-soft); border-bottom: none">
+    <div class="pane-header pane-footer">
       <button class="btn ghost small" @click="addProject">+ Add project</button>
       <span class="spacer" />
       <button class="btn ghost small" title="Settings" @click="settingsOpen = true">⚙</button>

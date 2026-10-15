@@ -236,6 +236,35 @@ code,
   overflow-y: auto;
 }
 
+/* A header strip turned upside down: the rule goes on top. */
+.pane-footer {
+  border-top: 1px solid var(--border-soft);
+  border-bottom: none;
+}
+
+/* "Add branch" is a footer strip of its own, the full width of the branch
+   list. It has the sidebar footer's box (`.pane-header`'s 44px with the rule
+   on top) and its label sits where "Add project"'s does — the 12px padding
+   plus a `.btn.small`'s 1px border and 7px padding, at its font size — so
+   the two read as one line. */
+.add-branch {
+  flex: none;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 44px;
+  padding: 0 20px;
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  background: var(--bg);
+  font-size: 11.5px;
+  text-align: left;
+}
+
+.add-branch:hover {
+  background: var(--bg-hover);
+}
+
 .sidebar {
   background: var(--bg-sidebar);
   padding-top: var(--titlebar-h);

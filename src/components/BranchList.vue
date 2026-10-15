@@ -26,6 +26,8 @@ import { relativeTime } from '../format'
 import { atRisk, rowBadges } from '../status'
 import { openIn, targetBusy } from '../openIn'
 
+const emit = defineEmits<{ (e: 'create'): void }>()
+
 const tabs = computed(() => [
   { id: 'active' as const, label: 'Active', title: 'Open PR, has a workspace, or recently committed to', count: counts.value.active },
   { id: 'prs' as const, label: 'Open PRs', title: 'Every open pull request', count: counts.value.prs },
@@ -358,6 +360,12 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
         </div>
       </button>
     </div>
+
+    <!-- The whole strip is the button, on the same line as the sidebar's
+         "Add project". -->
+    <button v-if="projectId" class="add-branch" @click="emit('create')">
+      + Add branch
+    </button>
 
     <ContextMenu
       :open="actions.open"
