@@ -3,7 +3,7 @@ import { api, type BranchInfo, type Overview, type Workspace } from './api'
 import { basename } from './format'
 import { fuzzyMatch } from './fuzzy'
 import { knownOverview, projectId, state } from './store'
-import { terminalActive } from './terminal'
+import { terminalActive, terminalMark } from './terminal'
 
 /**
  * The command palette: every branch of every project, fuzzy-searched.
@@ -23,12 +23,18 @@ export const paletteOpen = ref(false)
  * lean on context, a whole branch name hardly does.
  *
  * An active terminal outweighs the current project: it is where work is
- * actually going on, in whichever project. With no query the bonuses are the
- * whole score, so the palette opens on running terminals first, then the
- * current project, then everything else by recency.
+ * actually going on, in whichever project. One waiting for the user weighs
+ * more again, on top of being active — blocked on an answer most of all —
+ * so the palette doubles as "go to whatever needs me next". With no query
+ * the bonuses are the whole score, so it opens on blocked terminals, then
+ * ready ones, then the rest of the running ones, then the current project,
+ * then everything else by recency. Each step outweighs the current project
+ * on its own, so a blocked terminal elsewhere still beats a ready one here.
  */
 const CURRENT_PROJECT_BONUS = 1
 const ACTIVE_TERMINAL_BONUS = 2
+const READY_TERMINAL_BONUS = 1.25
+const BLOCKED_TERMINAL_BONUS = 2.5
 
 /** A query word found in the project name or a workspace directory, rather
  *  than in the branch name itself, counts for less. */
@@ -45,6 +51,8 @@ export interface Entry {
   current: boolean
   /** A workspace of this branch has a running shell. */
   active: boolean
+  /** What, if anything, one of those shells waits on the user for. */
+  waiting: 'blocked' | 'ready' | null
 }
 
 export interface Result {
@@ -100,13 +108,15 @@ const entries = computed<Entry[]>(() => {
     }
     for (const branch of ov.branches) {
       const workspaces = byBranch.get(branch.name) ?? []
+      const paths = workspaces.map((w) => w.path)
       out.push({
         projectId: p.id,
         projectName: p.name,
         branch,
         workspaces,
         current: p.id === projectId.value,
-        active: workspaces.some((w) => terminalActive(w.path)),
+        active: paths.some(terminalActive),
+        waiting: terminalMark(paths)?.box ?? null,
       })
     }
   }
@@ -130,7 +140,13 @@ export function searchPalette(query: string, limit: number): Result[] {
   const results: Result[] = []
   for (const entry of entries.value) {
     let score =
-      (entry.current ? CURRENT_PROJECT_BONUS : 0) + (entry.active ? ACTIVE_TERMINAL_BONUS : 0)
+      (entry.current ? CURRENT_PROJECT_BONUS : 0) +
+      (entry.active ? ACTIVE_TERMINAL_BONUS : 0) +
+      (entry.waiting === 'blocked'
+        ? BLOCKED_TERMINAL_BONUS
+        : entry.waiting === 'ready'
+          ? READY_TERMINAL_BONUS
+          : 0)
     const branchHits: number[] = []
     const projectHits: number[] = []
     let matched = true
