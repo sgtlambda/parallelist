@@ -355,6 +355,12 @@ code,
   white-space: nowrap;
 }
 
+/* A relativeTime() in a flex row: never shrunk, so "just now" stays on one line. */
+.age {
+  flex: none;
+  white-space: nowrap;
+}
+
 .row {
   display: flex;
   align-items: center;

@@ -14,6 +14,12 @@ export function relativeTime(unixSeconds: number): string {
   return `${Math.round(months / 12)}y`
 }
 
+/** relativeTime() as a phrase: "2d ago", but "just now" rather than "just now ago". */
+export function ago(unixSeconds: number): string {
+  const time = relativeTime(unixSeconds)
+  return !time || time === 'just now' ? time : `${time} ago`
+}
+
 export function bytes(value: number): string {
   if (!value) return '—'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
