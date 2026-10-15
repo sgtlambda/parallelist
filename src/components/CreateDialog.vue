@@ -123,7 +123,7 @@ async function submit() {
       <div class="modal-body">
         <div class="field">
           <label for="branch">Branch</label>
-          <input id="branch" v-model="branch" spellcheck="false" />
+          <input id="branch" v-model="branch" />
           <span v-if="isNewBranch" class="hint">
             Doesn't exist yet — it will be created from <code>origin/{{ base }}</code> with no
             upstream set, so your first push goes to its own branch.
@@ -168,7 +168,7 @@ async function submit() {
 
         <div class="field">
           <label for="path">Directory</label>
-          <input id="path" v-model="path" spellcheck="false" class="mono" />
+          <input id="path" v-model="path" class="mono" />
           <span v-if="busy" class="hint">This directory is already being created.</span>
         </div>
 

@@ -154,7 +154,7 @@ async function save() {
                     ✕
                   </button>
                 </div>
-                <input v-model="step.script" class="mono" spellcheck="false" placeholder="pnpm install" />
+                <input v-model="step.script" class="mono" placeholder="pnpm install" />
                 <label class="check">
                   <input v-model="step.defaultEnabled" type="checkbox" />
                   <span class="hint">Ticked by default</span>
@@ -190,7 +190,7 @@ async function save() {
                 ✕
               </button>
             </div>
-            <input v-model="target.command" class="mono" spellcheck="false" />
+            <input v-model="target.command" class="mono" />
             <div class="row">
               <label class="check">
                 <input v-model="target.primary" type="checkbox" />
