@@ -6,18 +6,18 @@ import {
   boxTasks,
   dismissTask,
   isReady,
-  openTaskIn,
   openTasks,
   revealTask,
   taskLine,
   type LiveTask,
 } from '../tasks'
 import { openTargetsFor } from '../store'
+import { openTaskIn, targetBusy, targetTitle } from '../openIn'
 
 const emit = defineEmits<{ (e: 'error', message: string): void }>()
 
 /**
- * The top-right box: one featured task, and a count of the rest. The featured
+ * The bottom-right box: one featured task, and a count of the rest. The featured
  * task is the first of `boxTasks` — something asking for attention, else the
  * oldest running — so it only changes when that task is dealt with or
  * finishes, never because another one printed a line. Clicking opens the
@@ -27,8 +27,8 @@ const featured = computed(() => boxTasks.value[0] ?? null)
 const others = computed(() => Math.max(0, boxTasks.value.length - 1))
 
 /**
- * Motion, via motion-v. The box drops in from just under the title bar and,
- * once nothing is left to show, lifts back up into it. `AnimatePresence` is
+ * Motion, via motion-v. The box rises into the corner and, once nothing is
+ * left to show, sinks back out of it. `AnimatePresence` is
  * Vue's own `<Transition>` underneath, so the leaving box keeps its last
  * render — the finished task's checkmark — for the whole exit.
  *
@@ -40,11 +40,11 @@ const others = computed(() => Math.max(0, boxTasks.value.length - 1))
  * the slot to one still running. A task changing state in place is not a
  * swap: the spinner just gives way to the check.
  */
-const tucked = { opacity: 0, y: -6, scale: 0.97 }
+const tucked = { opacity: 0, y: 6, scale: 0.97 }
 const settled = { opacity: 1, y: 0, scale: 1 }
 const spring = { type: 'spring', stiffness: 520, damping: 40, mass: 0.8 } as const
 // Accelerating out: it is leaving, not arriving.
-const lift = { ...tucked, transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } }
+const sink = { ...tucked, transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } }
 
 async function openIn(targetId: string, task: LiveTask) {
   try {
@@ -74,7 +74,7 @@ async function reveal(task: LiveTask) {
         :style="{ borderRadius: '7px' }"
         :initial="tucked"
         :animate="settled"
-        :exit="lift"
+        :exit="sink"
         :transition="spring"
         role="button"
         tabindex="0"
@@ -132,6 +132,8 @@ async function reveal(task: LiveTask) {
                 v-for="target in openTargetsFor(featured.projectId).filter((t) => !t.requiresPr)"
                 :key="target.id"
                 class="btn small"
+                :disabled="targetBusy(target, featured.path ?? '')"
+                :title="targetTitle(target, featured.path ?? '')"
                 @click="openIn(target.id, featured)"
               >
                 {{ target.icon }} {{ target.label }}

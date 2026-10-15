@@ -5,6 +5,8 @@ export interface MenuItem {
   /** Draws a divider above this item. */
   separator?: boolean
   danger?: boolean
+  /** Shown but not choosable. */
+  disabled?: boolean
   /** Turns the entry into a flyout rather than an action. */
   children?: MenuItem[]
 }
@@ -54,7 +56,7 @@ watch(
 )
 
 function choose(item: MenuItem) {
-  if (item.children) return
+  if (item.children || item.disabled) return
   emit('select', item.id)
   emit('close')
 }
@@ -86,6 +88,7 @@ const flip = computed(() => pos.value.left > window.innerWidth - 440)
             <button
               class="menu-item"
               :class="{ danger: item.danger }"
+              :disabled="item.disabled"
               @click="choose(item)"
             >
               <span class="truncate">{{ item.label }}</span>
@@ -100,6 +103,7 @@ const flip = computed(() => pos.value.left > window.innerWidth - 440)
                 v-for="child in item.children"
                 :key="child.id"
                 class="menu-item"
+                :disabled="child.disabled"
                 @click="choose(child)"
               >
                 {{ child.label }}

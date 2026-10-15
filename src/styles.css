@@ -16,6 +16,7 @@
   --danger-bg: #c93c37;
   --danger-fg: #ffffff;
   --amber: #9a6700;
+  --orange: #d0630e;
   --purple: #7b47c4;
   --skeleton: rgba(0, 0, 0, 0.07);
   --skeleton-hi: rgba(0, 0, 0, 0.13);
@@ -45,6 +46,7 @@
     --danger-bg: #c4423a;
     --danger-fg: #ffffff;
     --amber: #d4a72c;
+    --orange: #f0883e;
     --purple: #b585f5;
     --skeleton: rgba(255, 255, 255, 0.07);
     --skeleton-hi: rgba(255, 255, 255, 0.15);
@@ -139,19 +141,20 @@ code,
 .app {
   position: relative;
   display: grid;
-  /* The detail pane's stored width, squeezed to fit the window: the width can
-     be set on a big screen, and a terminal makes a wide one normal. The branch
-     list keeps `--middle-min` until the detail pane is down to its own. */
-  --detail-fit: min(
-    var(--detail-w),
-    max(var(--detail-min), 100vw - var(--sidebar-w) - var(--middle-min))
+  /* The sidebar and the branch list keep the widths they were dragged to,
+     and the detail pane takes the rest: resizing the window is resizing the
+     pane with the terminal in it. Only once the detail pane is down to
+     `--detail-min` does the list give way, as far as `--list-min`. */
+  --list-fit: min(
+    var(--list-w),
+    max(var(--list-min), 100vw - var(--sidebar-w) - var(--detail-min))
   );
-  grid-template-columns: var(--sidebar-w) minmax(var(--middle-min), 1fr) var(--detail-fit);
+  grid-template-columns: var(--sidebar-w) var(--list-fit) minmax(var(--detail-min), 1fr);
   height: 100%;
 }
 
 /* Splitters float over the pane borders rather than being grid tracks, so the
-   grid stays three columns and the middle one keeps absorbing the slack. */
+   grid stays three columns and the last one keeps absorbing the slack. */
 .splitter {
   position: absolute;
   top: 0;
@@ -794,6 +797,56 @@ code,
   color: var(--accent);
 }
 
+/* A terminal waiting for the user: the glyph knocked out of a filled box,
+   in the colour of what it sits on. Blue when a turn finished out of sight,
+   orange when it is blocked on an answer. The negative margin keeps the
+   box from making its row taller than the bare glyph does. On a selected
+   row, whose background is the accent, the blue box inverts once more. */
+.terminal-mark.ready,
+.terminal-mark.blocked {
+  padding: 1px;
+  margin: -1px;
+  border-radius: 4px;
+  color: var(--bg-raised);
+}
+
+.terminal-mark.ready {
+  background: var(--accent);
+}
+
+.terminal-mark.blocked {
+  background: var(--orange);
+}
+
+.project-item.selected .terminal-mark.ready,
+.branch.selected .terminal-mark.ready {
+  background: var(--accent-fg);
+  color: var(--accent);
+}
+
+.project-item.selected .terminal-mark.blocked,
+.branch.selected .terminal-mark.blocked {
+  color: var(--accent-fg);
+}
+
+/* Terminal zoom in the header: − 100% +. The level is fixed-width so the
+   buttons either side don't shift as it changes. */
+.zoom {
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+
+.zoom-level {
+  min-width: 46px;
+  padding-left: 4px;
+  padding-right: 4px;
+  text-align: center;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+}
+
 /* Which workspace the terminal is in, after the branch name in the header. */
 .terminal-where {
   display: flex;
@@ -818,18 +871,29 @@ code,
   min-height: 0;
 }
 
-/* The xterm's own element. Padding here is inside what the fit addon
-   measures, so the grid of cells stays clear of the pane edges. */
+/* What the fit addon measures: it takes this element's computed size and
+   subtracts only the padding of `.xterm` inside it. Under the app-wide
+   border-box, padding here would be counted as room for cells, and the grid
+   would run past the bottom edge, cutting the last row in half. */
 .terminal-surface {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  padding: 8px 4px 4px 12px;
   background: var(--bg-raised);
 }
 
+/* Keeps the grid of cells clear of the pane edges. Whatever is left over
+   after whole rows and columns falls to the bottom and right. */
 .terminal-surface .xterm {
   height: 100%;
+  padding: 8px 4px 4px 12px;
+}
+
+/* xterm.css paints this black, and it spans the padding above: xterm 6 puts
+   the theme background on the scroll container inside it, not here. Clear,
+   it shows the surface, which is the theme background too. */
+.terminal-surface .xterm-viewport {
+  background-color: transparent;
 }
 
 /* A workspace still being created. The whole card opens the log, so it
@@ -953,9 +1017,14 @@ code,
   white-space: nowrap;
 }
 
-.menu-item:hover {
+.menu-item:hover:not(:disabled) {
   background: var(--accent);
   color: var(--accent-fg);
+}
+
+.menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .menu-item.danger {
@@ -1014,7 +1083,7 @@ code,
    the modal scrim: a dialog in front of it is the thing being worked on. */
 .task-box {
   position: fixed;
-  top: 8px;
+  bottom: 12px;
   right: 12px;
   z-index: 35;
   width: 300px;
@@ -1114,6 +1183,20 @@ code,
 @keyframes draw-stroke {
   to {
     stroke-dashoffset: 0;
+  }
+}
+
+/* The terminal glyph's cursor, blinking like a real one while something is
+   working in it. On and off rather than fading, at a terminal's rhythm.
+   Kept under Reduce motion, which leaves text cursors blinking too: it is
+   the only thing telling "working" apart from "running". */
+.icon-blink {
+  animation: cursor-blink 1.1s steps(1, end) infinite;
+}
+
+@keyframes cursor-blink {
+  50% {
+    opacity: 0;
   }
 }
 
@@ -1295,6 +1378,111 @@ code,
 .field .hint {
   font-size: 11px;
   color: var(--text-faint);
+}
+
+/* ---------- command palette ---------- */
+
+/* High in the window rather than centred, so the input stays put while the
+   list under it grows and shrinks with the query. */
+.palette-scrim {
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+
+.palette {
+  max-width: 640px;
+  max-height: min(520px, 100%);
+}
+
+.palette-search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-faint);
+}
+
+.palette-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  padding: 13px 0;
+  font-size: 14px;
+}
+
+.palette-search input:focus {
+  outline: none;
+}
+
+.palette-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 5px;
+}
+
+.palette-list .empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  padding: 7px 10px;
+}
+
+.palette-item.active {
+  background: var(--bg-active);
+}
+
+/* Matched characters. Colour alone, no weight: bolding them changes the
+   text's width as the query is typed and the row jitters. */
+.palette-item .hit {
+  color: var(--accent);
+}
+
+.palette-project {
+  flex: 0 1 auto;
+  max-width: 30%;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.palette-project.current {
+  color: var(--text-faint);
+}
+
+.palette-age {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.palette-footer {
+  display: flex;
+  gap: 16px;
+  padding: 7px 14px;
+  border-top: 1px solid var(--border-soft);
+  font-size: 11px;
+}
+
+.palette-footer kbd {
+  font: inherit;
+  margin-right: 3px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
 }
 
 .choice {

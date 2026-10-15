@@ -4,8 +4,7 @@ import { api } from '../api'
 import { basename } from '../format'
 import { ref } from 'vue'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
-import Icon from './Icon.vue'
-import { projectHasActiveTerminal } from '../terminal'
+import TerminalMark from './TerminalMark.vue'
 import {
   dropCached,
   loadConfig,
@@ -166,13 +165,7 @@ async function onMenuSelect(action: string) {
         <span class="row">
           <span class="project-name truncate">{{ project.name }}</span>
           <span class="spacer" />
-          <span
-            v-if="projectHasActiveTerminal(project.id)"
-            class="terminal-mark"
-            title="Active terminal"
-          >
-            <Icon name="terminal" :size="12" />
-          </span>
+          <TerminalMark :project-id="project.id" />
         </span>
         <span class="project-sub truncate">{{ basename(project.path) }}</span>
       </button>

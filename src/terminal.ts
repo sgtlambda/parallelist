@@ -2,8 +2,15 @@ import { Channel } from '@tauri-apps/api/core'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { reactive } from 'vue'
-import { api, onTerminalExit, type TerminalMessage } from './api'
+import { computed, reactive, watch } from 'vue'
+import {
+  api,
+  onTerminalExit,
+  onTerminalStatus,
+  type TerminalInfo,
+  type TerminalMessage,
+} from './api'
+import { goToBranch, projectId as currentProject, saveConfig, state } from './store'
 import { normalizePath } from './tasks'
 
 /**
@@ -46,9 +53,6 @@ export function showTerminal(projectId: string | null, branch: string | null, pa
   if (!key || !projectId) return
   shown.set(key, normalizePath(path))
   projectOf.set(normalizePath(path), projectId)
-  // Asked for, so it gets the keyboard. Arriving at one by switching branches
-  // doesn't: that would take type-to-search away from the branch list.
-  focusNext = normalizePath(path)
 }
 
 export function showOverview(projectId: string | null, branch: string | null) {
@@ -80,16 +84,52 @@ const projectOf = new Map<string, string>()
  *  cards mark. */
 const active = reactive(new Set<string>())
 
+/** What the program in each terminal reports over OSC 7501, when it does,
+ *  and whether a turn ended there unseen (`ready`, kept by the backend). */
+const statuses = reactive(new Map<string, Pick<TerminalInfo, 'status' | 'ready'>>())
+
 export function terminalActive(path: string): boolean {
   return active.has(normalizePath(path))
 }
 
-export function projectHasActiveTerminal(projectId: string): boolean {
-  for (const path of active) if (projectOf.get(path) === projectId) return true
-  return false
+export interface TerminalMark {
+  /** Blinking while Claude Code, or anything speaking OSC 7501, works. */
+  icon: 'terminal' | 'terminal-working'
+  /** Something waits for the user: `blocked` on an answer (orange), or
+   *  `ready`, a turn finished out of sight (blue). */
+  box: 'blocked' | 'ready' | null
+  title: string
 }
 
-let focusNext: string | null = null
+/**
+ * The mark for the terminals of some workspaces: none unless one has a
+ * running shell. Several terminals combine part by part: the icon blinks if
+ * any of them works, and the box is orange if any is blocked, else blue if
+ * any is ready. The one place it is decided, for the project list, the
+ * branch rows, the cards and the palette alike.
+ */
+export function terminalMark(paths: string[]): TerminalMark | null {
+  const keys = paths.map(normalizePath).filter((p) => active.has(p))
+  if (!keys.length) return null
+  const reported = keys.map((k) => statuses.get(k))
+  const working = reported.some((r) => r?.status === 'working')
+  const blocked = reported.some((r) => r?.status === 'blocked')
+  const ready = reported.some((r) => r?.ready)
+  const title = [
+    blocked && 'Blocked — waiting for your answer',
+    ready && 'Ready — finished while you were away',
+    working && 'Working',
+  ].filter((t) => !!t)
+  return {
+    icon: working ? 'terminal-working' : 'terminal',
+    box: blocked ? 'blocked' : ready ? 'ready' : null,
+    title: title.join('\n') || 'Active terminal',
+  }
+}
+
+export function projectTerminalMark(projectId: string): TerminalMark | null {
+  return terminalMark([...active].filter((path) => projectOf.get(path) === projectId))
+}
 
 const dark = window.matchMedia('(prefers-color-scheme: dark)')
 
@@ -126,6 +166,42 @@ function theme(): ITheme {
       }
 }
 
+/** Zoom is the font size, one for every terminal. 12 is 100%. */
+export const FONT_SIZE = { min: 8, base: 12, max: 24 }
+
+export const fontSize = computed(() => state.config?.terminalFontSize ?? FONT_SIZE.base)
+export const zoomPercent = computed(() => Math.round((fontSize.value / FONT_SIZE.base) * 100))
+
+let saveTimer = 0
+
+/** A point bigger or smaller, or back to 100% with `0`. Written to the config
+ *  once the presses stop, rather than once per press. */
+export function zoomTerminals(step: 1 | -1 | 0) {
+  const config = state.config
+  if (!config) return
+  const next = step === 0 ? FONT_SIZE.base : fontSize.value + step
+  config.terminalFontSize = Math.min(FONT_SIZE.max, Math.max(FONT_SIZE.min, next))
+  window.clearTimeout(saveTimer)
+  saveTimer = window.setTimeout(() => {
+    if (state.config) void saveConfig(JSON.parse(JSON.stringify(state.config)))
+  }, 500)
+}
+
+/** Whether a terminal is on screen, which is when zoom keys mean it. */
+export function terminalShown(): boolean {
+  for (const s of sessions.values()) if (s.el.isConnected) return true
+  return false
+}
+
+// Every session, shown or not. The one on screen refits at once; the others
+// refit when next attached, as their element measures zero until then.
+watch(fontSize, (size) => {
+  for (const s of sessions.values()) {
+    s.term.options.fontSize = size
+    if (s.el.isConnected && s.el.clientWidth) s.fit.fit()
+  }
+})
+
 dark.addEventListener('change', () => {
   for (const s of sessions.values()) s.term.options.theme = theme()
 })
@@ -139,7 +215,7 @@ function session(path: string): Session {
   el.className = 'terminal-surface'
   const term = new Terminal({
     fontFamily: "'SF Mono', ui-monospace, Menlo, monospace",
-    fontSize: 12,
+    fontSize: fontSize.value,
     lineHeight: 1.15,
     scrollback: 5000,
     cursorBlink: true,
@@ -227,11 +303,13 @@ function ended(s: Session, code: number | null) {
   s.state = 'exited'
   s.pending = ''
   active.delete(s.path)
+  statuses.delete(s.path)
   const why = code === null ? 'No shell' : `Shell exited${code ? ` with ${code}` : ''}`
   s.term.write(`\r\n\x1b[2m${why}. Press Return to start a new one.\x1b[0m\r\n`)
 }
 
-/** Put a workspace's terminal into `host`, starting its shell the first time. */
+/** Put a workspace's terminal into `host`, starting its shell the first time,
+ *  and give it the keyboard when nothing else is using it. */
 export function attach(path: string, host: HTMLElement) {
   const s = session(path)
   host.appendChild(s.el)
@@ -240,15 +318,58 @@ export function attach(path: string, host: HTMLElement) {
   // than at 80 columns and then reflows.
   if (s.el.clientWidth && s.el.clientHeight) s.fit.fit()
   if (s.state === 'new') void start(s)
-  if (focusNext === s.path) {
-    focusNext = null
-    s.term.focus()
+  if (mayTakeFocus()) s.term.focus()
+  reportViewing()
+}
+
+let viewingSent: string | null | undefined
+
+/** Tell the backend which terminal the user is looking at: the one on
+ *  screen, while the window has focus. A turn that ends there isn't
+ *  `ready`, and looking at a ready one is what clears it. */
+function reportViewing(focused = document.hasFocus()) {
+  let viewing: string | null = null
+  if (focused) for (const s of sessions.values()) if (s.el.isConnected) viewing = s.path
+  if (viewing === viewingSent) return
+  viewingSent = viewing
+  void api.terminalViewing(viewing).catch(() => {})
+}
+
+/**
+ * Showing a terminal — asked for, or come back to by selecting its branch —
+ * means carrying on typing in it, without clicking into it first. Not while
+ * the keyboard is busy elsewhere: a search being typed, or a dialog up.
+ * Typing with nothing focused goes to the branch search instead, so with
+ * the terminal focused, ⌘F is the way there.
+ */
+function mayTakeFocus(): boolean {
+  if (document.querySelector('.scrim')) return false
+  const active = document.activeElement
+  if (!active || active.closest('.xterm')) return true
+  return !active.closest('input, textarea, select, [contenteditable]')
+}
+
+/**
+ * Type `command` into a workspace's terminal and show it, going to its
+ * branch first if that isn't on screen. A shell not yet started gets it as
+ * typeahead, sent the moment it is; one that exited is started again for it.
+ */
+export function runInTerminal(projectId: string, branch: string, path: string, command: string) {
+  const s = session(path)
+  projectOf.set(s.path, projectId)
+  if (s.state === 'running') send(s, `${command}\r`)
+  else s.pending += `${command}\r`
+  if (s.state === 'exited') void start(s)
+  if (currentProject.value !== projectId || state.selectedBranch !== branch) {
+    goToBranch(projectId, branch)
   }
+  showTerminal(projectId, branch, path)
 }
 
 /** Take a workspace's terminal out of the document, keeping it for later. */
 export function detach(path: string) {
   sessions.get(normalizePath(path))?.el.remove()
+  reportViewing()
 }
 
 /** Hang up on the workspace's shell and forget its session. Every branch
@@ -264,25 +385,50 @@ export function closeTerminal(path: string) {
     sessions.delete(key)
   }
   active.delete(key)
+  statuses.delete(key)
   for (const [branch, shownPath] of shown) if (shownPath === key) shown.delete(branch)
+  reportViewing()
+}
+
+function setStatus(t: TerminalInfo) {
+  const key = normalizePath(t.path)
+  if (t.status || t.ready) statuses.set(key, { status: t.status, ready: t.ready })
+  else statuses.delete(key)
 }
 
 /** Mark the shells that are already running — after a webview reload, all of
- *  them — and follow the ones that exit with nothing attached. */
+ *  them — and follow the ones that exit with nothing attached, and what the
+ *  programs in all of them report. */
 export async function syncTerminals(): Promise<() => void> {
-  const unlisten = await onTerminalExit((path) => {
-    const key = normalizePath(path)
-    // An attached session hears it on its own channel, with the exit code.
-    if (!sessions.has(key)) active.delete(key)
-  })
+  const unlisteners = await Promise.all([
+    onTerminalExit((path) => {
+      const key = normalizePath(path)
+      statuses.delete(key)
+      // An attached session hears it on its own channel, with the exit code.
+      if (!sessions.has(key)) active.delete(key)
+    }),
+    onTerminalStatus(setStatus),
+  ])
+  // What a previous webview reported viewing is gone with it.
+  viewingSent = undefined
+  reportViewing()
+  const onFocus = () => reportViewing(true)
+  const onBlur = () => reportViewing(false)
+  window.addEventListener('focus', onFocus)
+  window.addEventListener('blur', onBlur)
   try {
     for (const t of await api.terminalList()) {
       const key = normalizePath(t.path)
       projectOf.set(key, t.projectId)
       active.add(key)
+      setStatus(t)
     }
   } catch {
     /* nothing to mark */
   }
-  return unlisten
+  return () => {
+    unlisteners.forEach((u) => u())
+    window.removeEventListener('focus', onFocus)
+    window.removeEventListener('blur', onBlur)
+  }
 }

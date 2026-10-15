@@ -38,8 +38,18 @@ export const GLYPHS = {
   // prompt and cursor: a terminal in the workspace.
   terminal: '<path d="m4 17 6-6-6-6"/><path d="M12 19h8"/>',
 
+  // the same, its cursor blinking (`.icon-blink`): something is busy in it.
+  'terminal-working': '<path d="m4 17 6-6-6-6"/><path class="icon-blink" d="M12 19h8"/>',
+
+  // plus and minus: bigger and smaller.
+  'zoom-in': '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  'zoom-out': '<path d="M5 12h14"/>',
+
   // chevron left: back to where this came from.
   back: '<path d="m15 18-6-6 6-6"/>',
+
+  // magnifier: find something.
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
 
   // x: dismiss / clear.
   close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',

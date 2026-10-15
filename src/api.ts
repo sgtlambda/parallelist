@@ -27,6 +27,9 @@ export interface OpenTarget {
   label: string
   icon: string
   command: string
+  /** `command` runs detached through the login shell; `terminal` types it
+   *  into the workspace's built-in terminal. */
+  kind: 'command' | 'terminal'
   primary: boolean
   requiresPr: boolean
 }
@@ -40,7 +43,12 @@ export interface AppConfig {
   activeDays: number
   selectedProjectId: string | null
   sidebarWidth: number
+  /** Null until first set; `loadConfig` derives it from `detailWidth`. */
+  listWidth: number | null
+  /** Superseded by `listWidth`, which it seeds. */
   detailWidth: number
+  /** Every terminal's, so zooming one zooms them all. */
+  terminalFontSize: number
 }
 
 export interface BranchInfo {
@@ -194,7 +202,10 @@ export const api = {
     invoke<BranchImpact[]>('branch_impacts', { id, branches }),
   deleteBranches: (id: string, branches: string[]) =>
     invoke<string[]>('delete_branches', { id, branches }),
-  openIn: (targetId: string, ctx: OpenContext) => invoke<void>('open_in', { targetId, ctx }),
+  /** Resolves to the command to type into the built-in terminal for a
+   *  `terminal` target, which the backend leaves to the frontend. */
+  openIn: (targetId: string, ctx: OpenContext) =>
+    invoke<string | null>('open_in', { targetId, ctx }),
   copyText: (text: string) => invoke<void>('copy_text', { text }),
   listTasks: () => invoke<Task[]>('list_tasks'),
   getTask: (id: string) => invoke<Task | null>('get_task', { id }),
@@ -215,6 +226,8 @@ export const api = {
     invoke<void>('terminal_resize', { path, cols, rows }),
   terminalClose: (path: string) => invoke<void>('terminal_close', { path }),
   terminalList: () => invoke<TerminalInfo[]>('terminal_list'),
+  /** The terminal on screen in the focused window, or null. */
+  terminalViewing: (path: string | null) => invoke<void>('terminal_viewing', { path }),
 }
 
 /** Output as raw bytes, then the exit code once the shell is gone. */
@@ -223,11 +236,21 @@ export type TerminalMessage = ArrayBuffer | { exit: number }
 export interface TerminalInfo {
   path: string
   projectId: string
+  /** What the program in it last reported over OSC 7501 — Claude Code's
+   *  `idle`, `working`, `done`, `blocked` — or null. */
+  status: string | null
+  /** A turn ended while it wasn't being viewed, and it hasn't been since. */
+  ready: boolean
 }
 
 /** A shell exited, whether or not anything was attached to it. */
 export function onTerminalExit(handler: (path: string) => void) {
   return listen<string>('terminal-exit', (e) => handler(e.payload))
+}
+
+/** The program in a terminal reported a new status, or stopped having one. */
+export function onTerminalStatus(handler: (info: TerminalInfo) => void) {
+  return listen<TerminalInfo>('terminal-status', (e) => handler(e.payload))
 }
 
 export type TaskKind = 'refresh' | 'create' | 'remove' | 'deleteBranch'

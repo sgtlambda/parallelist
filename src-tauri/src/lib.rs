@@ -770,6 +770,12 @@ fn terminal_list(state: State<AppState>) -> Vec<terminal::TerminalInfo> {
     state.terminals.list()
 }
 
+/// The terminal on screen in the focused window, or none.
+#[tauri::command]
+fn terminal_viewing(state: State<AppState>, path: Option<String>) {
+    state.terminals.view(path.as_deref());
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskLinePayload<'a> {
@@ -804,7 +810,14 @@ fn copy_text(text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_in(state: State<AppState>, target_id: String, ctx: OpenContext) -> Result<(), String> {
+/// Run an open target. A built-in terminal one isn't run here: its command
+/// comes back, substituted, for the frontend to type into the workspace's
+/// terminal.
+fn open_in(
+    state: State<AppState>,
+    target_id: String,
+    ctx: OpenContext,
+) -> Result<Option<String>, String> {
     let cfg = state.config();
     // Project targets win on an id clash, so a project can override a global.
     let project_targets = cfg
@@ -827,10 +840,13 @@ fn open_in(state: State<AppState>, target_id: String, ctx: OpenContext) -> Resul
         .replace("{branch}", &proc::sh_quote(&ctx.branch))
         .replace("{primary}", &proc::sh_quote(&ctx.primary))
         .replace("{prUrl}", &proc::sh_quote(&ctx.pr_url));
+    if target.kind == config::OpenKind::Terminal {
+        return Ok(Some(script));
+    }
 
     let cwd = PathBuf::from(&ctx.path);
     let cwd = if cwd.is_dir() { Some(cwd) } else { None };
-    proc::spawn_shell_detached(&script, cwd.as_deref())
+    proc::spawn_shell_detached(&script, cwd.as_deref()).map(|()| None)
 }
 
 fn shellexpand_home(path: &str) -> String {
@@ -856,7 +872,7 @@ pub fn run() {
                 proc::login_path();
             });
             let handle = app.handle().clone();
-            let exit_handle = app.handle().clone();
+            let terminal_handle = app.handle().clone();
             let tasks = Arc::new(Tasks::new(move |event| {
                 let _ = match event {
                     TaskEvent::Header(header) => handle.emit("task", header),
@@ -871,8 +887,15 @@ pub fn run() {
                 dir,
                 tasks,
                 refreshes: Mutex::default(),
-                terminals: Arc::new(terminal::Terminals::new(Arc::new(move |info| {
-                    let _ = exit_handle.emit("terminal-exit", &info.path);
+                terminals: Arc::new(terminal::Terminals::new(Arc::new(move |event| {
+                    let _ = match event {
+                        terminal::TerminalEvent::Exit(info) => {
+                            terminal_handle.emit("terminal-exit", &info.path)
+                        }
+                        terminal::TerminalEvent::Status(info) => {
+                            terminal_handle.emit("terminal-status", info)
+                        }
+                    };
                 }))),
             });
             Ok(())
@@ -903,6 +926,7 @@ pub fn run() {
             terminal_resize,
             terminal_close,
             terminal_list,
+            terminal_viewing,
         ])
         .run(tauri::generate_context!())
         .expect("error while running switcheroo");

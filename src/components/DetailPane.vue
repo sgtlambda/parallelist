@@ -2,8 +2,9 @@
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
+import TerminalMark from './TerminalMark.vue'
 import TerminalPane from './TerminalPane.vue'
-import { api, type Workspace } from '../api'
+import type { Workspace } from '../api'
 import { WORKSPACE_LABELS, WORKSPACE_TITLES, basename, relativeTime, shortPath } from '../format'
 import {
   createTasksFor,
@@ -11,7 +12,6 @@ import {
   elapsed,
   hasCard,
   normalizePath,
-  openTaskIn,
   openTasks,
   removalOf,
   taskProgress,
@@ -19,7 +19,18 @@ import {
 } from '../tasks'
 import { openTargets, project, projectId, selectedRow, state } from '../store'
 import { workspaceBadges } from '../status'
-import { closeTerminal, showOverview, showTerminal, terminalActive, terminalFor } from '../terminal'
+import { openIn as runTarget, openTaskIn, targetBusy, targetTitle } from '../openIn'
+import {
+  FONT_SIZE,
+  closeTerminal,
+  fontSize,
+  showOverview,
+  showTerminal,
+  terminalFor,
+  terminalMark,
+  zoomPercent,
+  zoomTerminals,
+} from '../terminal'
 
 const emit = defineEmits<{
   (e: 'create'): void
@@ -122,8 +133,9 @@ const reviewLabel: Record<string, string> = {
 }
 
 async function openIn(targetId: string, workspace: Workspace) {
+  if (!projectId.value) return
   try {
-    await api.openIn(targetId, {
+    await runTarget(projectId.value, targetId, {
       path: workspace.path,
       branch: workspace.branch ?? '',
       primary: project.value?.path ?? '',
@@ -225,6 +237,31 @@ async function openPullRequest() {
         <span class="truncate">{{ basename(terminal.path) }}</span>
       </span>
       <span class="spacer" />
+      <span v-if="terminal" class="zoom">
+        <button
+          class="btn ghost small icon"
+          title="Smaller text in every terminal (⌘−)"
+          :disabled="fontSize <= FONT_SIZE.min"
+          @click="zoomTerminals(-1)"
+        >
+          <Icon name="zoom-out" />
+        </button>
+        <button
+          class="btn ghost small zoom-level"
+          title="Back to 100% (⌘0)"
+          @click="zoomTerminals(0)"
+        >
+          {{ zoomPercent }}%
+        </button>
+        <button
+          class="btn ghost small icon"
+          title="Larger text in every terminal (⌘+)"
+          :disabled="fontSize >= FONT_SIZE.max"
+          @click="zoomTerminals(1)"
+        >
+          <Icon name="zoom-in" />
+        </button>
+      </span>
       <button
         v-if="terminal"
         class="btn ghost small icon"
@@ -340,14 +377,17 @@ async function openPullRequest() {
                   <template v-else-if="item.removal.status === 'failed'">removal failed</template>
                   <template v-else><span class="spin tiny" /> removing</template>
                 </button>
-                <span
-                  v-if="!removing(item.removal)"
-                  class="terminal-hint"
-                  :class="{ live: terminalActive(item.workspace.path) }"
-                  :title="terminalActive(item.workspace.path) ? 'Active terminal' : 'Open a terminal here'"
-                >
-                  <Icon name="terminal" />
-                </span>
+                <template v-if="!removing(item.removal)">
+                  <TerminalMark
+                    v-if="terminalMark([item.workspace.path])"
+                    class="terminal-hint live"
+                    :paths="[item.workspace.path]"
+                    :size="13"
+                  />
+                  <span v-else class="terminal-hint" title="Open a terminal here">
+                    <Icon name="terminal" />
+                  </span>
+                </template>
               </div>
               <div v-if="workspaceBadges(item.workspace).length" class="row" style="flex-wrap: wrap">
                 <span
@@ -377,7 +417,8 @@ async function openPullRequest() {
                   v-for="target in targets"
                   :key="target.id"
                   class="btn small"
-                  :disabled="removing(item.removal)"
+                  :disabled="removing(item.removal) || targetBusy(target, item.workspace.path)"
+                  :title="targetTitle(target, item.workspace.path)"
                   @click.stop="openIn(target.id, item.workspace)"
                 >
                   {{ target.icon }} {{ target.label }}
@@ -443,6 +484,8 @@ async function openPullRequest() {
                   v-for="target in targets.filter((t) => !t.requiresPr)"
                   :key="target.id"
                   class="btn small"
+                  :disabled="targetBusy(target, item.job.path ?? '')"
+                  :title="targetTitle(target, item.job.path ?? '')"
                   @click.stop="openJob(target.id, item.job)"
                 >
                   {{ target.icon }} {{ target.label }}

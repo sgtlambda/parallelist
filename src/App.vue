@@ -3,6 +3,7 @@ import { homeDir } from '@tauri-apps/api/path'
 import { onMounted, onUnmounted, ref } from 'vue'
 import BranchList from './components/BranchList.vue'
 import CleanupDialog from './components/CleanupDialog.vue'
+import CommandPalette from './components/CommandPalette.vue'
 import CreateDialog from './components/CreateDialog.vue'
 import DetailPane from './components/DetailPane.vue'
 import ProjectSidebar from './components/ProjectSidebar.vue'
@@ -10,17 +11,18 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import TaskBox from './components/TaskBox.vue'
 import TasksDialog from './components/TasksDialog.vue'
 import { setHomeDirectory } from './format'
+import { paletteOpen } from './palette'
 import { startTaskSync } from './tasks'
-import { syncTerminals } from './terminal'
+import { syncTerminals, terminalShown, zoomTerminals } from './terminal'
 import {
-  DETAIL_RANGE,
-  MIDDLE_MIN,
+  DETAIL_MIN,
+  LIST_MIN,
   SIDEBAR_RANGE,
   cleanupBranches,
   cleanupOpen,
   cleanupPaths,
   cleanupTitle,
-  detailWidth,
+  listWidth,
   persistPaneWidths,
   setPaneWidths,
   sidebarWidth,
@@ -43,21 +45,21 @@ function onContextMenu(event: MouseEvent) {
   event.preventDefault()
 }
 
-type Edge = 'sidebar' | 'detail'
+type Edge = 'sidebar' | 'list'
 const dragging = ref<Edge | null>(null)
 
-/** Drag a splitter. The middle column is `1fr`, so it absorbs the difference;
- *  each edge is clamped so the middle can never be squeezed out. */
+/** Drag a splitter. The detail pane is `1fr`, so it absorbs the difference;
+ *  each edge is clamped so the detail pane can never be squeezed out. */
 function startDrag(edge: Edge, event: PointerEvent) {
   event.preventDefault()
   dragging.value = edge
   const startX = event.clientX
   const startSidebar = sidebarWidth.value
   // As drawn, not as stored: a window narrower than it was when the width was
-  // set squeezes the pane (`--detail-fit`), and the drag starts from there.
-  const startDetail = Math.max(
-    DETAIL_RANGE.min,
-    Math.min(detailWidth.value, window.innerWidth - startSidebar - MIDDLE_MIN),
+  // set squeezes the list (`--list-fit`), and the drag starts from there.
+  const startList = Math.max(
+    LIST_MIN,
+    Math.min(listWidth.value, window.innerWidth - startSidebar - DETAIL_MIN),
   )
   const target = event.currentTarget as HTMLElement
   target.setPointerCapture(event.pointerId)
@@ -65,12 +67,12 @@ function startDrag(edge: Edge, event: PointerEvent) {
   const onMove = (move: PointerEvent) => {
     const delta = move.clientX - startX
     if (edge === 'sidebar') {
-      const room = window.innerWidth - startDetail - MIDDLE_MIN
+      const room = window.innerWidth - startList - DETAIL_MIN
       const next = clamp(startSidebar + delta, SIDEBAR_RANGE.min, Math.min(SIDEBAR_RANGE.max, room))
-      setPaneWidths(next, startDetail)
+      setPaneWidths(next, startList)
     } else {
-      const room = window.innerWidth - startSidebar - MIDDLE_MIN
-      const next = clamp(startDetail - delta, DETAIL_RANGE.min, Math.min(DETAIL_RANGE.max, room))
+      const room = window.innerWidth - startSidebar - DETAIL_MIN
+      const next = clamp(startList + delta, LIST_MIN, room)
       setPaneWidths(startSidebar, next)
     }
   }
@@ -115,6 +117,21 @@ function typeToSearch(event: KeyboardEvent) {
 function onKey(event: KeyboardEvent) {
   if (!event.metaKey) return typeToSearch(event)
   switch (event.key) {
+    // ⌘P as in VS Code's Go to File, rather than ⌘K: in a terminal ⌘K
+    // conventionally clears the screen.
+    case 'p':
+      event.preventDefault()
+      paletteOpen.value = !paletteOpen.value
+      break
+    // Zoom, while a terminal is on screen: all of them, as one.
+    case '=':
+    case '+':
+    case '-':
+    case '0':
+      if (!terminalShown()) break
+      event.preventDefault()
+      zoomTerminals(event.key === '0' ? 0 : event.key === '-' ? -1 : 1)
+      break
     case 'f':
       event.preventDefault()
       document.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
@@ -167,9 +184,9 @@ onUnmounted(() => {
     class="app"
     :style="{
       '--sidebar-w': `${sidebarWidth}px`,
-      '--detail-w': `${detailWidth}px`,
-      '--detail-min': `${DETAIL_RANGE.min}px`,
-      '--middle-min': `${MIDDLE_MIN}px`,
+      '--list-w': `${listWidth}px`,
+      '--list-min': `${LIST_MIN}px`,
+      '--detail-min': `${DETAIL_MIN}px`,
     }"
   >
     <!-- Full-width strip under the overlay title bar: clears the traffic
@@ -192,9 +209,9 @@ onUnmounted(() => {
     />
     <div
       class="splitter"
-      :class="{ dragging: dragging === 'detail' }"
-      :style="{ right: 'var(--detail-fit)' }"
-      @pointerdown="startDrag('detail', $event)"
+      :class="{ dragging: dragging === 'list' }"
+      :style="{ left: 'calc(var(--sidebar-w) + var(--list-fit))' }"
+      @pointerdown="startDrag('list', $event)"
     />
 
     <CreateDialog :open="createOpen" @close="createOpen = false" />
@@ -207,6 +224,7 @@ onUnmounted(() => {
     />
     <SettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
     <TasksDialog @error="state.error = $event" />
+    <CommandPalette />
 
     <TaskBox @error="state.error = $event" />
 

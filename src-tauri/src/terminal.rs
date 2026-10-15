@@ -8,6 +8,18 @@
 //!
 //! Terminals are keyed by workspace path, because that is what the UI asks
 //! for: "the terminal in this workspace".
+//!
+//! Programs that speak the Program Status Protocol (OSC 7501) — Claude Code
+//! since 2.1 — say whether they are working, waiting on the user or done.
+//! They only do so once the terminal answers their `OSC 7501 ; ?` probe at
+//! startup, so the reader answers it, then follows the status sequences.
+//! Observed from Claude Code: `idle` once it is ready, `working` the moment
+//! a prompt is sent, `done` when the turn ends, `clear` when it exits.
+//!
+//! A turn that ends out of the user's sight leaves the terminal **ready**: a
+//! flag, kept here so a webview reload doesn't forget it, set when `done`
+//! arrives while the terminal isn't the one being viewed and cleared once it
+//! is. The frontend says which one that is (`Terminals::view`).
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
@@ -42,6 +54,20 @@ pub type Sink = Box<dyn Fn(Chunk) -> bool + Send>;
 pub struct TerminalInfo {
     pub path: String,
     pub project_id: String,
+    /// What the program in it last reported over OSC 7501 (`working`,
+    /// `idle`, `done`, `blocked`…), or `None` when nothing has, or it cleared
+    /// its status, or it is gone.
+    pub status: Option<String>,
+    /// A turn ended while the terminal wasn't being viewed, and it hasn't
+    /// been since.
+    pub ready: bool,
+}
+
+/// What the registry reports about terminals, attached or not.
+pub enum TerminalEvent<'a> {
+    Exit(&'a TerminalInfo),
+    /// The status changed; `info.status` is the new one.
+    Status(&'a TerminalInfo),
 }
 
 struct Output {
@@ -58,9 +84,71 @@ struct Terminal {
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     output: Mutex<Output>,
+    /// The shell's pid. While it leads the foreground process group, nothing
+    /// else is running, so no program status can be current.
+    shell_pid: Option<i32>,
+    status: Mutex<Status>,
+}
+
+#[derive(Default)]
+struct Status {
+    state: Option<String>,
+    ready: bool,
 }
 
 impl Terminal {
+    fn info(&self) -> TerminalInfo {
+        let status = self.status.lock().unwrap();
+        TerminalInfo {
+            status: status.state.clone(),
+            ready: status.ready,
+            ..self.info.clone()
+        }
+    }
+
+    /// Act on the OSC 7501 sequences in a chunk of output. `viewed` says
+    /// whether the user is looking at this terminal. Returns whether the
+    /// status changed.
+    fn follow_status(&self, payloads: Vec<String>, viewed: bool) -> bool {
+        let mut changed = false;
+        for payload in payloads {
+            if payload.starts_with('?') {
+                // The probe. Anything starting with `?` is taken as support.
+                let mut writer = self.writer.lock().unwrap();
+                let _ = writer.write_all(b"\x1b]7501;?\x07");
+                let _ = writer.flush();
+            } else if let Some(state) = parse_status(&payload) {
+                changed |= self.set_status(state, viewed);
+            }
+        }
+        // A program killed outright never sends `clear`. Its shell is back in
+        // the foreground by the time anything prints a prompt.
+        if self.status.lock().unwrap().state.is_some() && self.shell_pid.is_some() {
+            let leader = self.master.lock().unwrap().process_group_leader();
+            if leader == self.shell_pid {
+                changed |= self.set_status(None, viewed);
+            }
+        }
+        changed
+    }
+
+    fn set_status(&self, state: Option<String>, viewed: bool) -> bool {
+        let mut status = self.status.lock().unwrap();
+        if status.state == state {
+            return false;
+        }
+        // A turn that ends out of sight waits to be seen. Anything else that
+        // happens next — a new prompt, quitting — the user did themselves.
+        status.ready = state.as_deref() == Some("done") && !viewed;
+        status.state = state;
+        true
+    }
+
+    /// The user is looking at it: whatever was waiting to be seen has been.
+    fn seen(&self) -> bool {
+        std::mem::take(&mut self.status.lock().unwrap().ready)
+    }
+
     /// Send to the attached sink, if any; drop it if its receiver is gone.
     fn deliver(output: &mut Output, chunk: Chunk) {
         if let Some(sink) = &output.sink {
@@ -71,15 +159,18 @@ impl Terminal {
     }
 }
 
-pub type ExitHook = Arc<dyn Fn(&TerminalInfo) + Send + Sync>;
+pub type Hook = Arc<dyn Fn(TerminalEvent) + Send + Sync>;
 
 #[derive(Default)]
 pub struct Terminals {
     by_path: Arc<Mutex<HashMap<String, Arc<Terminal>>>>,
-    /// Told about every exit, attached or not. A webview that reloaded marks
-    /// running terminals from `list` before attaching to any of them, and a
-    /// shell that exits meanwhile has no sink to report through.
-    on_exit: Option<ExitHook>,
+    /// Told about every exit and status change, attached or not. A webview
+    /// that reloaded marks running terminals from `list` before attaching to
+    /// any of them, and a shell that exits meanwhile has no sink to report
+    /// through.
+    hook: Option<Hook>,
+    /// The terminal the user is looking at: on screen, in the focused window.
+    viewing: Arc<Mutex<Option<String>>>,
 }
 
 /// Variables the shell must not inherit. A Finder-launched app has almost no
@@ -98,10 +189,11 @@ fn key(path: &str) -> String {
 }
 
 impl Terminals {
-    pub fn new(on_exit: ExitHook) -> Self {
+    pub fn new(hook: Hook) -> Self {
         Self {
             by_path: Arc::default(),
-            on_exit: Some(on_exit),
+            hook: Some(hook),
+            viewing: Arc::default(),
         }
     }
 
@@ -189,10 +281,13 @@ impl Terminals {
             .map_err(|e| e.to_string())?;
         let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
+        let shell_pid = child.process_id().map(|pid| pid as i32);
         let term = Arc::new(Terminal {
             info: TerminalInfo {
                 path: key.clone(),
                 project_id: project_id.to_string(),
+                status: None,
+                ready: false,
             },
             master: Mutex::new(pair.master),
             writer: Mutex::new(writer),
@@ -202,14 +297,19 @@ impl Terminals {
                 sink: Some(sink),
                 exited: false,
             }),
+            shell_pid,
+            status: Mutex::default(),
         });
         map.insert(key.clone(), Arc::clone(&term));
         drop(map);
 
         let (drained_tx, drained_rx) = mpsc::channel::<()>();
         let reading = Arc::clone(&term);
+        let status_hook = self.hook.clone();
+        let viewing = Arc::clone(&self.viewing);
         std::thread::spawn(move || {
             let mut buf = vec![0u8; 64 * 1024];
+            let mut scanner = StatusScanner::default();
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
@@ -217,6 +317,14 @@ impl Terminals {
                         let mut output = reading.output.lock().unwrap();
                         append_backlog(&mut output.backlog, &buf[..n]);
                         Terminal::deliver(&mut output, Chunk::Data(buf[..n].to_vec()));
+                        drop(output);
+                        let viewed =
+                            viewing.lock().unwrap().as_deref() == Some(&reading.info.path);
+                        if reading.follow_status(scanner.feed(&buf[..n]), viewed) {
+                            if let Some(hook) = &status_hook {
+                                hook(TerminalEvent::Status(&reading.info()));
+                            }
+                        }
                     }
                 }
             }
@@ -224,7 +332,7 @@ impl Terminals {
         });
 
         let by_path = Arc::clone(&self.by_path);
-        let on_exit = self.on_exit.clone();
+        let hook = self.hook.clone();
         std::thread::spawn(move || {
             let code = child
                 .wait()
@@ -243,8 +351,9 @@ impl Terminals {
             Terminal::deliver(&mut output, Chunk::Exit(code));
             output.sink = None;
             drop(output);
-            if let Some(hook) = on_exit {
-                hook(&term.info);
+            *term.status.lock().unwrap() = Status::default();
+            if let Some(hook) = hook {
+                hook(TerminalEvent::Exit(&term.info()));
             }
         });
 
@@ -289,14 +398,127 @@ impl Terminals {
         true
     }
 
+    /// Which terminal the user is looking at, if any. Looking at one clears
+    /// its ready flag, which is reported like any status change.
+    pub fn view(&self, path: Option<&str>) {
+        let path = path.map(key);
+        *self.viewing.lock().unwrap() = path.clone();
+        let Some(term) = path.and_then(|p| self.get(&p).ok()) else {
+            return;
+        };
+        if term.seen() {
+            if let Some(hook) = &self.hook {
+                hook(TerminalEvent::Status(&term.info()));
+            }
+        }
+    }
+
     pub fn list(&self) -> Vec<TerminalInfo> {
         self.by_path
             .lock()
             .unwrap()
             .values()
-            .map(|t| t.info.clone())
+            .map(|t| t.info())
             .collect()
     }
+}
+
+const STATUS_OPENER: &[u8] = b"\x1b]7501;";
+
+/// Longest a status sequence may grow while its terminator is awaited. Real
+/// ones are a few dozen bytes; anything longer is not one, and is dropped
+/// rather than buffered.
+const MAX_STATUS: usize = 4096;
+
+/// Finds OSC 7501 sequences in a stream of output, including ones split
+/// across reads.
+#[derive(Default)]
+struct StatusScanner {
+    /// The unfinished start of a sequence from the previous read.
+    carry: Vec<u8>,
+}
+
+impl StatusScanner {
+    /// The payloads of the sequences completed by `data`.
+    fn feed(&mut self, data: &[u8]) -> Vec<String> {
+        let joined;
+        let buf: &[u8] = if self.carry.is_empty() {
+            data
+        } else {
+            self.carry.extend_from_slice(data);
+            joined = std::mem::take(&mut self.carry);
+            &joined
+        };
+
+        let mut found = Vec::new();
+        let mut at = 0;
+        while let Some(i) = find(&buf[at..], STATUS_OPENER) {
+            let opener = at + i;
+            let start = opener + STATUS_OPENER.len();
+            match terminator(&buf[start..]) {
+                Some((len, skip)) => {
+                    found.push(String::from_utf8_lossy(&buf[start..start + len]).into_owned());
+                    at = start + len + skip;
+                }
+                None => {
+                    if buf.len() - opener <= MAX_STATUS {
+                        self.carry = buf[opener..].to_vec();
+                    }
+                    return found;
+                }
+            }
+        }
+        // An opener cut off by the end of the read: keep what could still
+        // become one.
+        let from = buf.len().saturating_sub(STATUS_OPENER.len() - 1).max(at);
+        if let Some(k) = (from..buf.len()).find(|&k| STATUS_OPENER.starts_with(&buf[k..])) {
+            self.carry = buf[k..].to_vec();
+        }
+        found
+    }
+}
+
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// Where an OSC payload ends — BEL, or ESC `\` — and how long the
+/// terminator is. `None` when it hasn't arrived yet.
+fn terminator(rest: &[u8]) -> Option<(usize, usize)> {
+    for (j, &b) in rest.iter().enumerate() {
+        match b {
+            0x07 => return Some((j, 1)),
+            0x1b => {
+                return match rest.get(j + 1) {
+                    Some(b'\\') => Some((j, 2)),
+                    // Malformed: whatever comes next starts something else.
+                    Some(_) => Some((j, 1)),
+                    None => None,
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The state a status payload sets: `Some(None)` for `clear`. Statuses with
+/// an `id` are a program's secondary ones (its background tasks); only its
+/// own, without one, describes the terminal.
+fn parse_status(payload: &str) -> Option<Option<String>> {
+    let mut state = None;
+    for field in payload.split(':') {
+        let Some((name, value)) = field.split_once('=') else {
+            continue;
+        };
+        match name {
+            "state" => state = Some(value),
+            "id" => return None,
+            _ => {}
+        }
+    }
+    let state = state?;
+    Some((state != "clear").then(|| state.to_string()))
 }
 
 /// Keep the newest `BACKLOG` bytes, cut at a line break so a replay doesn't
@@ -452,6 +674,116 @@ mod tests {
         assert!(backlog.len() <= BACKLOG);
         assert!(backlog.ends_with(b"last\n"));
         assert!(backlog[..8].ends_with(b"\n") && backlog[..7].iter().all(u8::is_ascii_digit));
+    }
+
+    #[test]
+    fn status_sequences_are_found_across_reads() {
+        let mut scanner = StatusScanner::default();
+        assert_eq!(scanner.feed(b"text\x1b]7501;state=idle:app=x\x07more"), ["state=idle:app=x"]);
+        // Split in the opener, in the payload and in an ESC \\ terminator.
+        assert!(scanner.feed(b"abc\x1b]75").is_empty());
+        assert!(scanner.feed(b"01;state=wor").is_empty());
+        assert!(scanner.feed(b"king\x1b").is_empty());
+        assert_eq!(scanner.feed(b"\\tail"), ["state=working"]);
+        // Other OSCs, and a title that merely mentions the number, are not it.
+        assert!(scanner.feed(b"\x1b]0;7501;x\x07\x1b]133;A\x07").is_empty());
+        // A runaway sequence is dropped rather than buffered forever.
+        assert!(scanner.feed(b"\x1b]7501;").is_empty());
+        assert!(scanner.feed(&vec![b'x'; MAX_STATUS * 2]).is_empty());
+        assert!(scanner.carry.is_empty());
+    }
+
+    #[test]
+    fn statuses_parse_as_claude_code_sends_them() {
+        assert_eq!(parse_status("state=working:app=claude-code"), Some(Some("working".into())));
+        assert_eq!(
+            parse_status("state=blocked:app=claude-code:kind=permission:msg=a b"),
+            Some(Some("blocked".into()))
+        );
+        assert_eq!(parse_status("state=clear"), Some(None));
+        // A background task's own status says nothing about the terminal.
+        assert_eq!(parse_status("state=working:app=claude-code:id=7"), None);
+        assert_eq!(parse_status("nonsense"), None);
+    }
+
+    fn status_hook() -> (Hook, Receiver<(Option<String>, bool)>) {
+        let (tx, rx) = mpsc::channel();
+        let hook: Hook = Arc::new(move |event| {
+            if let TerminalEvent::Status(info) = event {
+                let _ = tx.send((info.status.clone(), info.ready));
+            }
+        });
+        (hook, rx)
+    }
+
+    /// Make the reporter `ready` starts report `state`.
+    fn report(terminals: &Terminals, path: &str, state: &str) {
+        terminals.write(path, format!("{state}\n").as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn a_turn_that_ends_out_of_sight_is_ready_until_seen() {
+        let dir = temp_dir("ready");
+        let path = dir.to_string_lossy().to_string();
+        let (hook, statuses) = status_hook();
+        let terminals = Terminals::new(hook);
+        let (tx, _rx) = sink();
+        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        // A program in the foreground reporting each state it reads, as
+        // Claude Code stays in the foreground between turns.
+        terminals
+            .write(
+                &path,
+                b"sh -c 'while read s; do printf \"\\033]7501;state=%s\\007\" \"$s\"; done'\n",
+            )
+            .unwrap();
+        let next = || statuses.recv_timeout(Duration::from_secs(5)).expect("a status");
+
+        report(&terminals, &path, "working");
+        assert_eq!(next(), (Some("working".into()), false));
+        report(&terminals, &path, "done");
+        assert_eq!(next(), (Some("done".into()), true), "ended while nobody looked");
+        assert!(terminals.list()[0].ready);
+
+        terminals.view(Some(&path));
+        assert_eq!(next(), (Some("done".into()), false), "seen");
+
+        report(&terminals, &path, "working");
+        assert_eq!(next(), (Some("working".into()), false));
+        report(&terminals, &path, "done");
+        assert_eq!(next(), (Some("done".into()), false), "ended in plain sight");
+        assert!(terminals.close(&path));
+    }
+
+    /// The probe is answered, so a program that waits for the answer starts
+    /// reporting; and a status outlives nothing: once the program is gone
+    /// and the shell prompts again, it is cleared even though no `clear` came.
+    #[test]
+    fn answers_the_probe_and_follows_the_status() {
+        let dir = temp_dir("status");
+        let path = dir.to_string_lossy().to_string();
+        let (hook, statuses) = status_hook();
+        let terminals = Terminals::new(hook);
+        let (tx, rx) = sink();
+        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+
+        terminals
+            .write(
+                &path,
+                b"sh -c \"stty -icanon -echo; printf '\\033]7501;?\\007'; head -c 9 | tr '\\033\\007' EB\"\n",
+            )
+            .unwrap();
+        read_until(&rx, "E]7501;?B");
+
+        terminals
+            .write(&path, b"sh -c \"printf '\\033]7501;state=working:app=t\\007'; sleep 0.3\"\n")
+            .unwrap();
+        let next = || statuses.recv_timeout(Duration::from_secs(5)).expect("a status").0;
+        assert_eq!(next(), Some("working".to_string()));
+        assert_eq!(terminals.list()[0].status.as_deref(), Some("working"));
+        assert_eq!(next(), None, "cleared once the shell is back in front");
+        assert!(terminals.close(&path));
+        read_until(&rx, "<exit");
     }
 
     #[test]

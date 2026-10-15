@@ -192,10 +192,10 @@ redundant complexity and are not.
   Rust-side so a task and its log survive a webview reload mid-install;
   `src/tasks.ts` mirrors it from `list_tasks` plus the `task` / `task-line` /
   `task-removed` events (header revisions and line numbers make the events
-  that race the listing harmless). The top-right `TaskBox` features one task
+  that race the listing harmless). The bottom-right `TaskBox` features one task
   (anything asking for attention, else the oldest running) with a `+N` count;
   clicking it opens `TasksDialog`. The box animates with `motion-v` (enter,
-  lift-away exit, height via `layout`), chosen over hand-rolled CSS. That
+  sinking exit, height via `layout`), chosen over hand-rolled CSS. That
   doubled the JS bundle (~48 → ~95 KB gzipped), accepted for an app loaded from
   disk; `LazyMotion` + `m` was measured and saves nothing, because the package
   entry pulls in the whole engine. **Tasks cannot be cancelled** — decided,
@@ -261,6 +261,38 @@ redundant complexity and are not.
     Removing a workspace closes its terminal first.
   - "Active", which the project list, branch list and cards mark, means the
     shell is running.
+  - **Claude Code's status comes from OSC 7501** (its "Program Status
+    Protocol"). It stays silent unless the terminal answers its
+    `OSC 7501 ; ?` probe at startup, so the backend reader answers it and
+    then follows the status sequences (`idle`, `working`, `done`, `blocked`,
+    `clear`, observed by driving a real `claude` in a pty). Parsing is
+    backend-side so status survives reloads and covers terminals never
+    shown. A program killed outright never sends `clear`; the status is
+    dropped once the shell leads the foreground process group again.
+    `working` is what the blinking terminal glyph means. A box around it
+    says something waits for the user: orange while `blocked` (on an answer,
+    seen or not, since it stays stuck until answered), blue while **ready**.
+    Ready is a backend flag, set when `done` arrives while the terminal
+    isn't the one being viewed — on screen, in the focused window, which the
+    frontend reports through `terminal_viewing` — and cleared by viewing
+    it. A project or row with several terminals combines them part by part:
+    blinks if any works, orange if any is blocked, else blue if any is
+    ready (`terminalMark`, the one place that is decided, drawn by
+    `TerminalMark.vue`).
+  - Zoom is one font size for every terminal, saved as `terminalFontSize`:
+    ⌘+/⌘−/⌘0 while a terminal is on screen, or the header's − 100% +.
+  - A terminal takes the keyboard whenever it is shown, including by
+    selecting its branch again, unless an input has focus or a dialog is
+    up (`mayTakeFocus`). Having to click into it first was the complaint.
+- **The command palette (⌘P) searches every project's branches** without
+  refreshing them: each project lists the newer of its cached overview and
+  a `peek`, so it has no PRs and doesn't search them. ⌘P rather than ⌘K
+  because terminals use ⌘K to clear. Ranking is fzy's score (`src/fuzzy.ts`,
+  about a point per well-placed character) plus flat bonuses — two points
+  for an active terminal, one for the current project — so those settle
+  short queries and barely touch long ones, and an empty query opens on
+  running terminals first. Going to a branch clears a search or
+  switches to All when the list would otherwise hide it.
 - Error messages that say "git repository" are factual statements about git and
   should stay that way, even though the UI otherwise says "project".
 
@@ -313,6 +345,12 @@ access and fails without it. The `.app` is the deliverable.
   `{primary}` the main workspace, in both. Path templates use `{project}` for
   the project's directory name. All substituted values are shell-quoted, so a
   template must not add quotes of its own.
+- An "Open in" target's `kind` is `command` (the default: run detached, for
+  launching other apps) or `terminal`: typed into the workspace's built-in
+  terminal, which is then shown. A `terminal` target is disabled while that
+  workspace already has a shell running, since the command would land in
+  whatever it is doing; that rule lives in the frontend (`src/openIn.ts`),
+  so a config only says `claude`.
 
 ## Open items
 

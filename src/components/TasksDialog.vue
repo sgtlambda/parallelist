@@ -6,7 +6,6 @@ import {
   dismissTask,
   elapsed,
   isReady,
-  openTaskIn,
   revealTask,
   selectedTaskId,
   taskById,
@@ -16,6 +15,8 @@ import {
   type LiveTask,
 } from '../tasks'
 import { openTargetsFor, state } from '../store'
+import { openTaskIn, targetBusy, targetTitle } from '../openIn'
+import type { OpenTarget } from '../api'
 import { useEscape } from '../useEscape'
 
 const emit = defineEmits<{ (e: 'error', message: string): void }>()
@@ -79,9 +80,11 @@ function clock(ms: number | null): string {
   return ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
 }
 
-async function openIn(targetId: string, t: LiveTask) {
+async function openIn(target: OpenTarget, t: LiveTask) {
   try {
-    await openTaskIn(targetId, t)
+    await openTaskIn(target.id, t)
+    // Its terminal is now on screen, behind this.
+    if (target.kind === 'terminal') tasksOpen.value = false
     await dismissTask(t.id)
   } catch (e) {
     emit('error', String(e))
@@ -162,7 +165,9 @@ async function reveal(t: LiveTask) {
             v-for="target in openTargetsFor(task.projectId).filter((t) => !t.requiresPr)"
             :key="target.id"
             class="btn small"
-            @click="openIn(target.id, task)"
+            :disabled="targetBusy(target, task.path ?? '')"
+            :title="targetTitle(target, task.path ?? '')"
+            @click="openIn(target, task)"
           >
             {{ target.icon }} {{ target.label }}
           </button>

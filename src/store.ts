@@ -214,7 +214,15 @@ export const selectedRow = computed<Row | null>(
 )
 
 export async function loadConfig() {
-  state.config = await api.getConfig()
+  const config = await api.getConfig()
+  // The detail pane used to have the stored width and the branch list the
+  // rest. Derived from that, the layout opens as it was left; it is written
+  // back with the next save.
+  config.listWidth ??= Math.max(
+    LIST_MIN,
+    Math.round(window.innerWidth - config.sidebarWidth - config.detailWidth),
+  )
+  state.config = config
 }
 
 export async function saveConfig(next: AppConfig) {
@@ -225,21 +233,23 @@ export async function saveConfig(next: AppConfig) {
 }
 
 export const SIDEBAR_RANGE = { min: 170, max: 380 }
-/** No ceiling of its own: a terminal wants all the room it can get. The
- *  window bounds it, leaving the branch list `MIDDLE_MIN`. */
-export const DETAIL_RANGE = { min: 280, max: Number.POSITIVE_INFINITY }
 /** Narrowest the branch list gets. Enough for a truncated name and its age;
- *  the folder name and the badges give way first. */
-export const MIDDLE_MIN = 180
+ *  the folder name and the badges give way first. No ceiling beyond leaving
+ *  the detail pane `DETAIL_MIN`. */
+export const LIST_MIN = 180
+/** The detail pane has no stored width: it takes whatever the window leaves
+ *  over, so resizing the window resizes it and the two columns to its left
+ *  stay as they were set. A terminal wants all the room it can get. */
+export const DETAIL_MIN = 280
 
 export const sidebarWidth = computed(() => state.config?.sidebarWidth ?? 216)
-export const detailWidth = computed(() => state.config?.detailWidth ?? 360)
+export const listWidth = computed(() => state.config?.listWidth ?? 360)
 
 /** Live update while dragging; nothing is written until the drag ends. */
-export function setPaneWidths(sidebar: number, detail: number) {
+export function setPaneWidths(sidebar: number, list: number) {
   if (!state.config) return
   state.config.sidebarWidth = sidebar
-  state.config.detailWidth = detail
+  state.config.listWidth = list
 }
 
 export async function persistPaneWidths() {
@@ -372,7 +382,8 @@ async function loadAheadBehind() {
   }
 }
 
-export async function selectProject(id: string | null) {
+/** Open a project, landing on `branch` if given, else wherever it was left. */
+export async function selectProject(id: string | null, branch?: string) {
   const leaving = projectId.value
   if (leaving && leaving !== id) {
     remember(leaving)
@@ -390,11 +401,51 @@ export async function selectProject(id: string | null) {
   state.overview = cached?.overview ?? null
   state.overviewAt = cached?.overviewAt ?? 0
   state.aheadBehind = cached?.aheadBehind ?? {}
-  state.selectedBranch = cached?.selectedBranch ?? null
+  state.selectedBranch = branch ?? cached?.selectedBranch ?? null
   state.error = null
 
   await api.selectProject(id)
   await refresh({ fetch: true })
+}
+
+/** Jump to a branch of any project, as the command palette does. */
+export function goToBranch(id: string, branch: string) {
+  if (id === projectId.value) state.selectedBranch = branch
+  else void selectProject(id, branch)
+  revealSelected(branch)
+}
+
+/**
+ * Make the list show the selected branch: a search that hides it is
+ * cleared, then a tab that hides it gives way to All. Waits for the row if
+ * it isn't there yet — after switching to a project with nothing cached, it
+ * arrives with the peek or the refresh.
+ */
+function revealSelected(branch: string) {
+  const reveal = () => {
+    // Selected something else meanwhile, or the refresh dropped it.
+    if (state.selectedBranch !== branch) return true
+    if (!selectedRow.value) return false
+    const listed = () => visibleRows.value.some((r) => r.branch.name === branch)
+    if (!listed()) state.search = ''
+    if (!listed()) state.filter = 'all'
+    return true
+  }
+  if (reveal()) return
+  const stop = watch(
+    () => [selectedRow.value, state.selectedBranch] as const,
+    () => reveal() && stop(),
+  )
+}
+
+/** The overview last seen for a project, and when: the one on screen, else
+ *  the cached one. Nothing is asked of git. */
+export function knownOverview(id: string): { overview: Overview; at: number } | null {
+  if (id === projectId.value && state.overview) {
+    return { overview: state.overview, at: Date.now() }
+  }
+  const cached = cache.get(id)
+  return cached ? { overview: cached.overview, at: cached.at } : null
 }
 
 const timers: number[] = []

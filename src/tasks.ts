@@ -288,15 +288,6 @@ export function removalOf(project: string | null, path: string): LiveTask | null
   return matching[matching.length - 1] ?? null
 }
 
-export async function openTaskIn(targetId: string, task: Task) {
-  await api.openIn(targetId, {
-    path: task.path ?? '',
-    branch: task.branch ?? '',
-    primary: state.config?.projects.find((p) => p.id === task.projectId)?.path ?? '',
-    prUrl: task.prUrl ?? '',
-  })
-}
-
 /** Put a finished create's real card on screen: its project, then its
  *  branch. */
 export async function revealTask(task: Task) {

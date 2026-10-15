@@ -68,7 +68,8 @@ pub struct ProjectConfig {
 }
 
 /// A user-defined "open in" action. `command` is a shell template; the
-/// placeholders are substituted before it is handed to the login shell.
+/// placeholders are substituted before it is handed to the login shell, or,
+/// for `OpenKind::Terminal`, typed into the workspace's own terminal.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenTarget {
@@ -76,12 +77,29 @@ pub struct OpenTarget {
     pub label: String,
     pub icon: String,
     pub command: String,
+    #[serde(default)]
+    pub kind: OpenKind,
     /// Shown as a button on the workspace row rather than only in the menu.
     #[serde(default)]
     pub primary: bool,
     /// Hidden unless the selected branch has a pull request (for `{prUrl}`).
     #[serde(default)]
     pub requires_pr: bool,
+}
+
+/// Where an open target's command runs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OpenKind {
+    /// Detached, through the login shell: it launches something else — an
+    /// editor, another terminal app.
+    #[default]
+    Command,
+    /// Typed into the workspace's built-in terminal, which the app then
+    /// shows. Unavailable while that terminal already has a shell running,
+    /// which the frontend decides: the command would land in whatever
+    /// that shell is doing.
+    Terminal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,8 +124,19 @@ pub struct AppConfig {
     /// layout survives anything that clears the webview.
     #[serde(default = "default_sidebar_width")]
     pub sidebar_width: f64,
+    /// The branch list. The detail pane takes whatever the window has left,
+    /// so resizing the window resizes only that. `None` until first set; the
+    /// frontend then derives it from `detail_width`.
+    #[serde(default)]
+    pub list_width: Option<f64>,
+    /// What used to be stored instead of `list_width`, when the detail pane
+    /// had the fixed width. Kept only to seed it, so an existing layout opens
+    /// as it was left.
     #[serde(default = "default_detail_width")]
     pub detail_width: f64,
+    /// Shared by every terminal, so zooming one zooms them all.
+    #[serde(default = "default_terminal_font_size")]
+    pub terminal_font_size: f64,
 }
 
 fn default_sidebar_width() -> f64 {
@@ -116,6 +145,10 @@ fn default_sidebar_width() -> f64 {
 
 fn default_detail_width() -> f64 {
     360.0
+}
+
+pub fn default_terminal_font_size() -> f64 {
+    12.0
 }
 
 fn default_fetch_interval() -> u64 {
@@ -139,7 +172,9 @@ impl Default for AppConfig {
             active_days: default_active_days(),
             selected_project_id: None,
             sidebar_width: default_sidebar_width(),
+            list_width: None,
             detail_width: default_detail_width(),
+            terminal_font_size: default_terminal_font_size(),
         }
     }
 }
@@ -153,6 +188,7 @@ pub fn default_open_targets() -> Vec<OpenTarget> {
             label: "Terminal".into(),
             icon: "\u{25b6}".into(),
             command: "open -na Ghostty --args --working-directory={path}".into(),
+            kind: OpenKind::Command,
             primary: true,
             requires_pr: false,
         },
@@ -161,6 +197,7 @@ pub fn default_open_targets() -> Vec<OpenTarget> {
             label: "PhpStorm".into(),
             icon: "\u{2318}".into(),
             command: "phpstorm {path}".into(),
+            kind: OpenKind::Command,
             primary: true,
             requires_pr: false,
         },
@@ -168,7 +205,8 @@ pub fn default_open_targets() -> Vec<OpenTarget> {
             id: "claude".into(),
             label: "Claude Code".into(),
             icon: "\u{2733}".into(),
-            command: "open -na Ghostty --args --working-directory={path} -e claude".into(),
+            command: "claude".into(),
+            kind: OpenKind::Terminal,
             primary: true,
             requires_pr: false,
         },
@@ -177,6 +215,7 @@ pub fn default_open_targets() -> Vec<OpenTarget> {
             label: "Finder".into(),
             icon: "\u{1f4c1}".into(),
             command: "open {path}".into(),
+            kind: OpenKind::Command,
             primary: false,
             requires_pr: false,
         },

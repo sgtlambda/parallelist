@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import Icon from './Icon.vue'
-import { api, type Workspace, type WorkspaceKind } from '../api'
+import TerminalMark from './TerminalMark.vue'
+import type { Workspace, WorkspaceKind } from '../api'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { WORKSPACE_LABELS, basename } from '../format'
 import type { Row } from '../store'
@@ -14,6 +15,7 @@ import {
   openCleanup,
   openTargets,
   project,
+  projectId,
   refresh,
   staleWorkspacePaths,
   state,
@@ -22,7 +24,7 @@ import {
 } from '../store'
 import { relativeTime } from '../format'
 import { atRisk, rowBadges } from '../status'
-import { terminalActive } from '../terminal'
+import { openIn, targetBusy } from '../openIn'
 
 const tabs = computed(() => [
   { id: 'active' as const, label: 'Active', title: 'Open PR, has a workspace, or recently committed to', count: counts.value.active },
@@ -152,6 +154,7 @@ const menuItems = computed<MenuItem[]>(() => {
       children: targets.map((t) => ({
         id: `open:${i}:${t.id}`,
         label: `${t.icon}  ${t.label}`,
+        disabled: targetBusy(t, c.path),
       })),
     })
   })
@@ -189,8 +192,8 @@ async function onMenuSelect(id: string) {
   } else if (id.startsWith('open:')) {
     const [, index, targetId] = id.split(':')
     const workspace = row.workspaces[Number(index)]
-    if (!workspace || !targetId) return
-    await api.openIn(targetId, {
+    if (!workspace || !targetId || !projectId.value) return
+    await openIn(projectId.value, targetId, {
       path: workspace.path,
       branch: workspace.branch ?? row.branch.name,
       primary: project.value?.path ?? '',
@@ -198,6 +201,29 @@ async function onMenuSelect(id: string) {
     })
   }
 }
+
+const listEl = ref<HTMLElement | null>(null)
+
+/** A selection made from elsewhere — the command palette — can be scrolled
+ *  out of sight, or not listed yet while its project loads; then it is
+ *  brought into view once its row arrives. */
+let scrollPending = false
+
+function scrollToSelected() {
+  const el = listEl.value?.querySelector('.branch.selected')
+  if (!el) return
+  el.scrollIntoView({ block: 'nearest' })
+  scrollPending = false
+}
+
+watch(
+  () => state.selectedBranch,
+  (branch) => {
+    scrollPending = !!branch
+    void nextTick(scrollToSelected)
+  },
+)
+watch(visibleRows, () => scrollPending && void nextTick(scrollToSelected))
 
 /** Where this branch lives on disk, each entry labelled by its own kind. */
 function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[] {
@@ -244,7 +270,7 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
       </button>
     </div>
 
-    <div class="pane-body">
+    <div ref="listEl" class="pane-body">
       <div v-if="state.error" class="banner error">{{ state.error }}</div>
       <div v-for="warning in state.overview?.warnings ?? []" :key="warning" class="banner">
         {{ warning }}
@@ -297,13 +323,7 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
             </span>
           </span>
           <span class="spacer" />
-          <span
-            v-if="row.workspaces.some((w) => terminalActive(w.path))"
-            class="terminal-mark"
-            title="Active terminal"
-          >
-            <Icon name="terminal" :size="12" />
-          </span>
+          <TerminalMark :paths="row.workspaces.map((w) => w.path)" />
           <span class="faint" style="font-size: 11px">{{ relativeTime(row.branch.committedAt) }}</span>
         </div>
 

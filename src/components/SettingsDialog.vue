@@ -58,6 +58,7 @@ function addTarget(items: OpenTarget[]) {
     label: 'New target',
     icon: '▸',
     command: 'open {path}',
+    kind: 'command',
     primary: false,
     requiresPr: false,
   })
@@ -190,7 +191,13 @@ async function save() {
                 ✕
               </button>
             </div>
-            <input v-model="target.command" class="mono" />
+            <div class="row">
+              <select v-model="target.kind" title="Where the command runs">
+                <option value="command">Runs on its own</option>
+                <option value="terminal">Built-in terminal</option>
+              </select>
+              <input v-model="target.command" class="mono" style="flex: 1; min-width: 0" />
+            </div>
             <div class="row">
               <label class="check">
                 <input v-model="target.primary" type="checkbox" />
