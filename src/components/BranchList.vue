@@ -325,8 +325,8 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
             </span>
           </span>
           <span class="spacer" />
-          <TerminalMark :paths="[...row.workspaces, ...row.removed].map((w) => w.path)" />
           <span class="age faint" style="font-size: 11px">{{ relativeTime(row.branch.committedAt) }}</span>
+          <TerminalMark :paths="[...row.workspaces, ...row.removed].map((w) => w.path)" />
         </div>
 
         <div class="branch-meta">
