@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { AppConfig, OpenTarget } from '../api'
 import { refresh, saveConfig, state } from '../store'
 import { useEscape } from '../useEscape'
@@ -13,6 +13,11 @@ useEscape(() => props.open, () => emit('close'))
 const tab = ref<Tab>('project')
 const draft = ref<AppConfig | null>(null)
 const saving = ref(false)
+const form = ref<HTMLFormElement | null>(null)
+
+/** Lower bounds of the General tab's numbers, used by both the inputs and
+ *  `save`. */
+const MIN = { fetchIntervalSecs: 30, prRefreshSecs: 30, activeDays: 1 }
 
 watch(
   () => props.open,
@@ -64,8 +69,21 @@ function addTarget(items: OpenTarget[]) {
   })
 }
 
+/** The browser validates only the inputs on screen, and the tabs aren't
+ *  rendered while hidden, so a bad number left on General would otherwise
+ *  save. Go back to it and let the browser point at the field. */
 async function save() {
   if (!draft.value) return
+  const config = draft.value
+  const bad = (Object.keys(MIN) as (keyof typeof MIN)[]).some(
+    (key) => !Number.isInteger(config[key]) || config[key] < MIN[key],
+  )
+  if (bad) {
+    tab.value = 'general'
+    await nextTick()
+    form.value?.reportValidity()
+    return
+  }
   saving.value = true
   try {
     await saveConfig(draft.value)
@@ -79,18 +97,33 @@ async function save() {
 
 <template>
   <div v-if="open && draft" class="scrim" @click.self="emit('close')">
-    <div class="modal wide">
+    <form ref="form" class="modal wide" @submit.prevent="save">
       <div class="modal-header" data-tauri-drag-region="deep">
         <span>Settings</span>
         <span class="spacer" />
         <div class="tabs" style="padding: 0; border: none">
-          <button class="tab" :class="{ active: tab === 'project' }" @click="tab = 'project'">
+          <button
+            type="button"
+            class="tab"
+            :class="{ active: tab === 'project' }"
+            @click="tab = 'project'"
+          >
             {{ project?.name ?? 'Project' }}
           </button>
-          <button class="tab" :class="{ active: tab === 'targets' }" @click="tab = 'targets'">
+          <button
+            type="button"
+            class="tab"
+            :class="{ active: tab === 'targets' }"
+            @click="tab = 'targets'"
+          >
             Open in
           </button>
-          <button class="tab" :class="{ active: tab === 'general' }" @click="tab = 'general'">
+          <button
+            type="button"
+            class="tab"
+            :class="{ active: tab === 'general' }"
+            @click="tab = 'general'"
+          >
             General
           </button>
         </div>
@@ -149,6 +182,7 @@ async function save() {
                 <div class="row">
                   <input v-model="step.label" style="flex: 1" placeholder="Label" />
                   <button
+                    type="button"
                     class="btn ghost small danger"
                     @click="project.setupSteps = project.setupSteps.filter((s) => s.id !== step.id)"
                   >
@@ -161,7 +195,12 @@ async function save() {
                   <span class="hint">Ticked by default</span>
                 </label>
               </div>
-              <button class="btn small" style="align-self: flex-start" @click="addStep">
+              <button
+                type="button"
+                class="btn small"
+                style="align-self: flex-start"
+                @click="addStep"
+              >
                 + Add step
               </button>
             </div>
@@ -185,6 +224,7 @@ async function save() {
               <input v-model="target.icon" style="width: 52px; text-align: center" />
               <input v-model="target.label" style="flex: 1" placeholder="Label" />
               <button
+                type="button"
                 class="btn ghost small danger"
                 @click="group.items.splice(group.items.indexOf(target), 1)"
               >
@@ -211,6 +251,7 @@ async function save() {
           </div>
           <button
             v-if="group.key === 'global' || project"
+            type="button"
             class="btn small"
             style="align-self: flex-start"
             @click="addTarget(group.items)"
@@ -224,7 +265,12 @@ async function save() {
         <template v-else>
           <div class="field">
             <label>Fetch every (seconds)</label>
-            <input v-model.number="draft.fetchIntervalSecs" type="number" min="30" />
+            <input
+              v-model.number="draft.fetchIntervalSecs"
+              type="number"
+              :min="MIN.fetchIntervalSecs"
+              required
+            />
             <span class="hint">
               <code>git fetch --all --prune</code> in the background, so the branch list and
               ahead/behind counts stay honest.
@@ -232,11 +278,21 @@ async function save() {
           </div>
           <div class="field">
             <label>Refresh pull requests every (seconds)</label>
-            <input v-model.number="draft.prRefreshSecs" type="number" min="30" />
+            <input
+              v-model.number="draft.prRefreshSecs"
+              type="number"
+              :min="MIN.prRefreshSecs"
+              required
+            />
           </div>
           <div class="field">
             <label>"Active" window (days)</label>
-            <input v-model.number="draft.activeDays" type="number" min="1" />
+            <input
+              v-model.number="draft.activeDays"
+              type="number"
+              :min="MIN.activeDays"
+              required
+            />
             <span class="hint">
               A branch counts as active if it has an open PR, has a workspace on disk, or was
               committed to within this window.
@@ -251,9 +307,9 @@ async function save() {
 
       <div class="modal-footer">
         <span class="spacer" />
-        <button class="btn" @click="emit('close')">Cancel</button>
-        <button class="btn primary" :disabled="saving" @click="save">Save</button>
+        <button type="button" class="btn" @click="emit('close')">Cancel</button>
+        <button type="submit" class="btn primary" :disabled="saving">Save</button>
       </div>
-    </div>
+    </form>
   </div>
 </template>

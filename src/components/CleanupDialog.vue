@@ -161,7 +161,7 @@ async function remove() {
 
 <template>
   <div v-if="open" class="scrim" @click.self="!submitting && emit('close')">
-    <div class="modal wide">
+    <form class="modal wide" @submit.prevent="remove">
       <div class="modal-header" data-tauri-drag-region="deep">
         <span>{{ title }}</span>
         <span class="spacer" />
@@ -297,15 +297,17 @@ async function remove() {
           Runs in the background, one at a time.
         </span>
         <span class="spacer" />
-        <button class="btn" :disabled="submitting" @click="emit('close')">Cancel</button>
+        <button type="button" class="btn" :disabled="submitting" @click="emit('close')">
+          Cancel
+        </button>
         <button
+          type="submit"
           class="btn primary danger"
           :disabled="submitting || loading || !chosenCount"
-          @click="remove"
         >
           {{ chosen.length ? 'Remove' : 'Delete' }} {{ chosenCount || '' }}
         </button>
       </div>
-    </div>
+    </form>
   </div>
 </template>

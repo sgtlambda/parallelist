@@ -113,7 +113,7 @@ async function submit() {
 
 <template>
   <div v-if="open" class="scrim" @click.self="emit('close')">
-    <div class="modal">
+    <form class="modal" @submit.prevent="submit">
       <div class="modal-header" data-tauri-drag-region="deep">
         <span>New workspace</span>
         <span class="spacer" />
@@ -191,9 +191,9 @@ async function submit() {
 
       <div class="modal-footer">
         <span class="spacer" />
-        <button class="btn" @click="emit('close')">Cancel</button>
-        <button class="btn primary" :disabled="!canSubmit" @click="submit">Create</button>
+        <button type="button" class="btn" @click="emit('close')">Cancel</button>
+        <button type="submit" class="btn primary" :disabled="!canSubmit">Create</button>
       </div>
-    </div>
+    </form>
   </div>
 </template>
