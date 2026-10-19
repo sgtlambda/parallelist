@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import Icon from './Icon.vue'
 import TerminalMark from './TerminalMark.vue'
 import { api, type Workspace, type WorkspaceKind } from '../api'
@@ -26,6 +25,7 @@ import { relativeTime } from '../format'
 import { atRisk, rowBadges } from '../status'
 import { openIn, targetBusy } from '../openIn'
 import { terminalActive } from '../terminal'
+import { popupMenu, type MenuItem } from '../menu'
 
 const emit = defineEmits<{ (e: 'create'): void }>()
 
@@ -81,8 +81,6 @@ const SKELETON = [
   { name: '40%', pills: ['26px', '58px'] },
 ]
 
-const actions = ref({ open: false, x: 0, y: 0 })
-
 const actionItems = computed<MenuItem[]>(() => [
   { id: 'refresh', label: 'Refresh now' },
   // Two sweeps, because they cost different things: one frees directories,
@@ -104,7 +102,7 @@ function countedLabel(label: string, count: number): string {
 
 function openActions(event: MouseEvent) {
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  actions.value = { open: true, x: rect.right, y: rect.bottom + 5 }
+  void popupMenu(actionItems.value, onActionSelect, { x: rect.left, y: rect.bottom + 5 })
 }
 
 function onActionSelect(id: string) {
@@ -116,16 +114,7 @@ function onActionSelect(id: string) {
   }
 }
 
-const menu = ref<{ open: boolean; x: number; y: number; row: Row | null }>({
-  open: false,
-  x: 0,
-  y: 0,
-  row: null,
-})
-
-const menuItems = computed<MenuItem[]>(() => {
-  const row = menu.value.row
-  if (!row) return []
+function menuItems(row: Row): MenuItem[] {
   const items: MenuItem[] = [{ id: 'branch', label: 'Copy branch name' }]
 
   // One entry per workspace, named when there is more than one to tell apart.
@@ -166,8 +155,8 @@ const menuItems = computed<MenuItem[]>(() => {
   // them; shown but disabled when it has none, so they can be found.
   const terminals = menuTerminals(row)
   const marks = [
-    { mark: 'unseen', box: 'ready', label: 'Mark unseen' },
-    { mark: 'blocked', box: 'blocked', label: 'Mark blocked' },
+    { mark: 'unseen', label: 'Mark unseen' },
+    { mark: 'blocked', label: 'Mark blocked' },
   ] as const
   const slots = terminals.length ? terminals : [null]
   slots.forEach((path, i) => {
@@ -175,7 +164,6 @@ const menuItems = computed<MenuItem[]>(() => {
       items.push({
         id: `mark:${m.mark}:${i}`,
         label: terminals.length > 1 ? `${m.label} — ${basename(path!)}` : m.label,
-        mark: m.box,
         separator: i === 0 && j === 0,
         disabled: !path,
       })
@@ -185,11 +173,11 @@ const menuItems = computed<MenuItem[]>(() => {
   // Nothing on disk and nothing on origin: this ref is the only copy left, so
   // the branch list is the only place it can be deleted from.
   if (isDangling(row)) {
-    items.push({ id: 'delete-branch', label: 'Delete branch…', separator: true, danger: true })
+    items.push({ id: 'delete-branch', label: 'Delete branch…', separator: true })
   }
 
   return items
-})
+}
 
 /** The row's workspaces with a running shell, including any removed from
  *  under it, as the row's terminal mark counts them. */
@@ -197,14 +185,12 @@ function menuTerminals(row: Row): string[] {
   return [...row.workspaces, ...row.removed].map((w) => w.path).filter(terminalActive)
 }
 
-function openMenu(event: MouseEvent, row: Row) {
+function openMenu(row: Row) {
   state.selectedBranch = row.branch.name
-  menu.value = { open: true, x: event.clientX, y: event.clientY, row }
+  void popupMenu(menuItems(row), (id) => void onMenuSelect(row, id))
 }
 
-async function onMenuSelect(id: string) {
-  const row = menu.value.row
-  if (!row) return
+async function onMenuSelect(row: Row, id: string) {
   if (id === 'branch') {
     await copyToClipboard(row.branch.name, 'branch name')
   } else if (id.startsWith('path:')) {
@@ -341,7 +327,7 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
         class="branch"
         :class="{ selected: row.branch.name === state.selectedBranch }"
         @click="state.selectedBranch = row.branch.name"
-        @contextmenu.prevent="openMenu($event, row)"
+        @contextmenu.prevent="openMenu(row)"
       >
         <div class="row">
           <span class="branch-name truncate">{{ row.branch.name }}</span>
@@ -399,24 +385,5 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
     <button v-if="projectId" class="add-branch" @click="emit('create')">
       + Add branch
     </button>
-
-    <ContextMenu
-      :open="actions.open"
-      :x="actions.x"
-      :y="actions.y"
-      :items="actionItems"
-      align="right"
-      @close="actions.open = false"
-      @select="onActionSelect"
-    />
-
-    <ContextMenu
-      :open="menu.open"
-      :x="menu.x"
-      :y="menu.y"
-      :items="menuItems"
-      @close="menu.open = false"
-      @select="onMenuSelect"
-    />
   </section>
 </template>

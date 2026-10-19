@@ -864,12 +864,6 @@ code,
   color: var(--accent-fg);
 }
 
-/* A menu item highlights in the accent, which a ready box is drawn in. */
-.menu-item:hover:not(:disabled) .terminal-mark.ready {
-  background: var(--accent-fg);
-  color: var(--accent);
-}
-
 /* Terminal zoom in the header: − 100% +. The level is fixed-width so the
    buttons either side don't shift as it changes. */
 .zoom {
@@ -1020,92 +1014,6 @@ code,
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-}
-
-/* ---------- context menu ---------- */
-
-.menu-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-}
-
-.menu {
-  position: fixed;
-  min-width: 200px;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-raised);
-  box-shadow: var(--shadow);
-}
-
-.menu-row {
-  position: relative;
-}
-
-.menu-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  width: 100%;
-  padding: 5px 9px;
-  border: none;
-  border-radius: 5px;
-  background: none;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.menu-item:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--accent-fg);
-}
-
-.menu-item:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.menu-item.danger {
-  color: var(--red);
-}
-
-.menu-item.danger:hover {
-  background: var(--red);
-  color: #fff;
-}
-
-.menu-label {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-}
-
-.menu-arrow {
-  opacity: 0.55;
-}
-
-/* Flyout: absolute against its row rather than fixed like the root menu. */
-.menu.submenu {
-  position: absolute;
-  top: -5px;
-  left: 100%;
-  margin-left: 2px;
-}
-
-.menu.submenu.flip {
-  left: auto;
-  right: 100%;
-  margin: 0 2px 0 0;
-}
-
-.menu-separator {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--border-soft);
 }
 
 /* ---------- toast ---------- */

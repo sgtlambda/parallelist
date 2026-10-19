@@ -3,8 +3,8 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { api } from '../api'
 import { basename } from '../format'
 import { ref } from 'vue'
-import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import TerminalMark from './TerminalMark.vue'
+import { popupMenu, type MenuItem } from '../menu'
 import {
   dropCached,
   loadConfig,
@@ -111,25 +111,16 @@ async function forget(id: string) {
   await refresh({ fetch: false })
 }
 
-const menu = ref<{ open: boolean; x: number; y: number; id: string | null }>({
-  open: false,
-  x: 0,
-  y: 0,
-  id: null,
-})
-
 const menuItems: MenuItem[] = [
   { id: 'settings', label: 'Project settings…' },
-  { id: 'remove', label: 'Remove project', separator: true, danger: true },
+  { id: 'remove', label: 'Remove project', separator: true },
 ]
 
-function openMenu(id: string, event: MouseEvent) {
-  menu.value = { open: true, x: event.clientX, y: event.clientY, id }
+function openMenu(id: string) {
+  void popupMenu(menuItems, (action) => void onMenuSelect(id, action))
 }
 
-async function onMenuSelect(action: string) {
-  const id = menu.value.id
-  if (!id) return
+async function onMenuSelect(id: string, action: string) {
   if (action === 'settings') {
     await selectProject(id)
     settingsOpen.value = true
@@ -144,7 +135,7 @@ async function onMenuSelect(action: string) {
   <!-- The whole column moves the window, like a Finder sidebar. Tauri's
        "deep" region never claims clickable elements, so the project rows —
        buttons — still select on click and reorder on drag, and so do the
-       footer buttons. The context menu is teleported out of this subtree. -->
+       footer buttons. -->
   <aside class="pane sidebar" data-tauri-drag-region="deep">
     <div class="pane-body">
       <div class="section-title">Projects</div>
@@ -159,7 +150,7 @@ async function onMenuSelect(action: string) {
           'drop-after': dropAt === index + 1 && index === (state.config?.projects.length ?? 0) - 1,
         }"
         @click="onSelect(project.id)"
-        @contextmenu.prevent="openMenu(project.id, $event)"
+        @contextmenu.prevent="openMenu(project.id)"
         @pointerdown="onPointerDown(index, $event)"
       >
         <span class="row">
@@ -179,14 +170,5 @@ async function onMenuSelect(action: string) {
       <button class="btn ghost small" @click="addProject">+ Add project</button>
       <span class="spacer" />
       <button class="btn ghost small" title="Settings" @click="settingsOpen = true">⚙</button>
-    </div>
-    <ContextMenu
-      :open="menu.open"
-      :x="menu.x"
-      :y="menu.y"
-      :items="menuItems"
-      @close="menu.open = false"
-      @select="onMenuSelect"
-    />
-  </aside>
+    </div>  </aside>
 </template>
