@@ -233,6 +233,9 @@ export const api = {
   /** The terminal on screen in the focused window, or null. */
   terminalViewing: (path: string | null, focused: boolean) =>
     invoke<void>('terminal_viewing', { path, focused }),
+  /** Mark a terminal by hand, as if its program had reported it. */
+  terminalMark: (path: string, mark: 'unseen' | 'blocked') =>
+    invoke<void>('terminal_mark', { path, mark }),
 }
 
 /** Output as raw bytes, then the exit code once the shell is gone. */

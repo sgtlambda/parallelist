@@ -843,6 +843,12 @@ fn terminal_close(state: State<AppState>, path: String) {
     state.terminals.close(&path);
 }
 
+/// Mark a terminal unseen or blocked by hand, from its branch's menu.
+#[tauri::command]
+fn terminal_mark(state: State<AppState>, path: String, mark: terminal::Mark) -> Result<(), String> {
+    state.terminals.mark(&path, mark)
+}
+
 /// Running terminals, for a webview that has just (re)loaded to mark.
 #[tauri::command]
 fn terminal_list(state: State<AppState>) -> Vec<terminal::TerminalInfo> {
@@ -937,6 +943,20 @@ fn shellexpand_home(path: &str) -> String {
     path.to_string()
 }
 
+/// Badge the Dock icon with how many terminals wait for the user
+/// (`Terminals::waiting`), from the backend so it holds while the webview
+/// reloads and counts terminals never shown. Zero clears it: macOS would
+/// draw `Some(0)` as a "0".
+fn badge_waiting(app: &tauri::AppHandle) {
+    let Some(state) = app.try_state::<AppState>() else {
+        return;
+    };
+    let waiting = state.terminals.waiting() as i64;
+    if let Some(window) = app.webview_windows().into_values().next() {
+        let _ = window.set_badge_count((waiting > 0).then_some(waiting));
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -976,6 +996,7 @@ pub fn run() {
                             terminal_handle.emit("terminal-status", info)
                         }
                     };
+                    badge_waiting(&terminal_handle);
                 }))),
             });
             Ok(())
@@ -1007,6 +1028,7 @@ pub fn run() {
             terminal_close,
             terminal_list,
             terminal_viewing,
+            terminal_mark,
         ])
         .run(tauri::generate_context!())
         .expect("error while running switcheroo");

@@ -30,7 +30,7 @@
 //! then it stays reachable from the overview's `removed` list.
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -69,6 +69,17 @@ pub struct TerminalInfo {
     /// A turn ended while the terminal wasn't being viewed, and it hasn't
     /// been since.
     pub ready: bool,
+}
+
+/// What the user can mark a terminal as from its branch's menu, as if its
+/// program had said so.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Mark {
+    /// A turn ended out of sight: `ready`, until the terminal is viewed.
+    Unseen,
+    /// Waiting for an answer, until the program reports something else.
+    Blocked,
 }
 
 /// What the registry reports about terminals, attached or not.
@@ -150,6 +161,21 @@ impl Terminal {
         status.ready = state.as_deref() == Some("done") && !viewed;
         status.state = state;
         true
+    }
+
+    /// `Unseen` sets only the flag, leaving what the program reported alone,
+    /// so a terminal that is working still blinks. `Blocked` is the status
+    /// itself, and goes like one: at the program's next report, or, in a
+    /// plain shell, at its next output.
+    fn mark(&self, mark: Mark) {
+        let mut status = self.status.lock().unwrap();
+        match mark {
+            Mark::Unseen => status.ready = true,
+            Mark::Blocked => {
+                status.state = Some("blocked".into());
+                status.ready = false;
+            }
+        }
     }
 
     /// The user is looking at it: whatever was waiting to be seen has been.
@@ -474,6 +500,16 @@ impl Terminals {
         self.reap();
     }
 
+    /// Mark a terminal by hand, reported like any status change.
+    pub fn mark(&self, path: &str, mark: Mark) -> Result<(), String> {
+        let term = self.get(path)?;
+        term.mark(mark);
+        if let Some(hook) = &self.hook {
+            hook(TerminalEvent::Status(&term.info()));
+        }
+        Ok(())
+    }
+
     pub fn list(&self) -> Vec<TerminalInfo> {
         self.by_path
             .lock()
@@ -481,6 +517,15 @@ impl Terminals {
             .values()
             .map(|t| t.info())
             .collect()
+    }
+
+    /// How many terminals wait for the user: blocked on an answer, or with a
+    /// turn that ended unseen. The ones `terminalMark` draws a box around.
+    pub fn waiting(&self) -> usize {
+        self.list()
+            .iter()
+            .filter(|info| info.ready || info.status.as_deref() == Some("blocked"))
+            .count()
     }
 }
 
@@ -805,14 +850,52 @@ mod tests {
         report(&terminals, &path, "done");
         assert_eq!(next(), (Some("done".into()), true), "ended while nobody looked");
         assert!(terminals.list()[0].ready);
+        assert_eq!(terminals.waiting(), 1);
 
         terminals.view(Some(&path), true);
         assert_eq!(next(), (Some("done".into()), false), "seen");
+        assert_eq!(terminals.waiting(), 0);
 
         report(&terminals, &path, "working");
         assert_eq!(next(), (Some("working".into()), false));
         report(&terminals, &path, "done");
         assert_eq!(next(), (Some("done".into()), false), "ended in plain sight");
+        report(&terminals, &path, "blocked");
+        assert_eq!(next(), (Some("blocked".into()), false));
+        assert_eq!(terminals.waiting(), 1, "blocked waits, seen or not");
+        assert!(terminals.close(&path));
+    }
+
+    #[test]
+    fn a_terminal_marked_by_hand_reads_as_if_its_program_had_said_so() {
+        let dir = temp_dir("marked");
+        let path = dir.to_string_lossy().to_string();
+        let (hook, statuses) = status_hook();
+        let terminals = Terminals::new(hook);
+        let (tx, _rx) = sink();
+        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals
+            .write(
+                &path,
+                b"sh -c 'while read s; do printf \"\\033]7501;state=%s\\007\" \"$s\"; done'\n",
+            )
+            .unwrap();
+        let next = || statuses.recv_timeout(Duration::from_secs(5)).expect("a status");
+
+        report(&terminals, &path, "working");
+        assert_eq!(next(), (Some("working".into()), false));
+        terminals.mark(&path, Mark::Unseen).unwrap();
+        assert_eq!(next(), (Some("working".into()), true), "still working");
+        terminals.view(Some(&path), true);
+        assert_eq!(next(), (Some("working".into()), false), "seen");
+
+        terminals.mark(&path, Mark::Blocked).unwrap();
+        assert_eq!(next(), (Some("blocked".into()), false));
+        assert_eq!(terminals.waiting(), 1);
+        report(&terminals, &path, "working");
+        assert_eq!(next(), (Some("working".into()), false), "the program's word wins");
+
+        assert!(terminals.mark("/nowhere", Mark::Blocked).is_err());
         assert!(terminals.close(&path));
     }
 

@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import Icon from './Icon.vue'
 import TerminalMark from './TerminalMark.vue'
-import type { Workspace, WorkspaceKind } from '../api'
+import { api, type Workspace, type WorkspaceKind } from '../api'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { WORKSPACE_LABELS, basename } from '../format'
 import type { Row } from '../store'
@@ -25,6 +25,7 @@ import {
 import { relativeTime } from '../format'
 import { atRisk, rowBadges } from '../status'
 import { openIn, targetBusy } from '../openIn'
+import { terminalActive } from '../terminal'
 
 const emit = defineEmits<{ (e: 'create'): void }>()
 
@@ -161,6 +162,26 @@ const menuItems = computed<MenuItem[]>(() => {
     })
   })
 
+  // Marks for the branch's running terminals, as if Claude Code had sent
+  // them; shown but disabled when it has none, so they can be found.
+  const terminals = menuTerminals(row)
+  const marks = [
+    { mark: 'unseen', box: 'ready', label: 'Mark unseen' },
+    { mark: 'blocked', box: 'blocked', label: 'Mark blocked' },
+  ] as const
+  const slots = terminals.length ? terminals : [null]
+  slots.forEach((path, i) => {
+    marks.forEach((m, j) => {
+      items.push({
+        id: `mark:${m.mark}:${i}`,
+        label: terminals.length > 1 ? `${m.label} — ${basename(path!)}` : m.label,
+        mark: m.box,
+        separator: i === 0 && j === 0,
+        disabled: !path,
+      })
+    })
+  })
+
   // Nothing on disk and nothing on origin: this ref is the only copy left, so
   // the branch list is the only place it can be deleted from.
   if (isDangling(row)) {
@@ -169,6 +190,12 @@ const menuItems = computed<MenuItem[]>(() => {
 
   return items
 })
+
+/** The row's workspaces with a running shell, including any removed from
+ *  under it, as the row's terminal mark counts them. */
+function menuTerminals(row: Row): string[] {
+  return [...row.workspaces, ...row.removed].map((w) => w.path).filter(terminalActive)
+}
 
 function openMenu(event: MouseEvent, row: Row) {
   state.selectedBranch = row.branch.name
@@ -191,6 +218,12 @@ async function onMenuSelect(id: string) {
     // Into Cleanup rather than a bespoke confirm: it already knows how to show
     // what a deletion costs before it happens.
     openCleanup([], [row.branch.name], 'Delete branch')
+  } else if (id.startsWith('mark:')) {
+    const [, mark, index] = id.split(':')
+    const path = menuTerminals(row)[Number(index)]
+    if (path && (mark === 'unseen' || mark === 'blocked')) {
+      await api.terminalMark(path, mark).catch(() => {})
+    }
   } else if (id.startsWith('open:')) {
     const [, index, targetId] = id.split(':')
     const workspace = row.workspaces[Number(index)]

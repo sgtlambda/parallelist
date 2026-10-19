@@ -9,11 +9,14 @@ export interface MenuItem {
   disabled?: boolean
   /** Turns the entry into a flyout rather than an action. */
   children?: MenuItem[]
+  /** A terminal mark before the label, boxed as the branch list draws it. */
+  mark?: 'ready' | 'blocked'
 }
 </script>
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import Icon from './Icon.vue'
 import { useEscape } from '../useEscape'
 
 const props = withDefaults(
@@ -91,7 +94,12 @@ const flip = computed(() => pos.value.left > window.innerWidth - 440)
               :disabled="item.disabled"
               @click="choose(item)"
             >
-              <span class="truncate">{{ item.label }}</span>
+              <span class="menu-label">
+                <span v-if="item.mark" class="terminal-mark" :class="item.mark">
+                  <Icon name="terminal" :size="12" />
+                </span>
+                <span class="truncate">{{ item.label }}</span>
+              </span>
               <span v-if="item.children" class="menu-arrow">›</span>
             </button>
             <div
