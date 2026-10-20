@@ -27,10 +27,10 @@ import {
   showOverview,
   showTerminal,
   terminalFor,
-  terminalMark,
   zoomPercent,
   zoomTerminals,
 } from '../terminal'
+import { terminalMark } from '../terminalState'
 
 const emit = defineEmits<{
   (e: 'create'): void

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import Icon from './Icon.vue'
-import { projectTerminalMark, terminalMark } from '../terminal'
+import { projectTerminalMark, terminalMark } from '../terminalState'
 
 /** The terminal mark beside a project, a branch row, a workspace card or a
  *  palette entry: nothing unless a shell is running, blinking while

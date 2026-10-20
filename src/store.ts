@@ -9,6 +9,7 @@ import {
   type PullRequest,
 } from './api'
 import { hasPendingCreate } from './tasks'
+import { byTerminalRank, terminalRank } from './terminalState'
 
 export type Filter = 'active' | 'prs' | 'assigned' | 'workspaces' | 'all'
 
@@ -113,17 +114,28 @@ export const rows = computed<Row[]>(() => {
   })
 })
 
-/** Keep the main workspace's branch first. It is the branch everything else
- *  is measured against, so it shouldn't drift around the list as commits
- *  land. */
-function pinMainWorkspace(list: Row[]): Row[] {
-  const name = mainWorkspaceBranch.value
-  if (!name) return list
-  const index = list.findIndex((r) => r.branch.name === name)
-  if (index <= 0) return list
-  const pinned = [...list]
-  pinned.unshift(pinned.splice(index, 1)[0])
-  return pinned
+/**
+ * The main workspace's branch first: it is the branch everything else is
+ * measured against, so it shouldn't drift around the list as commits land.
+ * Then the branches with a running terminal, by `terminalRank` as in the
+ * palette, then the rest as they came.
+ *
+ * Only a change of tier — a terminal starting, stopping, or coming to need
+ * the user — re-sorts on its own. Which terminal was active most recently is
+ * taken as it stands whenever the list re-sorts anyway (a refresh, another
+ * tab, a search), so rows don't move under the pointer with every keystroke
+ * typed into one.
+ */
+function inOrder(list: Row[]): Row[] {
+  const main = mainWorkspaceBranch.value
+  const ranks = new Map(
+    list.map((r) => [r, terminalRank([...r.workspaces, ...r.removed].map((w) => w.path))]),
+  )
+  return [...list].sort(
+    (a, b) =>
+      Number(b.branch.name === main) - Number(a.branch.name === main) ||
+      byTerminalRank(ranks.get(a)!, ranks.get(b)!),
+  )
 }
 
 /** Everything about a row that search should be able to match. */
@@ -204,20 +216,20 @@ export const visibleRows = computed<Row[]>(() => {
   // Search always looks at every branch, whatever the filter is set to —
   // otherwise finding an old branch means changing tab first.
   if (term) {
-    return pinMainWorkspace(list.filter((r) => haystack(r).includes(term)))
+    return inOrder(list.filter((r) => haystack(r).includes(term)))
   }
 
   switch (state.filter) {
     case 'prs':
-      return pinMainWorkspace(list.filter((r) => r.pr?.state === 'open'))
+      return inOrder(list.filter((r) => r.pr?.state === 'open'))
     case 'assigned':
-      return pinMainWorkspace(list.filter((r) => r.pr?.state === 'open' && assignedToMe(r)))
+      return inOrder(list.filter((r) => r.pr?.state === 'open' && assignedToMe(r)))
     case 'workspaces':
-      return pinMainWorkspace(list.filter((r) => r.workspaces.length > 0))
+      return inOrder(list.filter((r) => r.workspaces.length > 0))
     case 'all':
-      return pinMainWorkspace(list)
+      return inOrder(list)
     default:
-      return pinMainWorkspace(list.filter((r) => isActive(r, days)))
+      return inOrder(list.filter((r) => isActive(r, days)))
   }
 })
 

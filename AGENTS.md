@@ -291,6 +291,20 @@ redundant complexity and are not.
     blinks if any works, orange if any is blocked, else blue if any is
     ready (`terminalMark`, the one place that is decided, drawn by
     `TerminalMark.vue`).
+  - **Running terminals sort first**, in the palette and in the branch
+    list (after the pinned main workspace) alike: blocked, then ready, then
+    the rest, and within each the one **active** most recently
+    (`terminalRank` in `src/terminalState.ts`, the one ordering both use).
+    Active means started, a status change, or typed into — kept by the
+    backend as `activeAt` — and never output, or a chatty dev server would
+    sit on top for good. A focus report xterm sends on clicking in isn't
+    typing either. Recency is deliberately not reactive: the branch list
+    re-sorts on its own only when a tier changes, and picks up recency
+    whenever it re-sorts anyway, so rows don't move under the pointer.
+    The mark state lives in `terminalState.ts`, apart from the xterm
+    sessions, because the store sorts by it and `terminal.ts` imports the
+    store: importing that back evaluates `terminal.ts` first and its
+    top-level `watch` reads the store before it exists.
   - Zoom is one font size for every terminal, saved as `terminalFontSize`:
     ⌘+/⌘−/⌘0 while a terminal is on screen, or the header's − 100% +.
   - A terminal takes the keyboard whenever it is shown, including by
@@ -300,11 +314,12 @@ redundant complexity and are not.
   refreshing them: each project lists the newer of its cached overview and
   a `peek`, so it has no PRs and doesn't search them. ⌘P rather than ⌘K
   because terminals use ⌘K to clear. Ranking is fzy's score (`src/fuzzy.ts`,
-  about a point per well-placed character) plus flat bonuses — two points
-  for an active terminal, one for the current project — so those settle
-  short queries and barely touch long ones, and an empty query opens on
-  running terminals first. Going to a branch clears a search or
-  switches to All when the list would otherwise hide it.
+  about a point per well-placed character) plus a flat bonus — 2 to 4.5 by
+  terminal tier, else one for the current project — so those settle short
+  queries and barely touch long ones, and an empty query opens on running
+  terminals first. Recency only breaks ties, so it never beats a better
+  match. Going to a branch clears a search or switches to All when the
+  list would otherwise hide it.
 - Error messages that say "git repository" are factual statements about git and
   should stay that way, even though the UI otherwise says "project".
 
