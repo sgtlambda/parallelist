@@ -22,7 +22,7 @@
   --skeleton-hi: rgba(0, 0, 0, 0.13);
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
   --radius: 7px;
-  --titlebar-h: 32px;
+  --titlebar-h: 44px;
   --sidebar-w: 216px;
   color-scheme: light;
 }
@@ -276,22 +276,28 @@ code,
    still run to the top edge of the window. */
 /* Spans only the sidebar: that strip holds the traffic lights and the
    settings gear, so it can sit above the content. The other two columns are
-   dragged by their own headers, which start at the top edge now. The gear is
-   centred in the strip, which is where the lights are centred too, and sits
-   as far in from the side as from the top, mirroring the red light: its
-   centre is half the strip's height from the edge (13px is half the 26px
-   `.btn.icon`). */
+   dragged by their own headers, which start at the top edge now. The strip
+   has `.pane-header`'s box, bottom rule included (transparent here), so the
+   gear and the lights sit on the same line as those headers' controls:
+   21.5px down, half of the 43px above the rule. The gear sits as far in from
+   the side as from the top, mirroring the red light (13px is half the 26px
+   `.btn.icon`). The lights are placed by `trafficLightPosition` in
+   `tauri.conf.json`, whose `y` is the button's top plus 9 — tao grows the
+   title bar to the 14px button plus `y`, and the button keeps 9px below it —
+   so `{ x: 14.5, y: 23.5 }` puts the red light's centre at (21.5, 21.5).
+   Measured, macOS 27. */
 .titlebar {
   position: fixed;
   top: 0;
   left: 0;
   width: var(--sidebar-w);
   height: var(--titlebar-h);
+  border-bottom: 1px solid transparent;
   z-index: 30;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding-right: calc(var(--titlebar-h) / 2 - 13px);
+  padding-right: calc((var(--titlebar-h) - 1px) / 2 - 13px);
 }
 
 /* ---------- generic bits ---------- */
