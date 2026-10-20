@@ -221,11 +221,6 @@ async function start() {
 
         <div class="field">
           <label>Kind</label>
-          <span class="hint">
-            A workspace is a directory holding this branch. It is either a worktree of the
-            main workspace or a clone of its own — everywhere else in Switcheroo the two are
-            treated the same.
-          </span>
           <div v-if="conflict" class="banner">
             <strong>{{ conflict.branch }}</strong> already has a worktree at
             <code>{{ shortPath(conflict.path) }}</code
@@ -271,10 +266,6 @@ async function start() {
             />
             <span>{{ step.label }}</span>
           </label>
-          <span class="hint">
-            Steps run in the background. The workspace card and the task box show what
-            they are on; clicking either shows the full log.
-          </span>
         </div>
 
         <div v-if="targets.length" class="field">
@@ -287,11 +278,6 @@ async function start() {
             />
             <span>{{ target.icon }} {{ target.label }}</span>
           </label>
-          <span class="hint">
-            Run once the workspace is set up. Only one can use the built-in terminal; if
-            you have moved on to another branch by then, it starts without taking you
-            back.
-          </span>
         </div>
       </div>
 

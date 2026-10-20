@@ -1720,6 +1720,10 @@ table.list .detail-row td {
   background: none;
   border-radius: 5px;
   padding: 5px 8px;
+  /* Tall enough for a `.badge` (10.5px × 1.55 + padding and border ≈ 20.3px)
+     whether or not the row has one: PR badges arrive with the refresh, and
+     rows grew under the pointer when they did. */
+  min-height: 31px;
   font-size: 12.5px;
   color: var(--text);
 }
