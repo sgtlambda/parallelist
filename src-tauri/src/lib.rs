@@ -830,7 +830,7 @@ fn terminal_open(
 }
 
 #[tauri::command]
-fn terminal_write(state: State<AppState>, path: String, data: String) -> Result<(), String> {
+fn terminal_write(state: State<AppState>, path: String, data: String) -> Result<u64, String> {
     state.terminals.write(&path, data.as_bytes())
 }
 
@@ -1107,6 +1107,7 @@ mod tests {
             project_id: project.id.clone(),
             status: Some("done".into()),
             ready: true,
+            active_at: 0,
         }];
         let mut seen = LastSeen::new();
 

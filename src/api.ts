@@ -225,7 +225,8 @@ export const api = {
     rows: number,
     channel: Channel<TerminalMessage>,
   ) => invoke<boolean>('terminal_open', { projectId, path, cols, rows, channel }),
-  terminalWrite: (path: string, data: string) => invoke<void>('terminal_write', { path, data }),
+  /** Resolves to when the terminal was last active, which typing makes now. */
+  terminalWrite: (path: string, data: string) => invoke<number>('terminal_write', { path, data }),
   terminalResize: (path: string, cols: number, rows: number) =>
     invoke<void>('terminal_resize', { path, cols, rows }),
   terminalClose: (path: string) => invoke<void>('terminal_close', { path }),
@@ -249,6 +250,9 @@ export interface TerminalInfo {
   status: string | null
   /** A turn ended while it wasn't being viewed, and it hasn't been since. */
   ready: boolean
+  /** When it was last active — started, its status changed, typed into —
+   *  in epoch milliseconds. */
+  activeAt: number
 }
 
 /** A shell exited, whether or not anything was attached to it. */

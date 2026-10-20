@@ -3,15 +3,10 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { computed, reactive, watch } from 'vue'
-import {
-  api,
-  onTerminalExit,
-  onTerminalStatus,
-  type TerminalInfo,
-  type TerminalMessage,
-} from './api'
+import { api, onTerminalExit, onTerminalStatus, type TerminalMessage } from './api'
 import { goToBranch, projectId as currentProject, refresh, saveConfig, state } from './store'
 import { normalizePath } from './tasks'
+import { active, activeAt, projectOf, setStatus, statuses } from './terminalState'
 
 /**
  * Terminals in the detail pane: a shell per workspace, in the backend
@@ -75,61 +70,6 @@ interface Session {
 }
 
 const sessions = new Map<string, Session>()
-
-/** Which project each workspace's terminal belongs to, so the sidebar can
- *  mark a project without knowing its workspaces. */
-const projectOf = new Map<string, string>()
-
-/** Workspaces with a running shell: what the project list, branch list and
- *  cards mark. */
-const active = reactive(new Set<string>())
-
-/** What the program in each terminal reports over OSC 7501, when it does,
- *  and whether a turn ended there unseen (`ready`, kept by the backend). */
-const statuses = reactive(new Map<string, Pick<TerminalInfo, 'status' | 'ready'>>())
-
-export function terminalActive(path: string): boolean {
-  return active.has(normalizePath(path))
-}
-
-export interface TerminalMark {
-  /** Blinking while Claude Code, or anything speaking OSC 7501, works. */
-  icon: 'terminal' | 'terminal-working'
-  /** Something waits for the user: `blocked` on an answer (orange), or
-   *  `ready`, a turn finished out of sight (blue). */
-  box: 'blocked' | 'ready' | null
-  title: string
-}
-
-/**
- * The mark for the terminals of some workspaces: none unless one has a
- * running shell. Several terminals combine part by part: the icon blinks if
- * any of them works, and the box is orange if any is blocked, else blue if
- * any is ready. The one place it is decided, for the project list, the
- * branch rows, the cards and the palette alike.
- */
-export function terminalMark(paths: string[]): TerminalMark | null {
-  const keys = paths.map(normalizePath).filter((p) => active.has(p))
-  if (!keys.length) return null
-  const reported = keys.map((k) => statuses.get(k))
-  const working = reported.some((r) => r?.status === 'working')
-  const blocked = reported.some((r) => r?.status === 'blocked')
-  const ready = reported.some((r) => r?.ready)
-  const title = [
-    blocked && 'Blocked — waiting for your answer',
-    ready && 'Ready — finished while you were away',
-    working && 'Working',
-  ].filter((t) => !!t)
-  return {
-    icon: working ? 'terminal-working' : 'terminal',
-    box: blocked ? 'blocked' : ready ? 'ready' : null,
-    title: title.join('\n') || 'Active terminal',
-  }
-}
-
-export function projectTerminalMark(projectId: string): TerminalMark | null {
-  return terminalMark([...active].filter((path) => projectOf.get(path) === projectId))
-}
 
 const dark = window.matchMedia('(prefers-color-scheme: dark)')
 
@@ -269,7 +209,10 @@ function send(s: Session, data: string) {
     while (s.pending && s.state === 'running') {
       const chunk = s.pending
       s.pending = ''
-      await api.terminalWrite(s.path, chunk).catch(() => {})
+      await api
+        .terminalWrite(s.path, chunk)
+        .then((at) => void activeAt.set(s.path, at))
+        .catch(() => {})
     }
     s.writing = false
   })()
@@ -285,7 +228,9 @@ async function start(s: Session) {
   }
   const projectId = projectOf.get(s.path) ?? ''
   try {
-    await api.terminalOpen(projectId, s.path, s.term.cols, s.term.rows, channel)
+    // One already running, after a reload, keeps the time it was listed with.
+    const started = await api.terminalOpen(projectId, s.path, s.term.cols, s.term.rows, channel)
+    if (started) activeAt.set(s.path, Date.now())
   } catch (e) {
     if (s.disposed) return
     s.term.write(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`)
@@ -390,12 +335,6 @@ export function closeTerminal(path: string) {
   statuses.delete(key)
   for (const [branch, shownPath] of shown) if (shownPath === key) shown.delete(branch)
   reportViewing()
-}
-
-function setStatus(t: TerminalInfo) {
-  const key = normalizePath(t.path)
-  if (t.status || t.ready) statuses.set(key, { status: t.status, ready: t.ready })
-  else statuses.delete(key)
 }
 
 /** Mark the shells that are already running — after a webview reload, all of

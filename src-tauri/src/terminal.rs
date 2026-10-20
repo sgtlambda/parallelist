@@ -21,6 +21,11 @@
 //! arrives while the terminal isn't the one being viewed and cleared once it
 //! is. The frontend says which one that is (`Terminals::view`).
 //!
+//! Each terminal also keeps when it was last **active**, which is what
+//! orders the palette and the branch list among running terminals: when it
+//! started, its program's status changed, or the user typed into it. Not its
+//! output, or a dev server's logging would keep it on top for good.
+//!
 //! A terminal can outlive its directory: Claude Code often removes its own
 //! worktree once it has merged it, from inside the very shell it runs in.
 //! Removing a workspace through the app closes its terminal first; one
@@ -37,6 +42,8 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use crate::tasks::now_ms;
 
 /// How much recent output a terminal keeps for replay on reattach. A few
 /// screens of a noisy build; xterm keeps the real scrollback on its side.
@@ -69,6 +76,8 @@ pub struct TerminalInfo {
     /// A turn ended while the terminal wasn't being viewed, and it hasn't
     /// been since.
     pub ready: bool,
+    /// When it was last active, in epoch milliseconds.
+    pub active_at: u64,
 }
 
 /// What the user can mark a terminal as from its branch's menu, as if its
@@ -113,6 +122,7 @@ struct Terminal {
 struct Status {
     state: Option<String>,
     ready: bool,
+    active_at: u64,
 }
 
 impl Terminal {
@@ -121,6 +131,7 @@ impl Terminal {
         TerminalInfo {
             status: status.state.clone(),
             ready: status.ready,
+            active_at: status.active_at,
             ..self.info.clone()
         }
     }
@@ -160,6 +171,7 @@ impl Terminal {
         // happens next — a new prompt, quitting — the user did themselves.
         status.ready = state.as_deref() == Some("done") && !viewed;
         status.state = state;
+        status.active_at = now_ms();
         true
     }
 
@@ -351,6 +363,7 @@ impl Terminals {
                 project_id: project_id.to_string(),
                 status: None,
                 ready: false,
+                active_at: 0,
             },
             master: Mutex::new(pair.master),
             writer: Mutex::new(writer),
@@ -361,7 +374,10 @@ impl Terminals {
                 exited: false,
             }),
             shell_pid,
-            status: Mutex::default(),
+            status: Mutex::new(Status {
+                active_at: now_ms(),
+                ..Status::default()
+            }),
         });
         map.insert(key.clone(), Arc::clone(&term));
         drop(map);
@@ -438,11 +454,21 @@ impl Terminals {
             .ok_or_else(|| format!("no terminal in {path}"))
     }
 
-    pub fn write(&self, path: &str, data: &[u8]) -> Result<(), String> {
+    /// Type `data` into the terminal. Returns when it was last active,
+    /// which this makes now unless `data` is only a focus report: xterm sends
+    /// one on its own whenever the terminal is clicked into or left, if the
+    /// program asked for them, as Claude Code does. Looking isn't activity.
+    pub fn write(&self, path: &str, data: &[u8]) -> Result<u64, String> {
         let term = self.get(path)?;
         let mut writer = term.writer.lock().unwrap();
         writer.write_all(data).map_err(|e| e.to_string())?;
-        writer.flush().map_err(|e| e.to_string())
+        writer.flush().map_err(|e| e.to_string())?;
+        drop(writer);
+        let mut status = term.status.lock().unwrap();
+        if !matches!(data, b"\x1b[I" | b"\x1b[O") {
+            status.active_at = now_ms();
+        }
+        Ok(status.active_at)
     }
 
     pub fn resize(&self, path: &str, size: PtySize) -> Result<(), String> {
@@ -702,6 +728,27 @@ mod tests {
         let seen = read_until(&rx, "<exit 3>");
         assert!(seen.contains(&path), "{seen:?}");
         assert!(terminals.list().is_empty(), "an exited terminal leaves the registry");
+    }
+
+    /// Typing is activity; the focus report xterm sends on clicking in is
+    /// not, and neither is output.
+    #[test]
+    fn typing_makes_a_terminal_active_and_focusing_does_not() {
+        let dir = temp_dir("active");
+        let path = dir.to_string_lossy().to_string();
+        let terminals = Terminals::default();
+        let (tx, rx) = sink();
+        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        let started = terminals.list()[0].active_at;
+        assert!(started > 0, "a new terminal is active from the start");
+
+        std::thread::sleep(Duration::from_millis(5));
+        assert_eq!(terminals.write(&path, b"\x1b[I").unwrap(), started);
+        let typed = terminals.write(&path, b"echo out-$((40+2))\n").unwrap();
+        assert!(typed > started);
+        read_until(&rx, "out-42");
+        assert_eq!(terminals.list()[0].active_at, typed);
+        terminals.close(&path);
     }
 
     /// A webview reload attaches to the running shell and gets its recent

@@ -1,6 +1,7 @@
 import { api, type OpenContext, type OpenTarget, type Task } from './api'
 import { state } from './store'
-import { runInTerminal, terminalActive } from './terminal'
+import { runInTerminal } from './terminal'
+import { terminalActive } from './terminalState'
 
 /**
  * "Open in" targets, for every place that offers them: the workspace cards,

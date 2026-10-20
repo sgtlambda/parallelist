@@ -3,7 +3,7 @@ import { api, type BranchInfo, type Overview, type Workspace } from './api'
 import { basename } from './format'
 import { fuzzyMatch } from './fuzzy'
 import { groupByBranch, knownOverview, projectId, state } from './store'
-import { terminalActive, terminalMark } from './terminal'
+import { byTerminalRank, terminalRank, TIER, type TerminalRank, type Tier } from './terminalState'
 
 /**
  * The command palette: every branch of every project, fuzzy-searched.
@@ -24,17 +24,26 @@ export const paletteOpen = ref(false)
  *
  * An active terminal outweighs the current project: it is where work is
  * actually going on, in whichever project. One waiting for the user weighs
- * more again, on top of being active — blocked on an answer most of all —
- * so the palette doubles as "go to whatever needs me next". With no query
- * the bonuses are the whole score, so it opens on blocked terminals, then
- * ready ones, then the rest of the running ones, then the current project,
- * then everything else by recency. Each step outweighs the current project
- * on its own, so a blocked terminal elsewhere still beats a ready one here.
+ * more again — blocked on an answer most of all — so the palette doubles as
+ * "go to whatever needs me next". These are the tiers of `terminalRank`,
+ * which the branch list sorts by too. With no query the bonuses are the
+ * whole score, so it opens on blocked terminals, then ready ones, then the
+ * rest of the running ones, then the current project, then everything else
+ * by commit. Each tier outweighs the current project on its own, so a
+ * blocked terminal elsewhere still beats a ready one here.
+ *
+ * Within a tier, the terminal active most recently comes first; that is the
+ * tie-break after the score, so with a query it never beats a better match.
+ * The current project's bonus is left off a branch with a running terminal,
+ * or it would split each tier by project before recency had a say.
  */
 const CURRENT_PROJECT_BONUS = 1
-const ACTIVE_TERMINAL_BONUS = 2
-const READY_TERMINAL_BONUS = 1.25
-const BLOCKED_TERMINAL_BONUS = 2.5
+const TERMINAL_BONUS: Record<Tier, number> = {
+  [TIER.none]: 0,
+  [TIER.running]: 2,
+  [TIER.ready]: 3.25,
+  [TIER.blocked]: 4.5,
+}
 
 /** A query word found in the project name or a workspace directory, rather
  *  than in the branch name itself, counts for less. */
@@ -49,14 +58,11 @@ export interface Entry {
   branch: BranchInfo
   workspaces: Workspace[]
   current: boolean
-  /** A workspace of this branch has a running shell. */
-  active: boolean
-  /** What, if anything, one of those shells waits on the user for. */
-  waiting: 'blocked' | 'ready' | null
 }
 
 export interface Result {
   entry: Entry
+  rank: TerminalRank
   score: number
   /** Matched characters, for highlighting. */
   branchHits: number[]
@@ -102,16 +108,12 @@ const entries = computed<Entry[]>(() => {
     // A removed workspace's terminal can still be waiting on the user.
     const byBranch = groupByBranch([...ov.workspaces, ...(ov.removed ?? [])])
     for (const branch of ov.branches) {
-      const workspaces = byBranch.get(branch.name) ?? []
-      const paths = workspaces.map((w) => w.path)
       out.push({
         projectId: p.id,
         projectName: p.name,
         branch,
-        workspaces,
+        workspaces: byBranch.get(branch.name) ?? [],
         current: p.id === projectId.value,
-        active: paths.some(terminalActive),
-        waiting: terminalMark(paths)?.box ?? null,
       })
     }
   }
@@ -125,7 +127,8 @@ function weighted(score: number): number {
 /**
  * The best `limit` branches for `query`. Each space-separated word must
  * match the branch name, the project name or a workspace directory, so
- * `app header` narrows to project `app`. Ties go to the newer commit.
+ * `app header` narrows to project `app`. Ties go to the terminal active
+ * most recently, then the newer commit.
  */
 export function searchPalette(query: string, limit: number): Result[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
@@ -134,14 +137,15 @@ export function searchPalette(query: string, limit: number): Result[] {
 
   const results: Result[] = []
   for (const entry of entries.value) {
+    // Here rather than in `entries`, which is cached: activity is read as
+    // it stands, so it has to be read on every search.
+    const rank = terminalRank(entry.workspaces.map((w) => w.path))
     let score =
-      (entry.current ? CURRENT_PROJECT_BONUS : 0) +
-      (entry.active ? ACTIVE_TERMINAL_BONUS : 0) +
-      (entry.waiting === 'blocked'
-        ? BLOCKED_TERMINAL_BONUS
-        : entry.waiting === 'ready'
-          ? READY_TERMINAL_BONUS
-          : 0)
+      rank.tier !== TIER.none
+        ? TERMINAL_BONUS[rank.tier]
+        : entry.current
+          ? CURRENT_PROJECT_BONUS
+          : 0
     const branchHits: number[] = []
     const projectHits: number[] = []
     let matched = true
@@ -175,11 +179,14 @@ export function searchPalette(query: string, limit: number): Result[] {
       best.hits?.push(...best.positions)
     }
 
-    if (matched) results.push({ entry, score, branchHits, projectHits })
+    if (matched) results.push({ entry, rank, score, branchHits, projectHits })
   }
 
   results.sort(
-    (a, b) => b.score - a.score || b.entry.branch.committedAt - a.entry.branch.committedAt,
+    (a, b) =>
+      b.score - a.score ||
+      byTerminalRank(a.rank, b.rank) ||
+      b.entry.branch.committedAt - a.entry.branch.committedAt,
   )
   return results.slice(0, limit)
 }
