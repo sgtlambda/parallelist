@@ -300,13 +300,25 @@ function mayTakeFocus(): boolean {
  * Type `command` into a workspace's terminal and show it, going to its
  * branch first if that isn't on screen. A shell not yet started gets it as
  * typeahead, sent the moment it is; one that exited is started again for it.
+ *
+ * With `reveal` off the shell starts unseen instead, and the terminal waits
+ * to be opened from its card: a create finishing while the user is elsewhere
+ * must not pull them over, nor take the keyboard from what they are typing.
  */
-export function runInTerminal(projectId: string, branch: string, path: string, command: string) {
+export function runInTerminal(
+  projectId: string,
+  branch: string,
+  path: string,
+  command: string,
+  reveal = true,
+) {
   const s = session(path)
   projectOf.set(s.path, projectId)
   if (s.state === 'running') send(s, `${command}\r`)
   else s.pending += `${command}\r`
-  if (s.state === 'exited') void start(s)
+  // A new one is otherwise started by being shown.
+  if (s.state === 'exited' || (!reveal && s.state === 'new')) void start(s)
+  if (!reveal) return
   if (currentProject.value !== projectId || state.selectedBranch !== branch) {
     goToBranch(projectId, branch)
   }

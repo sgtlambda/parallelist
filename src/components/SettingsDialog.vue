@@ -66,6 +66,7 @@ function addTarget(items: OpenTarget[]) {
     kind: 'command',
     primary: false,
     requiresPr: false,
+    runOnCreate: false,
   })
 }
 
@@ -246,6 +247,10 @@ async function save() {
               <label class="check">
                 <input v-model="target.requiresPr" type="checkbox" />
                 <span class="hint">Only when there's a PR</span>
+              </label>
+              <label class="check">
+                <input v-model="target.runOnCreate" type="checkbox" />
+                <span class="hint">Run in new workspace by default</span>
               </label>
             </div>
           </div>

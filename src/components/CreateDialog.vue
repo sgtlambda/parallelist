@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { api, type CreateRequest } from '../api'
+import { api, type CreateRequest, type OpenTarget } from '../api'
 import { shortPath } from '../format'
 import { isActive, normalizePath, tasks } from '../tasks'
-import { project, projectId, rows, state } from '../store'
+import { openTargetsFor, project, projectId, rows, state } from '../store'
 import { useEscape } from '../useEscape'
 
 /** `initialBranch` fills the branch field: the selected branch from its
@@ -16,6 +16,7 @@ const branchInput = ref<HTMLInputElement | null>(null)
 const path = ref('')
 const mode = ref<'worktree' | 'clone'>('worktree')
 const steps = ref<string[]>([])
+const runTargets = ref<string[]>([])
 const conflict = ref<{ branch: string; path: string } | null>(null)
 
 useEscape(
@@ -28,6 +29,12 @@ useEscape(
 const row = computed(() => rows.value.find((r) => r.branch.name === branch.value.trim()) ?? null)
 
 const setupSteps = computed(() => project.value?.setupSteps ?? [])
+
+/** "Open in" targets to run once the workspace is set up. One that needs a PR
+ *  only when the branch as typed has one. */
+const targets = computed(() =>
+  openTargetsFor(projectId.value).filter((t) => !t.requiresPr || row.value?.pr),
+)
 const base = computed(() => state.overview?.baseBranch ?? 'main')
 
 /** A branch we've never seen has to be created, not just placed in a
@@ -64,6 +71,12 @@ watch(
     conflict.value = null
     mode.value = 'worktree'
     steps.value = setupSteps.value.filter((s) => s.defaultEnabled).map((s) => s.id)
+    runTargets.value = []
+    for (const t of openTargetsFor(projectId.value)) {
+      if (t.runOnCreate && !runTargets.value.some((id) => clashes(t, id))) {
+        runTargets.value.push(t.id)
+      }
+    }
     // Focus is what lets Enter submit; prefilled or not, the branch field
     // is where it belongs.
     void nextTick(() => branchInput.value?.focus())
@@ -115,6 +128,21 @@ function toggleStep(id: string) {
     : [...steps.value, id]
 }
 
+/** At most one built-in terminal target is ticked: a second would be typed
+ *  into whatever the first started. */
+function clashes(target: OpenTarget, id: string): boolean {
+  return (
+    target.kind === 'terminal' &&
+    openTargetsFor(projectId.value).find((t) => t.id === id)?.kind === 'terminal'
+  )
+}
+
+function toggleTarget(target: OpenTarget) {
+  runTargets.value = runTargets.value.includes(target.id)
+    ? runTargets.value.filter((id) => id !== target.id)
+    : [...runTargets.value.filter((id) => !clashes(target, id)), target.id]
+}
+
 /** Start the task and get out of the way. Its progress shows in the task box
  *  and on the pending card in the detail pane, so the branch is selected to
  *  put that card on screen. */
@@ -143,6 +171,8 @@ async function start() {
     newBranch: isNewBranch.value,
     from: isNewBranch.value ? `origin/${base.value}` : null,
     steps: steps.value,
+    // In the order they are listed, and only those still on offer.
+    openTargets: targets.value.filter((t) => runTargets.value.includes(t.id)).map((t) => t.id),
   }
 
   try {
@@ -230,6 +260,23 @@ async function start() {
           <span class="hint">
             Steps run in the background. The workspace card and the task box show what
             they are on; clicking either shows the full log.
+          </span>
+        </div>
+
+        <div v-if="targets.length" class="field">
+          <label>Then open in</label>
+          <label v-for="target in targets" :key="target.id" class="check">
+            <input
+              type="checkbox"
+              :checked="runTargets.includes(target.id)"
+              @change="toggleTarget(target)"
+            />
+            <span>{{ target.icon }} {{ target.label }}</span>
+          </label>
+          <span class="hint">
+            Run once the workspace is set up. Only one can use the built-in terminal; if
+            you have moved on to another branch by then, it starts without taking you
+            back.
           </span>
         </div>
       </div>
