@@ -64,7 +64,9 @@ watch(
     conflict.value = null
     mode.value = 'worktree'
     steps.value = setupSteps.value.filter((s) => s.defaultEnabled).map((s) => s.id)
-    if (!branch.value) void nextTick(() => branchInput.value?.focus())
+    // Focus is what lets Enter submit; prefilled or not, the branch field
+    // is where it belongs.
+    void nextTick(() => branchInput.value?.focus())
     await loadPlan()
   },
 )
@@ -74,11 +76,26 @@ watch(
 watch(branch, () => void loadPlan())
 
 let planTicket = 0
-async function loadPlan() {
+/** The newest plan request, which `submit` waits for: Enter pressed right
+ *  after opening, or right after typing, would otherwise find no directory
+ *  yet, or the one suggested for the branch as it was a keystroke ago. */
+let planning: Promise<void> = Promise.resolve()
+const planPending = ref(false)
+
+function loadPlan() {
+  planning = fetchPlan()
+  return planning
+}
+
+async function fetchPlan() {
   const id = projectId.value
   const name = branch.value.trim()
-  if (!id || !name) return
   const ticket = ++planTicket
+  if (!id || !name) {
+    planPending.value = false
+    return
+  }
+  planPending.value = true
   try {
     const plan = await api.planWorkspace(id, name, row.value?.pr?.number ?? null)
     if (ticket !== planTicket) return
@@ -87,6 +104,8 @@ async function loadPlan() {
     mode.value = plan.conflict ? 'clone' : 'worktree'
   } catch {
     /* a bad branch name simply leaves the previous suggestion in place */
+  } finally {
+    if (ticket === planTicket) planPending.value = false
   }
 }
 
@@ -99,7 +118,20 @@ function toggleStep(id: string) {
 /** Start the task and get out of the way. Its progress shows in the task box
  *  and on the pending card in the detail pane, so the branch is selected to
  *  put that card on screen. */
+const submitting = ref(false)
+
 async function submit() {
+  if (submitting.value) return
+  submitting.value = true
+  try {
+    while (planPending.value) await planning
+    await start()
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function start() {
   const id = projectId.value
   if (!id || !canSubmit.value) return
 
@@ -205,7 +237,11 @@ async function submit() {
       <div class="modal-footer">
         <span class="spacer" />
         <button type="button" class="btn" @click="emit('close')">Cancel</button>
-        <button type="submit" class="btn primary" :disabled="!canSubmit">Create</button>
+        <!-- Enabled while a plan is on its way: implicit submission does
+             nothing at all when the default button is disabled. -->
+        <button type="submit" class="btn primary" :disabled="!canSubmit && !planPending">
+          Create
+        </button>
       </div>
     </form>
   </div>
