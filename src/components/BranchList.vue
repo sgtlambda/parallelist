@@ -24,7 +24,7 @@ import {
 import { relativeTime } from '../format'
 import { atRisk, rowBadges } from '../status'
 import { openIn, targetBusy } from '../openIn'
-import { terminalActive } from '../terminal'
+import { terminalActive } from '../terminalState'
 import { popupMenu, type MenuItem } from '../menu'
 
 const emit = defineEmits<{ (e: 'create'): void }>()
