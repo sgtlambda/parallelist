@@ -110,20 +110,27 @@ const hiddenCount = computed(() => {
 })
 
 /** The workspace whose terminal the pane shows instead of the overview. Only
- *  while that workspace is listed on the row: during a load, or once it has
- *  been removed, the overview shows — but the branch keeps asking for the
- *  terminal, so it comes back when the workspace does. */
-const terminal = computed(() => {
+ *  while that workspace is listed on the row, or is a finished create still
+ *  holding its card: during a load, or once it has been removed, the overview
+ *  shows — but the branch keeps asking for the terminal, so it comes back
+ *  when the workspace does. Without the create, a terminal target ticked in
+ *  the New workspace dialog sat unstarted until the refresh listed it. */
+const terminal = computed((): Pick<Workspace, 'path' | 'kind'> | null => {
   const path = terminalFor(projectId.value, state.selectedBranch)
   if (!path) return null
   const listed = [...(row.value?.workspaces ?? []), ...(row.value?.removed ?? [])]
-  return listed.find((w) => normalizePath(w.path) === path) ?? null
+  const workspace = listed.find((w) => normalizePath(w.path) === path)
+  if (workspace) return workspace
+  const created = createTasksFor(projectId.value, state.selectedBranch).find(
+    (t) => t.status === 'done' && hasCard(t) && normalizePath(t.path ?? '') === path,
+  )
+  return created ? { path: created.path ?? path, kind: created.mode ?? 'worktree' } : null
 })
 
 /** The terminal on screen outlived its workspace: it closes once you leave
  *  it, unless its program is still working or waiting on you. */
 const terminalOrphaned = computed(
-  () => !!terminal.value && !!row.value?.removed.includes(terminal.value),
+  () => !!terminal.value && !!row.value?.removed.some((w) => w === terminal.value),
 )
 
 /** A card was clicked. A create opens its log; a workspace opens its

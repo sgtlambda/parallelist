@@ -233,7 +233,10 @@ redundant complexity and are not.
   store cycle described under terminals. A terminal target is shown only if
   the user is still on that branch; otherwise its shell starts unseen
   (`runInTerminal` with `reveal` off), because jumping there would also hand
-  it the keyboard mid-sentence in some other terminal.
+  it the keyboard mid-sentence in some other terminal. A shown one starts
+  at once: the pane mounts a terminal only for a listed workspace, so it
+  also accepts a done create that still has its card, and the shell no
+  longer waits seconds for the refresh to list it.
 - **A removal greys its card instead of hiding it.** The Cleanup dialog is
   only the review step; confirming queues one task per item and closes. The
   card stays, marked "removing", until the refresh drops it, and comes back
