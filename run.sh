@@ -39,5 +39,14 @@ if [ "${1:-}" = "--build" ]; then
   env -i HOME="$HOME" PATH=/usr/bin:/bin open -na /Applications/Switcheroo.app
   echo "installed and launched /Applications/Switcheroo.app (launchd-like environment)"
 else
-  pnpm tauri dev
+  # A random free port rather than the fixed 1420, so a dev build can run from
+  # several worktrees at once. Vite reads it from the environment (strictPort,
+  # so a port taken in the meantime fails loudly); tauri gets it as devUrl.
+  for _ in $(seq 50); do
+    port=$((20000 + RANDOM % 10000))
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 || break
+  done
+  echo "dev server on port $port"
+  SWITCHEROO_DEV_PORT=$port pnpm tauri dev \
+    --config "{\"build\":{\"devUrl\":\"http://localhost:$port\"}}"
 fi
