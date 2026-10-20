@@ -6,10 +6,12 @@ import CleanupDialog from './components/CleanupDialog.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import CreateDialog from './components/CreateDialog.vue'
 import DetailPane from './components/DetailPane.vue'
+import Icon from './components/Icon.vue'
 import ProjectSidebar from './components/ProjectSidebar.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import TaskBox from './components/TaskBox.vue'
 import TasksDialog from './components/TasksDialog.vue'
+import { onOpenSettings } from './api'
 import { setHomeDirectory } from './format'
 import { paletteOpen } from './palette'
 import { startTaskSync } from './tasks'
@@ -157,6 +159,7 @@ function onKey(event: KeyboardEvent) {
 
 let stopTaskSync: (() => void) | null = null
 let stopTerminalSync: (() => void) | null = null
+let stopSettingsMenu: (() => void) | null = null
 
 onMounted(async () => {
   // Purely cosmetic: without it paths render absolute rather than under `~`.
@@ -169,6 +172,9 @@ onMounted(async () => {
   // Before the first refresh, so its task is in the box from the start.
   stopTaskSync = await startTaskSync()
   stopTerminalSync = await syncTerminals()
+  stopSettingsMenu = await onOpenSettings(() => {
+    settingsOpen.value = true
+  })
   await loadConfig()
   await refresh({ fetch: true })
   startBackgroundSync()
@@ -179,6 +185,7 @@ onMounted(async () => {
 onUnmounted(() => {
   stopTaskSync?.()
   stopTerminalSync?.()
+  stopSettingsMenu?.()
   stopBackgroundSync()
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('contextmenu', onContextMenu)
@@ -195,9 +202,15 @@ onUnmounted(() => {
       '--detail-min': `${DETAIL_MIN}px`,
     }"
   >
-    <!-- Full-width strip under the overlay title bar: clears the traffic
-         lights and gives the window somewhere to be dragged from. -->
-    <div class="titlebar" data-tauri-drag-region />
+    <!-- The sidebar's strip under the overlay title bar: clears the traffic
+         lights and gives the window somewhere to be dragged from. The gear
+         sits at its far end, level with the lights; being a button, it never
+         starts a drag. -->
+    <div class="titlebar" data-tauri-drag-region>
+      <button class="btn ghost small icon" title="Settings (⌘,)" @click="settingsOpen = true">
+        <Icon name="settings" />
+      </button>
+    </div>
 
     <ProjectSidebar @error="state.error = $event" />
     <BranchList @create="openCreate('')" />
