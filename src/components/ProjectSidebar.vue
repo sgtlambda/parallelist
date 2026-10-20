@@ -166,8 +166,6 @@ async function onMenuSelect(id: string, action: string) {
       </p>
     </div>
 
-    <div class="pane-header pane-footer">
-      <button class="btn ghost small" @click="addProject">+ Add project</button>
-    </div>
+    <button class="add-strip" @click="addProject">+ Add project</button>
   </aside>
 </template>

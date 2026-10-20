@@ -382,7 +382,7 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
 
     <!-- The whole strip is the button, on the same line as the sidebar's
          "Add project". -->
-    <button v-if="projectId" class="add-branch" @click="emit('create')">
+    <button v-if="projectId" class="add-strip" @click="emit('create')">
       + Add branch
     </button>
   </section>
