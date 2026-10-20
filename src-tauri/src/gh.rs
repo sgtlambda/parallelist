@@ -208,6 +208,129 @@ pub fn pull_requests(repo: &Path, slug: &str) -> Result<HashMap<String, PullRequ
     Ok(map)
 }
 
+/// An open issue, offered by the New workspace dialog as something to start a
+/// branch for.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Issue {
+    pub number: u64,
+    pub title: String,
+    pub url: String,
+    /// RFC 3339, as GitHub sends it.
+    pub updated_at: String,
+    /// `Bug`, `Feature`, `Task`, … — the repository's issue types. None when
+    /// the issue has none, or the repository doesn't use them.
+    pub issue_type: Option<String>,
+    /// Branches linked through the issue's "Development" panel, which win over
+    /// a name derived from the title.
+    pub linked_branches: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RawIssue {
+    number: u64,
+    #[serde(default)]
+    title: String,
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    updated_at: String,
+    #[serde(default)]
+    issue_type: Option<RawName>,
+    #[serde(default)]
+    linked_branches: Option<RawLinkedBranches>,
+}
+
+#[derive(Deserialize)]
+struct RawName {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct RawLinkedBranches {
+    #[serde(default)]
+    nodes: Vec<RawLinkedBranch>,
+}
+
+#[derive(Deserialize)]
+struct RawLinkedBranch {
+    /// Null once the linked branch has been deleted.
+    #[serde(default)]
+    r#ref: Option<RawName>,
+}
+
+/// One issue per line, as `--jq '...nodes[]'` prints them across pages.
+fn parse_issues(stdout: &str) -> Result<Vec<Issue>, String> {
+    stdout
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            let raw: RawIssue = serde_json::from_str(line)
+                .map_err(|e| format!("could not parse gh output: {e}"))?;
+            Ok(Issue {
+                number: raw.number,
+                title: raw.title,
+                url: raw.url,
+                updated_at: raw.updated_at,
+                issue_type: raw.issue_type.map(|t| t.name),
+                linked_branches: raw
+                    .linked_branches
+                    .map(|l| l.nodes.into_iter().filter_map(|b| b.r#ref).map(|r| r.name).collect())
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
+/// Every open issue, most recently updated first.
+///
+/// GraphQL rather than `gh issue list`, which can't ask for issue types or
+/// linked branches. Pages of 100: ~4s for 300 issues, about what
+/// `gh issue list` takes for the same without those two fields.
+pub fn open_issues(repo: &Path, slug: &str) -> Result<Vec<Issue>, String> {
+    let (owner, name) = slug.split_once('/').ok_or_else(|| format!("not owner/name: {slug}"))?;
+    let query = "query($owner: String!, $name: String!, $endCursor: String) {
+        repository(owner: $owner, name: $name) {
+          issues(states: OPEN, first: 100, after: $endCursor,
+                 orderBy: { field: UPDATED_AT, direction: DESC }) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              number title url updatedAt
+              issueType { name }
+              linkedBranches(first: 5) { nodes { ref { name } } }
+            }
+          }
+        }
+      }";
+    let query = format!("query={query}");
+    let owner = format!("owner={owner}");
+    let name = format!("name={name}");
+    let out = run_timeout(
+        "gh",
+        &[
+            "api",
+            "graphql",
+            "--paginate",
+            "-f",
+            &query,
+            // `-f`, not `-F`: a repository called `1` or `true` stays a string.
+            "-f",
+            &owner,
+            "-f",
+            &name,
+            "--jq",
+            ".data.repository.issues.nodes[]",
+        ],
+        Some(repo),
+        NETWORK_TIMEOUT,
+    )?;
+    if !out.ok() {
+        return Err(out.stderr.trim().to_string());
+    }
+    parse_issues(&out.stdout)
+}
+
 static VIEWER: OnceLock<Option<String>> = OnceLock::new();
 
 /// The logged-in GitHub user. Fixed for the life of the process.
@@ -225,4 +348,26 @@ pub fn viewer_login() -> Option<&'static str> {
 
 pub fn is_available() -> bool {
     run("gh", &["--version"], None).map(|o| o.ok()).unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_issues_one_per_line() {
+        let out = concat!(
+            r#"{"number":101,"title":"Dark mode","url":"u","updatedAt":"2026-10-20T15:40:32Z","issueType":null,"linkedBranches":{"nodes":[{"ref":{"name":"feature/dark-mode"}},{"ref":null}]}}"#,
+            "\n",
+            r#"{"number":102,"title":"Login fails","url":"v","updatedAt":"2026-10-14T09:34:47Z","issueType":{"name":"Bug"},"linkedBranches":{"nodes":[]}}"#,
+            "\n",
+        );
+        let issues = parse_issues(out).unwrap();
+        assert_eq!(issues.len(), 2);
+        assert_eq!(issues[0].issue_type, None);
+        // A deleted linked branch comes back as a null ref and is dropped.
+        assert_eq!(issues[0].linked_branches, vec!["feature/dark-mode"]);
+        assert_eq!(issues[1].issue_type.as_deref(), Some("Bug"));
+        assert!(issues[1].linked_branches.is_empty());
+    }
 }

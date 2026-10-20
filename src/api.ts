@@ -104,6 +104,19 @@ export interface PullRequest {
   assignees: string[]
 }
 
+/** An open issue, offered by the New workspace dialog. */
+export interface Issue {
+  number: number
+  title: string
+  url: string
+  /** RFC 3339. */
+  updatedAt: string
+  /** `Bug`, `Feature`, `Task`, … or null when it has no type. */
+  issueType: string | null
+  /** Branches linked through the issue's "Development" panel. */
+  linkedBranches: string[]
+}
+
 export interface Overview {
   project: ProjectConfig
   baseBranch: string
@@ -193,6 +206,8 @@ export const api = {
   peek: (id: string) => invoke<Overview>('peek', { id }),
   aheadBehind: (id: string, base: string, branches: string[]) =>
     invoke<Record<string, AheadBehind>>('ahead_behind', { id, base, branches }),
+  /** Every open issue, most recently updated first. A few seconds: GitHub. */
+  listIssues: (id: string) => invoke<Issue[]>('list_issues', { id }),
   planWorkspace: (id: string, branch: string, pr: number | null) =>
     invoke<CreatePlan>('plan_workspace', { id, branch, pr }),
   /** Returns the task id; the work carries on in the background. */

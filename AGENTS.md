@@ -329,6 +329,23 @@ redundant complexity and are not.
   terminals first. Recency only breaks ties, so it never beats a better
   match. Going to a branch clears a search or switches to All when the
   list would otherwise hide it.
+- **The New workspace dialog's branch field is a combobox** (`BranchPicker.vue`,
+  logic in `src/branchPicker.ts`) over the project's branches and its open
+  issues. Its first entry is always the text as typed — "Create branch …",
+  or the existing branch of that name — and Enter on it submits the dialog;
+  only an entry further down is *picked* by Enter. That keeps Enter-submits
+  intact. The list floats over the fields below: the old "Doesn't exist yet"
+  hint pushed them down as you typed, and was replaced by a `new` tag inside
+  the field. Matching is fzy, but every run of matched characters must start
+  a word or be 3+ characters: plain subsequence matching over ~300 branches
+  and ~300 issue titles buried the real hits (`sso` found
+  `cla·ss-·o·rder` above the SSO issues). Issues come from one paginated
+  `gh api graphql` (~3s for 305; `gh issue list` can't return issue types or
+  linked branches), cached per project for a minute. Picking an issue
+  uses its GitHub-linked branch if it has one, else names one from the
+  title behind a type prefix (`fix/`, `feature/`, `maintenance/`, …) — only
+  a prefix the project's branches already use — and its number leads the
+  directory, as in `app-1234-fix-header`.
 - Error messages that say "git repository" are factual statements about git and
   should stay that way, even though the UI otherwise says "project".
 

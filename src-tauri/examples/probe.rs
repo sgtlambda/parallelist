@@ -91,6 +91,25 @@ fn main() {
         }
     }
 
+    if gh::is_available() {
+        let t = Instant::now();
+        match gh::open_issues(&path, &slug) {
+            Ok(issues) => {
+                println!("\n{} open issues (gh took {:?}). First 5:", issues.len(), t.elapsed());
+                for i in issues.iter().take(5) {
+                    println!(
+                        "  #{} {:<8} linked={:?} — {}",
+                        i.number,
+                        i.issue_type.as_deref().unwrap_or("-"),
+                        i.linked_branches,
+                        i.title
+                    );
+                }
+            }
+            Err(e) => println!("\ngh issues error: {e}"),
+        }
+    }
+
     // End-to-end: does every workspace have a branch row to attach to?
     let t = Instant::now();
     let overview = build_overview(ProjectConfig::new(path.clone(), "probe".into()), false, &|_, _, _| {}).unwrap();
