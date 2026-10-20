@@ -2,6 +2,7 @@ pub mod workspace;
 pub mod config;
 pub mod gh;
 pub mod git;
+pub mod link;
 pub mod proc;
 pub mod status;
 pub mod tasks;
@@ -912,6 +913,15 @@ fn copy_text(text: String) -> Result<(), String> {
     }
 }
 
+/// A link clicked in a terminal: Quick Look for a file, the default browser
+/// or mail client for the rest (`link::follow`).
+#[tauri::command]
+async fn open_link(url: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || link::follow(&url))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 /// Run an open target. A built-in terminal one isn't run here: its command
 /// comes back, substituted, for the frontend to type into the workspace's
@@ -1059,6 +1069,7 @@ pub fn run() {
             branch_impacts,
             delete_branches,
             open_in,
+            open_link,
             copy_text,
             list_tasks,
             get_task,

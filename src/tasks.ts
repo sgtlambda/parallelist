@@ -133,8 +133,8 @@ async function settle(task: LiveTask) {
   const created = task.kind === 'create' && task.status === 'done'
   if (created) {
     checking.add(task.id)
-    // Not after the refresh: that takes seconds, and the terminal waits
-    // for its workspace to be listed anyway.
+    // Not after the refresh: that takes seconds. The pane shows a done
+    // create's terminal before its workspace is listed.
     onCreated(task)
   }
   try {

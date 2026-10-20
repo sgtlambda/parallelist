@@ -229,6 +229,9 @@ export const api = {
    *  `terminal` target, which the backend leaves to the frontend. */
   openIn: (targetId: string, ctx: OpenContext) =>
     invoke<string | null>('open_in', { targetId, ctx }),
+  /** Quick Look for a `file:` link, the default browser or mail client for
+   *  `http(s):` and `mailto:`; anything else is refused. */
+  openLink: (url: string) => invoke<void>('open_link', { url }),
   copyText: (text: string) => invoke<void>('copy_text', { text }),
   listTasks: () => invoke<Task[]>('list_tasks'),
   getTask: (id: string) => invoke<Task | null>('get_task', { id }),

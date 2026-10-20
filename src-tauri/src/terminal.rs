@@ -296,6 +296,9 @@ impl Terminals {
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         cmd.env("TERM_PROGRAM", "Switcheroo");
+        // Programs that link their output decide by `TERM_PROGRAM`, and don't
+        // know ours. Claude Code links `[Image #1]` to the image this way.
+        cmd.env("FORCE_HYPERLINK", "1");
         // An app started from the Dock has no locale, and zsh then mangles
         // every non-ASCII character. Terminal.app fills the same gap.
         if ["LANG", "LC_ALL", "LC_CTYPE"]
@@ -1059,6 +1062,7 @@ mod tests {
         assert!(cmd.get_env("npm_config_prefix").is_none());
         assert_eq!(cmd.get_env("TERM_PROGRAM").unwrap(), "Switcheroo");
         assert_eq!(cmd.get_env("TERM").unwrap(), "xterm-256color");
+        assert_eq!(cmd.get_env("FORCE_HYPERLINK").unwrap(), "1");
         assert!(cmd.is_default_prog(), "the user's login shell");
     }
 }
