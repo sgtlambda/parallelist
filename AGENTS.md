@@ -314,6 +314,21 @@ redundant complexity and are not.
     sessions, because the store sorts by it and `terminal.ts` imports the
     store: importing that back evaluates `terminal.ts` first and its
     top-level `watch` reads the store before it exists.
+  - **⌘-clicking a link follows it** (`src-tauri/src/link.rs`); a plain
+    click only focuses and selects, as in iTerm and VS Code. A `file:`
+    link opens in Quick Look (`qlmanage -p`, one panel at a time),
+    `http(s):` and `mailto:` go to `open`, and nothing else is followed.
+    A file link is never `open`ed: terminal output is untrusted, and an
+    OSC 8 link's text needn't resemble its target, so `open` would launch
+    whatever app or script it named. Shells get `FORCE_HYPERLINK=1`,
+    because programs decide whether to link by a `TERM_PROGRAM` list ours
+    isn't on; with it Claude Code links `[Image #1]` in the transcript to
+    the stored image (observed in a pty — only once the message is sent,
+    and not in a `claude` that inherited `CLAUDE_CODE_CHILD_SESSION`,
+    which stops it storing images). Inline images were looked into and
+    dropped: Claude Code draws only mod images inline, by kitty graphics
+    with Unicode placeholders, and only for kitty or Ghostty, which
+    xterm's image addon can't render anyway.
   - Zoom is one font size for every terminal, saved as `terminalFontSize`:
     ⌘+/⌘−/⌘0 while a terminal is on screen, or the header's − 100% +.
   - A terminal takes the keyboard whenever it is shown, including by
