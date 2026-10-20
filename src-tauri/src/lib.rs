@@ -568,6 +568,7 @@ fn create_workspace(
             path: Some(request.path.clone()),
             mode: Some(request.mode.clone()),
             pr_url,
+            open_targets: request.open_targets.clone(),
         },
         TaskStatus::Queued,
     );

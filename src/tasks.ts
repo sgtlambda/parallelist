@@ -54,12 +54,18 @@ function live(task: Task): LiveTask {
   return reactive({ ...task, lastLine: last?.text ?? '' }) as LiveTask
 }
 
+/** Called with each create that finishes while the window is open. Handed
+ *  in by `startTaskSync` rather than imported: what it runs reaches
+ *  `terminal.ts`, which imports the store, which imports this file. */
+let onCreated: (task: LiveTask) => void = () => {}
+
 /**
  * Subscribe, then list. Events that land before the listing are held and
  * replayed over it: revisions make a stale header a no-op, and line numbers
  * make a repeated line harmless.
  */
-export async function startTaskSync(): Promise<() => void> {
+export async function startTaskSync(created: (task: LiveTask) => void): Promise<() => void> {
+  onCreated = created
   let listed = false
   const held: (() => void)[] = []
   const whenListed = (apply: () => void) => (listed ? apply() : held.push(apply))
@@ -119,13 +125,18 @@ async function resync(id: string) {
 
 /**
  * After a task that changes what is on disk: refresh, so the list agrees with
- * it. A finished create whose real card is then not on screen asks for
- * attention — the box's "Ready" notice.
+ * it. A finished create runs the targets its dialog ticked, and if its real
+ * card is then not on screen asks for attention — the box's "Ready" notice.
  */
 async function settle(task: LiveTask) {
   if (task.kind === 'refresh') return
   const created = task.kind === 'create' && task.status === 'done'
-  if (created) checking.add(task.id)
+  if (created) {
+    checking.add(task.id)
+    // Not after the refresh: that takes seconds, and the terminal waits
+    // for its workspace to be listed anyway.
+    onCreated(task)
+  }
   try {
     // Only the project on screen can be refreshed; another picks it up when
     // selected.

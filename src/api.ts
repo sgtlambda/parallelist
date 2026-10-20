@@ -32,6 +32,8 @@ export interface OpenTarget {
   kind: 'command' | 'terminal'
   primary: boolean
   requiresPr: boolean
+  /** Starts ticked in the New workspace dialog. */
+  runOnCreate: boolean
 }
 
 export interface AppConfig {
@@ -135,6 +137,8 @@ export interface CreateRequest {
   newBranch: boolean
   from: string | null
   steps: string[]
+  /** Open targets to run once it is set up. */
+  openTargets: string[]
 }
 
 export interface RemovalImpact {
@@ -296,6 +300,8 @@ export interface TaskHeader {
   path: string | null
   mode: 'worktree' | 'clone' | null
   prUrl: string | null
+  /** A create's open targets, run by the webview once it is done. */
+  openTargets: string[]
   /** Registry-wide revision; a lower one is an older view of the task. */
   rev: number
 }

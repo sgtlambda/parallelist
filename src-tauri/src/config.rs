@@ -85,6 +85,10 @@ pub struct OpenTarget {
     /// Hidden unless the selected branch has a pull request (for `{prUrl}`).
     #[serde(default)]
     pub requires_pr: bool,
+    /// Starts ticked in the create-workspace dialog, which runs the ticked
+    /// targets once the new workspace is set up.
+    #[serde(default)]
+    pub run_on_create: bool,
 }
 
 /// Where an open target's command runs.
@@ -191,6 +195,7 @@ pub fn default_open_targets() -> Vec<OpenTarget> {
             kind: OpenKind::Command,
             primary: true,
             requires_pr: false,
+            run_on_create: false,
         },
         OpenTarget {
             id: "editor".into(),
@@ -200,6 +205,7 @@ pub fn default_open_targets() -> Vec<OpenTarget> {
             kind: OpenKind::Command,
             primary: true,
             requires_pr: false,
+            run_on_create: false,
         },
         OpenTarget {
             id: "claude".into(),
@@ -209,6 +215,7 @@ pub fn default_open_targets() -> Vec<OpenTarget> {
             kind: OpenKind::Terminal,
             primary: true,
             requires_pr: false,
+            run_on_create: false,
         },
         OpenTarget {
             id: "finder".into(),
@@ -218,6 +225,7 @@ pub fn default_open_targets() -> Vec<OpenTarget> {
             kind: OpenKind::Command,
             primary: false,
             requires_pr: false,
+            run_on_create: false,
         },
     ]
 }

@@ -13,6 +13,7 @@ import TaskBox from './components/TaskBox.vue'
 import TasksDialog from './components/TasksDialog.vue'
 import { onOpenSettings } from './api'
 import { setHomeDirectory } from './format'
+import { runCreateTargets } from './openIn'
 import { paletteOpen } from './palette'
 import { startTaskSync } from './tasks'
 import { syncTerminals, terminalShown, zoomTerminals } from './terminal'
@@ -170,7 +171,7 @@ onMounted(async () => {
   }
 
   // Before the first refresh, so its task is in the box from the start.
-  stopTaskSync = await startTaskSync()
+  stopTaskSync = await startTaskSync((task) => void runCreateTargets(task))
   stopTerminalSync = await syncTerminals()
   stopSettingsMenu = await onOpenSettings(() => {
     settingsOpen.value = true

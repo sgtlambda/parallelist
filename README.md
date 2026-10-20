@@ -118,6 +118,13 @@ up. If you have moved on to another branch or project by the time it
 finishes, the task box says it is ready and carries the "Open in" buttons
 for the new workspace. A failure stays until dismissed.
 
+The dialog also lists the "Open in" targets, to run once the workspace is set
+up — say, start Claude Code in it. A target ticked "Run in new workspace by
+default" in Settings starts out ticked. Only one built-in terminal target can
+be ticked, since a second would be typed into whatever the first started, and
+if you have moved on to another branch by the time it runs, its terminal
+starts without taking you back.
+
 A branch that does not exist yet is created with `--no-track`, so your first
 `git push` goes to its own branch instead of the one it was cut from.
 

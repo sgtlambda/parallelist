@@ -225,6 +225,15 @@ redundant complexity and are not.
   attention and the box shows it as "Ready" with the "Open in" buttons. "Off
   screen" means not listed, not merely navigated away, so a refresh that misses
   the new directory still produces the notice.
+  The "Open in" targets ticked in the dialog travel on the task
+  (`openTargets`), so a webview reload mid-create still runs them, and the
+  webview runs them when the task turns done — it is where terminal targets
+  run anyway. `tasks.ts` gets that hook from `startTaskSync` instead of
+  importing `openIn.ts`, which would close the store → tasks → terminal →
+  store cycle described under terminals. A terminal target is shown only if
+  the user is still on that branch; otherwise its shell starts unseen
+  (`runInTerminal` with `reveal` off), because jumping there would also hand
+  it the keyboard mid-sentence in some other terminal.
 - **A removal greys its card instead of hiding it.** The Cleanup dialog is
   only the review step; confirming queues one task per item and closes. The
   card stays, marked "removing", until the refresh drops it, and comes back

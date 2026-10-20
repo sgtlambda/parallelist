@@ -52,6 +52,10 @@ pub struct TaskContext {
     /// `worktree` or `clone`, for a create.
     pub mode: Option<String>,
     pub pr_url: Option<String>,
+    /// For a create: the "open in" targets to run once it is done. Kept here
+    /// rather than in the webview so they still run after a reload mid-create;
+    /// the webview runs them, as it does every terminal target.
+    pub open_targets: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

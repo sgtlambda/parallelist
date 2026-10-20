@@ -324,6 +324,10 @@ pub struct CreateRequest {
     /// Ids of the setup steps the user ticked.
     #[serde(default)]
     pub steps: Vec<String>,
+    /// Ids of the "open in" targets to run once it is set up. Only carried
+    /// on the task: the webview runs them.
+    #[serde(default)]
+    pub open_targets: Vec<String>,
 }
 
 /// Why a worktree isn't possible for this branch, if it isn't.
@@ -1062,6 +1066,7 @@ mod tests {
             new_branch: false,
             from: None,
             steps: Vec::new(),
+            open_targets: Vec::new(),
         }
     }
 
