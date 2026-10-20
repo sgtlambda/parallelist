@@ -1,5 +1,6 @@
 import { Channel } from '@tauri-apps/api/core'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { computed, reactive, watch } from 'vue'
@@ -146,6 +147,24 @@ dark.addEventListener('change', () => {
   for (const s of sessions.values()) s.term.options.theme = theme()
 })
 
+/**
+ * ⌘-clicking a link follows it: an OSC 8 one (Claude Code's `[Image #1]`,
+ * once `FORCE_HYPERLINK` tells it to link) or a bare URL in the text. A plain
+ * click is left to focusing and selecting, as in iTerm and VS Code. The
+ * backend decides what following means, and refuses what it shouldn't
+ * follow. Hovering shows where it goes, since an OSC 8 link's text needn't
+ * say.
+ */
+function links(el: HTMLElement) {
+  return {
+    activate: (event: MouseEvent, url: string) => {
+      if (event.metaKey) void api.openLink(url).catch(() => {})
+    },
+    hover: (_event: MouseEvent, url: string) => void (el.title = `${url}\n⌘-click to open`),
+    leave: () => void el.removeAttribute('title'),
+  }
+}
+
 function session(path: string): Session {
   const key = normalizePath(path)
   const found = sessions.get(key)
@@ -153,6 +172,7 @@ function session(path: string): Session {
 
   const el = document.createElement('div')
   el.className = 'terminal-surface'
+  const link = links(el)
   const term = new Terminal({
     fontFamily: "'SF Mono', ui-monospace, Menlo, monospace",
     fontSize: fontSize.value,
@@ -163,9 +183,11 @@ function session(path: string): Session {
     // as Meta, as in Terminal.app by default.
     macOptionIsMeta: false,
     theme: theme(),
+    linkHandler: { ...link, allowNonHttpProtocols: true },
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
+  term.loadAddon(new WebLinksAddon(link.activate, link))
   const s: Session = {
     path: key,
     el,
