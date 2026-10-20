@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { api, type CreateRequest, type OpenTarget } from '../api'
+import BranchPicker from './BranchPicker.vue'
+import { api, type CreateRequest, type Issue, type OpenTarget } from '../api'
+import { branchName, loadIssues } from '../branchPicker'
 import { shortPath } from '../format'
 import { isActive, normalizePath, tasks } from '../tasks'
 import { openTargetsFor, project, projectId, rows, state } from '../store'
@@ -11,8 +13,12 @@ import { useEscape } from '../useEscape'
 const props = defineProps<{ open: boolean; initialBranch: string }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
+/** The field as typed, which may be a search; `name` is it as a branch. */
 const branch = ref('')
-const branchInput = ref<HTMLInputElement | null>(null)
+const name = computed(() => branchName(branch.value))
+/** The issue the branch was picked for: its number leads the directory. */
+const issue = ref<Issue | null>(null)
+const picker = ref<InstanceType<typeof BranchPicker> | null>(null)
 const path = ref('')
 const mode = ref<'worktree' | 'clone'>('worktree')
 const steps = ref<string[]>([])
@@ -26,7 +32,7 @@ useEscape(
 
 /** The row for the branch as typed, not the selected one: the field can name
  *  any branch, or one that doesn't exist yet and so has no PR. */
-const row = computed(() => rows.value.find((r) => r.branch.name === branch.value.trim()) ?? null)
+const row = computed(() => rows.value.find((r) => r.branch.name === name.value) ?? null)
 
 const setupSteps = computed(() => project.value?.setupSteps ?? [])
 
@@ -41,8 +47,8 @@ const base = computed(() => state.overview?.baseBranch ?? 'main')
  *  workspace. */
 const isNewBranch = computed(
   () =>
-    branch.value.trim().length > 0 &&
-    !(state.overview?.branches ?? []).some((b) => b.name === branch.value.trim()),
+    name.value.length > 0 &&
+    !(state.overview?.branches ?? []).some((b) => b.name === name.value),
 )
 
 /** A task already creating this exact directory. The backend refuses the
@@ -57,7 +63,7 @@ const busy = computed(() =>
 )
 
 const canSubmit = computed(
-  () => branch.value.trim().length > 0 && path.value.trim().length > 0 && !busy.value,
+  () => name.value.length > 0 && path.value.trim().length > 0 && !busy.value,
 )
 
 watch(
@@ -65,6 +71,8 @@ watch(
   async (isOpen) => {
     if (!isOpen) return
     branch.value = props.initialBranch
+    issue.value = null
+    if (projectId.value) loadIssues(projectId.value)
     // An empty branch has no plan to load, so nothing would replace the last
     // opening's directory and conflict.
     path.value = ''
@@ -79,14 +87,15 @@ watch(
     }
     // Focus is what lets Enter submit; prefilled or not, the branch field
     // is where it belongs.
-    void nextTick(() => branchInput.value?.focus())
+    void nextTick(() => picker.value?.focus())
     await loadPlan()
   },
 )
 
 // Retyping the branch changes both the suggested directory and whether a
-// worktree is even possible, so the plan is refreshed as you type.
-watch(branch, () => void loadPlan())
+// worktree is even possible, so the plan is refreshed as you type. Picking an
+// issue changes the number the directory leads with.
+watch([name, issue], () => void loadPlan())
 
 let planTicket = 0
 /** The newest plan request, which `submit` waits for: Enter pressed right
@@ -102,15 +111,17 @@ function loadPlan() {
 
 async function fetchPlan() {
   const id = projectId.value
-  const name = branch.value.trim()
+  const wanted = name.value
   const ticket = ++planTicket
-  if (!id || !name) {
+  if (!id || !wanted) {
     planPending.value = false
     return
   }
   planPending.value = true
   try {
-    const plan = await api.planWorkspace(id, name, row.value?.pr?.number ?? null)
+    // A PR's number over the issue's: the PR is the branch's own.
+    const number = row.value?.pr?.number ?? issue.value?.number ?? null
+    const plan = await api.planWorkspace(id, wanted, number)
     if (ticket !== planTicket) return
     path.value = plan.suggestedPath
     conflict.value = plan.conflict
@@ -165,7 +176,7 @@ async function start() {
 
   const request: CreateRequest = {
     projectId: id,
-    branch: branch.value.trim(),
+    branch: name.value,
     path: path.value.trim(),
     mode: mode.value,
     newBranch: isNewBranch.value,
@@ -198,20 +209,18 @@ async function start() {
       <div class="modal-body">
         <div class="field">
           <label for="branch">Branch</label>
-          <input id="branch" ref="branchInput" v-model="branch" />
-          <span v-if="isNewBranch" class="hint">
-            Doesn't exist yet — it will be created from <code>origin/{{ base }}</code> with no
-            upstream set, so your first push goes to its own branch.
-          </span>
+          <BranchPicker
+            ref="picker"
+            v-model="branch"
+            v-model:issue="issue"
+            :project-id="projectId"
+            :base="base"
+            :is-new="isNewBranch"
+          />
         </div>
 
         <div class="field">
           <label>Kind</label>
-          <span class="hint">
-            A workspace is a directory holding this branch. It is either a worktree of the
-            main workspace or a clone of its own — everywhere else in Switcheroo the two are
-            treated the same.
-          </span>
           <div v-if="conflict" class="banner">
             <strong>{{ conflict.branch }}</strong> already has a worktree at
             <code>{{ shortPath(conflict.path) }}</code
@@ -257,10 +266,6 @@ async function start() {
             />
             <span>{{ step.label }}</span>
           </label>
-          <span class="hint">
-            Steps run in the background. The workspace card and the task box show what
-            they are on; clicking either shows the full log.
-          </span>
         </div>
 
         <div v-if="targets.length" class="field">
@@ -273,11 +278,6 @@ async function start() {
             />
             <span>{{ target.icon }} {{ target.label }}</span>
           </label>
-          <span class="hint">
-            Run once the workspace is set up. Only one can use the built-in terminal; if
-            you have moved on to another branch by then, it starts without taking you
-            back.
-          </span>
         </div>
       </div>
 

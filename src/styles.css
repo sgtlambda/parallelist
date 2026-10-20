@@ -1645,3 +1645,119 @@ table.list .detail-row td {
 .commit code {
   flex: none;
 }
+
+/* ---------- branch picker (New workspace dialog) ---------- */
+
+.picker {
+  position: relative;
+}
+
+/* The border is the field's, so tags sit inside it beside the text. */
+.picker-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding-right: 8px;
+}
+
+.picker-field:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+.picker-field input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+}
+
+.picker-field input:focus {
+  outline: none;
+}
+
+.picker-tag {
+  flex: none;
+  font-size: 11px;
+  cursor: default;
+}
+
+/* Floats over the fields below: opening it moves nothing. */
+.picker-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.picker-heading {
+  padding: 7px 8px 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: 5px;
+  padding: 5px 8px;
+  /* Tall enough for a `.badge` (10.5px × 1.55 + padding and border ≈ 20.3px)
+     whether or not the row has one: PR badges arrive with the refresh, and
+     rows grew under the pointer when they did. */
+  min-height: 31px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.picker-item > .icon {
+  color: var(--text-faint);
+}
+
+.picker-item.active {
+  background: var(--bg-active);
+}
+
+/* As in the palette: colour alone, so the row doesn't jitter as you type. */
+.picker-item .hit {
+  color: var(--accent);
+}
+
+.picker-name {
+  flex: 0 1 auto;
+  font-size: 12px;
+}
+
+.picker-number {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.picker-meta {
+  flex: none;
+  font-size: 11px;
+}
+
+.picker-note {
+  padding: 5px 8px 6px 29px;
+  font-size: 11.5px;
+}

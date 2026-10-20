@@ -501,6 +501,22 @@ async fn peek(state: State<'_, AppState>, id: String) -> Result<Overview, String
     Ok(overview)
 }
 
+/// Open issues, for the New workspace dialog to offer as branches to start.
+#[tauri::command]
+async fn list_issues(state: State<'_, AppState>, id: String) -> Result<Vec<gh::Issue>, String> {
+    let project = state.project(&id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = PathBuf::from(&project.path);
+        let slug = git::origin_url(&path)
+            .ok()
+            .and_then(|u| git::origin_slug(&u))
+            .ok_or("origin is not a GitHub repository")?;
+        gh::open_issues(&path, &slug)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Ahead/behind for just the branches currently on screen. Each one costs a
 /// `rev-list`, so the full 200-branch list never pays for it.
 #[tauri::command]
@@ -1044,6 +1060,7 @@ pub fn run() {
             refresh,
             peek,
             ahead_behind,
+            list_issues,
             plan_workspace,
             create_workspace,
             removal_impacts,
