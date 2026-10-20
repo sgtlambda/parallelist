@@ -274,9 +274,13 @@ code,
    has to clear the traffic lights and stay draggable across the full width.
    Panes pad past it rather than the grid, so their backgrounds and dividers
    still run to the top edge of the window. */
-/* Spans only the sidebar: that strip holds the traffic lights and nothing
-   clickable, so it can sit above the content. The other two columns are
-   dragged by their own headers, which start at the top edge now. */
+/* Spans only the sidebar: that strip holds the traffic lights and the
+   settings gear, so it can sit above the content. The other two columns are
+   dragged by their own headers, which start at the top edge now. The gear is
+   centred in the strip, which is where the lights are centred too, and sits
+   as far in from the side as from the top, mirroring the red light: its
+   centre is half the strip's height from the edge (13px is half the 26px
+   `.btn.icon`). */
 .titlebar {
   position: fixed;
   top: 0;
@@ -284,6 +288,10 @@ code,
   width: var(--sidebar-w);
   height: var(--titlebar-h);
   z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: calc(var(--titlebar-h) / 2 - 13px);
 }
 
 /* ---------- generic bits ---------- */

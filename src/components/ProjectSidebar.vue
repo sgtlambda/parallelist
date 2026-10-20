@@ -177,8 +177,6 @@ async function onMenuSelect(action: string) {
 
     <div class="pane-header pane-footer">
       <button class="btn ghost small" @click="addProject">+ Add project</button>
-      <span class="spacer" />
-      <button class="btn ghost small" title="Settings" @click="settingsOpen = true">⚙</button>
     </div>
     <ContextMenu
       :open="menu.open"

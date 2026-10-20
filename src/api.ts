@@ -258,6 +258,11 @@ export function onTerminalStatus(handler: (info: TerminalInfo) => void) {
   return listen<TerminalInfo>('terminal-status', (e) => handler(e.payload))
 }
 
+/** The application menu's "Settings…" was chosen (or ⌘, pressed). */
+export function onOpenSettings(handler: () => void) {
+  return listen('open-settings', () => handler())
+}
+
 export type TaskKind = 'refresh' | 'create' | 'remove' | 'deleteBranch'
 export type TaskStatus = 'queued' | 'running' | 'done' | 'failed'
 

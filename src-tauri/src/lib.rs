@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use proc::parallel_map;
 use tasks::{Coalesced, Task, TaskContext, TaskEvent, TaskKind, TaskStatus, Tasks};
+use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
 use tauri::{Emitter, Manager, State};
 
 type RefreshSlot = Coalesced<Result<Overview, String>>;
@@ -937,11 +938,33 @@ fn shellexpand_home(path: &str) -> String {
     path.to_string()
 }
 
+const SETTINGS_MENU_ID: &str = "settings";
+
+/// Tauri's stock menu with "Settings…" (⌘,) added to the application menu,
+/// where macOS puts it: right under "About", between separators. "Settings"
+/// rather than "Preferences" since macOS 13 renamed its own.
+fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::default(app)?;
+    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.first() {
+        let settings =
+            MenuItem::with_id(app, SETTINGS_MENU_ID, "Settings…", true, Some("CmdOrCtrl+,"))?;
+        // After "About" and the separator under it.
+        app_menu.insert_items(&[&settings, &PredefinedMenuItem::separator(app)?], 2)?;
+    }
+    Ok(menu)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .menu(app_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == SETTINGS_MENU_ID {
+                let _ = app.emit("open-settings", ());
+            }
+        })
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             let config = AppConfig::load(&dir);
