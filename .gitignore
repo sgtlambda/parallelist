@@ -25,3 +25,6 @@ dist-ssr
 
 # Claude Code local overrides
 .claude/settings.local.json
+
+# The built demo, which the Pages workflow makes
+site/demo
