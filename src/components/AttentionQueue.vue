@@ -8,6 +8,7 @@ import { api } from '../api'
 import { basename } from '../format'
 import { refreshPalette } from '../palette'
 import { state } from '../store'
+import { boxTasks } from '../tasks'
 
 /**
  * The strip along the bottom of the window: one card per terminal waiting
@@ -172,7 +173,8 @@ const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0
         </template>
       </AnimatePresence>
     </MotionConfig>
-    <p v-if="!cards.length" class="attention-empty faint">
+    <!-- The task box takes the middle of an empty strip, so the line gives way. -->
+    <p v-if="!cards.length && !boxTasks.length" class="attention-empty faint">
       <Icon name="logo" :size="18" />
       Nothing needs your attention
     </p>

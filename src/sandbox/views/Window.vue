@@ -2,12 +2,14 @@
 import AttentionQueue from '../../components/AttentionQueue.vue'
 import Onboarding from '../../components/Onboarding.vue'
 import Icon from '../../components/Icon.vue'
+import TaskBox from '../../components/TaskBox.vue'
 import { DETAIL_MIN, LIST_MIN, listWidth, sidebarWidth } from '../../store'
 
 /**
  * The window's grid, with only what a scenario is about in it. The attention
  * queue is a strip across the bottom of the three columns and sizes itself to
  * the grid's last row, so it needs this to be the height it is in the app.
+ * The task box sits over its right end, or its middle when no cards are there.
  * The onboarding takes the whole grid, with the title bar's gear and no queue.
  */
 defineProps<{ show: 'onboarding' | 'queue' }>()
@@ -32,6 +34,7 @@ defineProps<{ show: 'onboarding' | 'queue' }>()
     </template>
     <p v-else class="above faint">The sidebar, branch list and detail pane are above.</p>
     <AttentionQueue v-if="show === 'queue'" />
+    <TaskBox v-if="show === 'queue'" />
   </div>
 </template>
 

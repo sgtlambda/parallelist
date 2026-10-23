@@ -2,11 +2,11 @@ import Window from '../views/Window.vue'
 import { backend } from '../backend'
 import { boot, terminals } from '../seed'
 import { defineGroup } from '../define'
-import { branch, overview, workspace } from '../fixtures'
+import { branch, installLog, overview, task, workspace } from '../fixtures'
 import { state } from '../../store'
-import { normalizePath } from '../../tasks'
+import { normalizePath, startTaskSync } from '../../tasks'
 import { showTerminal } from '../../terminal'
-import type { Overview } from '../../api'
+import type { Overview, Task } from '../../api'
 
 const WS = '/Users/sandbox/Code'
 const queue = { show: 'queue' }
@@ -30,6 +30,24 @@ async function withQueue(
   terminals(list)
   if (options.here) showTerminal('app', options.here.branch, options.here.path)
 }
+
+/** `withQueue`, with these tasks in the registry as well. */
+async function withTasks(list: Seed, tasks: Task[]) {
+  await withQueue(list)
+  backend.handle({ list_tasks: () => structuredClone(tasks) })
+  await startTaskSync(() => {})
+}
+
+const creating = () =>
+  task({
+    kind: 'create',
+    title: 'Create fix/1234-header',
+    status: 'running',
+    branch: 'fix/1234-header',
+    path: `${WS}/app-1234-fix-header`,
+    mode: 'worktree',
+    log: installLog,
+  })
 
 const header = `${WS}/app-1234-fix-header`
 const sso = `${WS}/app-b`
@@ -55,6 +73,23 @@ export default defineGroup('Attention queue', [
     component: Window,
     props: queue,
     setup: () => withQueue([]),
+  },
+  {
+    id: 'empty-task',
+    title: 'Nothing waiting, a task running',
+    note: 'The task box takes the middle of the empty strip, and the "Nothing needs your attention" line gives way to it.',
+    component: Window,
+    props: queue,
+    setup: () => withTasks([], [creating()]),
+  },
+  {
+    id: 'waiting-task',
+    title: 'Cards waiting, a task running',
+    note: 'With cards in the strip the box stays at the right end, over their fade.',
+    component: Window,
+    props: queue,
+    setup: () =>
+      withTasks([{ path: header, status: 'blocked', message: 'Run pnpm test', minutesAgo: 5 }], [creating()]),
   },
   {
     id: 'waiting',

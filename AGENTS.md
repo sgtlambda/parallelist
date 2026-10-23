@@ -262,7 +262,9 @@ redundant complexity and are not.
   that race the listing harmless). The `TaskBox` sits in the right end of
   the attention queue's strip, without a card of its own, over a backdrop
   of the strip's colour that fades in from the left (so cards running on
-  under it are covered, not shown through). It features one task (anything
+  under it are covered, not shown through). With no cards in the strip it
+  moves to the middle of it instead, with no backdrop, and "Nothing needs
+  your attention" gives way to it. It features one task (anything
   asking for attention, else the oldest running) with a `+N` count;
   clicking it opens `TasksDialog`. The box animates with `motion-v` (enter,
   sinking exit, its lines via `layout`), chosen over hand-rolled CSS. That
