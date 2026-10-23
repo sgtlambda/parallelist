@@ -161,12 +161,13 @@
 <p>Working across a few large repositories tends to mean dozens of branches at
 a time and several shells open, each busy with a different task, and more and
 more of them running a program that works on its own for a while and then
-needs an answer. The useful part of the day is the decisions: answering that
-question, looking over a result, starting a branch or finishing one. The rest
-is finding the right terminal window, editor or browser tab, remembering
-where things were, waiting for a clone, and wondering which of
-<code>app</code>, <code>app-1234-fix-header</code> and <code>app-b</code> is
-merged and safe to delete. None of it is hard. All of it costs attention.</p>
+needs an answer. Machine time and disk space are cheap, but your attention
+is not. It should go to the decisions: answering that question, looking over
+a result, starting a branch or finishing one. The rest is finding the right
+terminal window, editor or browser tab, remembering where things were,
+waiting for a clone, and wondering which of <code>app</code>,
+<code>app-1234-fix-header</code> and <code>app-b</code> is merged and safe to
+delete. None of it is hard.</p>
 
 <p>parallelist is an attempt to keep that attention for the decisions. It puts
 the projects, their branches, the workspaces holding them and the shells
@@ -182,7 +183,7 @@ give them up.</p>
 
 <h2>A branch, start to finish</h2>
 
-<p>Most of the work is short: a branch made for one thing, worked on, merged
+<p>A branch made for one thing, worked on, merged
 and gone, often within the hour. A <b>workspace</b> is a directory holding
 one, a git worktree or a full clone. The aim is that a new branch with a dev
 app running in it takes seconds to set up and seconds to remove. If setting

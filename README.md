@@ -28,7 +28,7 @@ Built with [Tauri 2](https://tauri.app) and Vue 3.
 
 ## A branch, start to finish
 
-Most of the work is short: a branch made for one thing, worked on, merged
+A branch made for one thing, worked on, merged
 and gone, often within the hour. A **workspace** is a directory holding one,
 a git worktree or a full clone. The aim is that a new branch with a dev app
 running in it takes seconds to set up and seconds to remove. If setting one
