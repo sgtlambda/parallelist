@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { AnimatePresence, MotionConfig, motion } from 'motion-v'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import Icon from './Icon.vue'
 import TerminalMark from './TerminalMark.vue'
 import { goToItem, nextWaiting, queue, working, type QueueItem } from '../attention'
@@ -114,26 +114,6 @@ const settled = { opacity: 1, x: 0, y: 0 }
 const spring = { type: 'spring', stiffness: 520, damping: 42, mass: 0.8 } as const
 const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0, 1, 1] } }
 
-/** The empty strip's line, picked afresh each time it appears and never
- *  while it is showing, and not the same one twice running. */
-const EMPTY_LINES = [
-  'Attention is all you need',
-  "I don't need you right now",
-  'All caught up',
-  'Every program is content',
-  'Deep work permitted',
-]
-const empty = computed(() => !cards.value.length && !boxTasks.value.length)
-const emptyLine = ref(EMPTY_LINES[0])
-watch(
-  empty,
-  (now) => {
-    if (!now) return
-    const others = EMPTY_LINES.filter((line) => line !== emptyLine.value)
-    emptyLine.value = others[Math.floor(Math.random() * others.length)]
-  },
-  { immediate: true },
-)
 </script>
 
 <template>
@@ -195,9 +175,9 @@ watch(
       </AnimatePresence>
     </MotionConfig>
     <!-- The task box takes the middle of an empty strip, so the line gives way. -->
-    <p v-if="empty" class="attention-empty faint">
+    <p v-if="!cards.length && !boxTasks.length" class="attention-empty faint">
       <Icon name="logo" :size="18" />
-      {{ emptyLine }}
+      Anything that needs your attention shows up here
     </p>
   </div>
 </template>
