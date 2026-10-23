@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parallelist</title>
+<meta name="description" content="A context switcher for the Mac that keeps your attention in one place while you work across many projects, branches and shells.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<style>
+  :root {
+    --page: #fdfcf8;
+    --ink: #222;
+    --ink-dim: #666;
+    --rule: #ccc;
+    --link: #1a4fb5;
+    --visited: #6b3fa0;
+    --pre: #f3f1ea;
+
+    /* The app's own tokens, for the window in figure 1 */
+    --bg: #f6f6f7;
+    --bg-raised: #ffffff;
+    --bg-sidebar: #ececee;
+    --bg-active: rgba(0, 0, 0, 0.075);
+    --border: rgba(0, 0, 0, 0.14);
+    --border-soft: rgba(0, 0, 0, 0.06);
+    --text: #1c1c1e;
+    --text-dim: #6d6d72;
+    --text-faint: #96969c;
+    --accent: #2f6fed;
+    --green: #1a7f37;
+    --amber: #9a6700;
+    --orange: #d0630e;
+    --purple: #7b47c4;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #1b1a18;
+      --ink: #e6e3dc;
+      --ink-dim: #9a968e;
+      --rule: #444;
+      --link: #8fb0ff;
+      --visited: #c3a0f0;
+      --pre: #262522;
+
+      --bg: #1c1c1e;
+      --bg-raised: #262629;
+      --bg-sidebar: #202022;
+      --bg-active: rgba(255, 255, 255, 0.09);
+      --border: rgba(255, 255, 255, 0.14);
+      --border-soft: rgba(255, 255, 255, 0.07);
+      --text: #f2f2f4;
+      --text-dim: #9e9ea5;
+      --text-faint: #6f6f77;
+      --accent: #4b8bff;
+      --green: #4ac26b;
+      --amber: #d4a72c;
+      --orange: #f0883e;
+      --purple: #b585f5;
+      color-scheme: dark;
+    }
+  }
+
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.6 Menlo, Monaco, Consolas, "Courier New", monospace;
+  }
+  .page { max-width: 680px; margin: 0 auto; padding: 40px 16px 24px; }
+
+  a { color: var(--link); }
+  a:visited { color: var(--visited); }
+  code, pre, kbd { font: inherit; }
+  p code, dd code { white-space: nowrap; padding: 0 3px; background: var(--pre); }
+  kbd { padding: 0 3px; border: 1px solid var(--rule); border-radius: 3px; }
+  hr { border: 0; border-top: 1px solid var(--rule); margin: 32px 0; }
+
+  .masthead { display: flex; align-items: center; gap: 16px; }
+  .masthead img { width: 80px; height: 80px; flex: none; }
+  h1 { margin: 0; font-size: 30px; font-weight: bold; line-height: 1.1; }
+  .masthead p { margin: 4px 0 0; color: var(--ink-dim); font-style: italic; }
+
+  h2 { margin: 36px 0 8px; font-size: 18px; }
+  p { margin: 0 0 14px; }
+
+  dl { margin: 0; }
+  dt { font-weight: bold; margin-top: 14px; }
+  dd { margin: 2px 0 0 24px; }
+
+  table { border-collapse: collapse; margin: 6px 0 14px; }
+  td { padding: 6px 12px 6px 0; vertical-align: top; }
+  td:first-child { padding-top: 9px; }
+
+  pre {
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    background: var(--pre);
+    border: 1px solid var(--rule);
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+
+  figure { margin: 28px 0 8px; }
+  figcaption { margin-top: 10px; font-size: 13px; color: var(--ink-dim); text-align: center; }
+
+  .footer { font-size: 13px; color: var(--ink-dim); }
+
+  /* Figure 1: the app's window, drawn with its own colours */
+  .window {
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 150px 1fr;
+    font: 12px/1.3 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    color: var(--text);
+  }
+  .side { background: var(--bg-sidebar); border-right: 1px solid var(--border-soft); padding: 10px 6px; }
+  .lights { display: flex; gap: 7px; padding: 2px 6px 14px; }
+  .lights i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
+  .lights i:nth-child(2) { background: #febc2e; }
+  .lights i:nth-child(3) { background: #28c840; }
+  .label { padding: 0 8px 5px; font-size: 10.5px; font-weight: 600; color: var(--text-faint); }
+  .proj { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 5px; }
+  .proj.on { background: var(--bg-active); font-weight: 600; }
+  .proj span:first-child { flex: 1; }
+  .main { background: var(--bg-raised); min-width: 0; }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-dim);
+  }
+  .toolbar b { color: var(--text); font-size: 13px; }
+  .search { margin-left: auto; padding: 2px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-faint); white-space: nowrap; }
+  .row {
+    display: grid;
+    grid-template-columns: 16px 1fr auto;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row.sel { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .name { font-family: Menlo, monospace; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub { display: block; margin-top: 2px; font-family: -apple-system, "Helvetica Neue", sans-serif; font-size: 11px; color: var(--text-faint); }
+  .badge { padding: 0 6px; border-radius: 99px; font-size: 10.5px; font-weight: 600; white-space: nowrap; border: 1px solid currentColor; }
+  .badge.unpushed { color: var(--amber); }
+  .badge.open { color: var(--green); }
+  .badge.merged { color: var(--purple); }
+
+  .mark { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; color: var(--text-dim); vertical-align: -3px; }
+  .mark svg { width: 11px; height: 11px; }
+  .mark.blocked { color: #fff; background: var(--orange); }
+  .mark.ready { color: #fff; background: var(--accent); }
+  .mark.working svg { animation: blink 1.1s steps(1) infinite; }
+  .mark.none { visibility: hidden; }
+  @keyframes blink { 50% { opacity: 0.25; } }
+  @media (prefers-reduced-motion: reduce) { .mark.working svg { animation: none; } }
+
+  @media (max-width: 600px) {
+    .window { grid-template-columns: 1fr; }
+    .side, .search, .hide-sm { display: none; }
+    .masthead img { width: 64px; height: 64px; }
+    h1 { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-term" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 4 4 4-4 4M9 12h4"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/></symbol>
+</svg>
+
+<div class="page">
+
+<div class="masthead">
+  <img src="icon.svg" alt="" width="80" height="80">
+  <div>
+    <h1>Parallelist</h1>
+    <p>A context switcher that keeps your attention in one place.</p>
+  </div>
+</div>
+
+<figure>
+  <div class="window" role="img" aria-label="The Parallelist window: a sidebar of projects, and a branch list where a blocked terminal and a finished one are marked first.">
+    <div class="side">
+      <div class="lights"><i></i><i></i><i></i></div>
+      <div class="label">Projects</div>
+      <div class="proj on"><span>shop</span><span class="mark blocked"><svg><use href="#i-term"/></svg></span></div>
+      <div class="proj"><span>api</span><span class="mark ready"><svg><use href="#i-term"/></svg></span></div>
+      <div class="proj"><span>design-system</span><span class="mark working"><svg><use href="#i-term"/></svg></span></div>
+      <div class="proj"><span>infra</span></div>
+    </div>
+    <div class="main">
+      <div class="toolbar"><b>shop</b><span>origin, fetched just now</span><span class="search">⌘P Go to branch…</span></div>
+      <div class="row"><span class="mark"><svg><use href="#i-pin"/></svg></span><span class="name">main<span class="sub">Main workspace</span></span><span></span></div>
+      <div class="row sel"><span class="mark blocked"><svg><use href="#i-term"/></svg></span><span class="name">1234-fix-header<span class="sub">Claude Code is waiting for an answer</span></span><span class="badge open">#1234</span></div>
+      <div class="row"><span class="mark ready"><svg><use href="#i-term"/></svg></span><span class="name">feature/sso-login<span class="sub">Finished while you were away</span></span><span class="badge unpushed">2 unpushed</span></div>
+      <div class="row"><span class="mark working"><svg><use href="#i-term"/></svg></span><span class="name">fix/invoice-rounding<span class="sub">Working</span></span><span class="badge open hide-sm">#1251</span></div>
+      <div class="row"><span class="mark none"><svg><use href="#i-term"/></svg></span><span class="name">maintenance/php-8.4<span class="sub">Workspace · clone</span></span><span class="badge merged">merged</span></div>
+      <div class="row"><span class="mark none"><svg><use href="#i-term"/></svg></span><span class="name">feature/gift-cards<span class="sub">On origin</span></span><span></span></div>
+    </div>
+  </div>
+  <figcaption>Figure 1. One project's branches. The ones that need your attention come first.</figcaption>
+</figure>
+
+<h2>Why</h2>
+
+<p>Working across a few large repositories tends to mean dozens of branches at
+a time and several shells open, more and more of them running coding agents.
+Every switch means finding the right terminal window, editor or browser tab,
+then remembering where things were. The directories pile up side by side
+(<code>app</code>, <code>app-1234-fix-header</code>, <code>app-b</code>) until
+nobody quite knows which branch is where, which are merged, or which are safe
+to delete. None of it is hard. All of it costs attention.</p>
+
+<p>Parallelist is an attempt to keep that attention in one place. It puts the
+projects, their branches, the workspaces holding them and the shells running
+there in a single window, tries to show only what actually needs you, and gets
+you there in a keystroke. It also tries not to pull you away from whatever
+you're in the middle of. That's the idea, anyway.</p>
+
+<p>It's also a small bet against everything moving into the terminal. The
+terminals here run anything, an agent, a dev server, a plain shell, but
+everything around them is an ordinary Mac window, with lists to scan and
+things to click. GUIs were invented for a reason, and it seems a shame to
+give them up.</p>
+
+<h2>What needs you</h2>
+
+<p>A mark means something needs your attention. Nothing else gets one.</p>
+
+<table>
+  <tr><td><span class="mark blocked"><svg><use href="#i-term"/></svg></span></td><td><b>Orange.</b> Something in that terminal is waiting for an answer.</td></tr>
+  <tr><td><span class="mark ready"><svg><use href="#i-term"/></svg></span></td><td><b>Blue.</b> Claude Code finished while you were looking elsewhere. Look at it and the mark goes.</td></tr>
+  <tr><td><span class="mark working"><svg><use href="#i-term"/></svg></span></td><td><b>Blinking.</b> Still working. Not your problem yet.</td></tr>
+</table>
+
+<p>Anything you're already looking at isn't marked, and output alone never
+counts, or a chatty dev server would never let you go. Work you start in the
+background finishes in the background: it waits for you to come to it rather
+than jumping in front of whatever you're doing.</p>
+
+<h2>What it does</h2>
+
+<dl>
+  <dt>Gives every workspace a terminal</dt>
+  <dd>A workspace is any directory holding a branch, a git worktree or a full
+  clone. Its terminal lives in the window, runs whatever you start in it, and
+  keeps running while you look at something else.</dd>
+
+  <dt>Jumps anywhere with <kbd>⌘P</kbd></dt>
+  <dd>Any branch of any project, with whatever is waiting for you listed
+  first. The terminal you land in takes the keyboard straight away.</dd>
+
+  <dt>Lists origin's branches, not yours</dt>
+  <dd>A background fetch keeps the list current. Pull requests, reviews and CI
+  status come from <code>gh</code>.</dd>
+
+  <dt>Makes workspaces in the background</dt>
+  <dd>A worktree, or a clone if the branch already has a worktree. Setup steps
+  can copy <code>.env</code> files, link dependencies or run an install while
+  you carry on.</dd>
+
+  <dt>Cleans up carefully</dt>
+  <dd>Before removing anything it tells you what would be lost: uncommitted
+  changes, commits that aren't on origin in any form, stashes, and the space
+  on disk. It's careful about those numbers so you don't have to go and check
+  them yourself.</dd>
+</dl>
+
+<p>It runs the <code>git</code> and <code>gh</code> you already have, so your
+hooks, credential helpers and SSH config work as they do in a terminal.</p>
+
+<h2>Getting it</h2>
+
+<p>There's no download yet. You'll need macOS, <code>git</code>,
+<a href="https://rustup.rs">Rust</a> and <a href="https://pnpm.io">pnpm</a>,
+and optionally <a href="https://cli.github.com"><code>gh</code></a> for pull
+request data. Then:</p>
+
+<pre>git clone https://github.com/sgtlambda/parallelist.git
+cd parallelist
+./run.sh --build</pre>
+
+<p>That builds the app, copies it to <code>/Applications</code> and starts it.
+If anything's missing, <code>run.sh</code> says what and how to install it.</p>
+
+<hr>
+
+<p class="footer">Parallelist is released under the
+<a href="https://github.com/sgtlambda/parallelist/blob/main/LICENSE">MIT licence</a>.
+The source, and the place to report problems, is
+<a href="https://github.com/sgtlambda/parallelist">on GitHub</a>.</p>
+
+</div>
+
+</body>
+</html>
