@@ -7,13 +7,48 @@ apparently-redundant details are load-bearing.
 
 Start with `README.md` for what the app does. This file is about working on it.
 
-## The problem it solves
+## The problem it solves: attention
 
+The app is about **attention**. The user switches context all the time, across
+several projects, dozens of branches and a handful of shells at once, many of
+them running Claude Code. Each switch used to mean a different terminal window,
+IDE or browser tab, and a moment spent remembering where things were. The job
+of Parallelist is to keep the user's attention **in one place** while they
+switch: one window that shows every project, branch, workspace and shell, says
+which of them needs the user right now, and gets them there in a keystroke.
+
+The worktree mess is where it started, and it is still one part of that job.
 The user works across many branches of a few big monoliths and
-constantly spins up worktrees to review or test them. Sibling directories
-(`~/Code/app`, `~/Code/app-1234-fix-header`, `~/Code/app-b`) accumulate until
+constantly spins up workspaces to review or test them. Sibling directories
+(`~/Code/app`, `~/Code/app-1234-fix-header`, `~/Code/app-b`) pile up until
 nobody knows which branch is where, which are merged, or which are safe to
-delete. The app exists to answer that.
+delete. That is attention lost to bookkeeping, and the app answers it so the
+user doesn't have to.
+
+### What follows from that
+
+Most of the behaviour described below comes from a few rules. Weigh a change
+against them before anything else:
+
+- **One place.** Anything the user would otherwise leave the app for belongs
+  in it: shells live in the detail pane rather than in an external terminal,
+  task logs are a click away, and "Open in" targets run from here.
+- **Say what is waiting, and nothing else.** A mark means "this needs you":
+  orange while a program is blocked, blue while a finished turn hasn't been
+  seen, a task box that a failure or an unseen finished create takes over
+  until it is dealt with. Things the user is already looking at don't get
+  marked. Noise is a cost: output alone never counts as activity, and a
+  stray `.DS_Store` is not uncommitted work.
+- **Getting there is one keystroke.** ⌘P reaches any branch of any project
+  with what's waiting ranked first. A shown terminal takes the keyboard
+  without needing a click first.
+- **Never steal attention.** Work the user started carries on without them
+  (dialogs close at once and become tasks), and when it finishes it doesn't
+  pull them back. A terminal target for a branch they have left starts
+  without being shown, and rows don't re-sort under the pointer.
+- **Trust is part of it.** A badge that is sometimes wrong means checking by
+  hand, which is the context switch the app exists to save. That is why
+  unknown is never clean and "unpushed" is measured so carefully.
 
 ## Domain model
 
@@ -192,7 +227,7 @@ redundant complexity and are not.
   Rust-side so a task and its log survive a webview reload mid-install;
   `src/tasks.ts` mirrors it from `list_tasks` plus the `task` / `task-line` /
   `task-removed` events (header revisions and line numbers make the events
-  that race the listing harmless). The bottom-right `TaskBox` features one task
+  that race the listing harmless). The bottom-left `TaskBox` features one task
   (anything asking for attention, else the oldest running) with a `+N` count;
   clicking it opens `TasksDialog`. The box animates with `motion-v` (enter,
   sinking exit, height via `layout`), chosen over hand-rolled CSS. That
