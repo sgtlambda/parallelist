@@ -225,12 +225,20 @@ pub fn branches(repo: &Path, base: &str) -> Result<Vec<BranchInfo>, String> {
 /// then deleted upstream survives only as a local ref, and looking at
 /// `refs/remotes/origin` alone would never mark it merged — leaving finished
 /// work sitting in the Active tab purely because it was committed recently.
+///
+/// A ref whose tip is on the base branch's first-parent line doesn't count:
+/// that is a branch cut from the base and never committed to, which
+/// `--merged` can't tell from finished work. Every new workspace's branch
+/// starts out like that, and was flagged as stale the moment it was created.
+/// Real merges leave the tip on a merge's second parent, and squash or rebase
+/// merges never pass `--merged` at all (PR state catches those); only a plain
+/// fast-forward of the base is missed.
 fn merged_branches(repo: &Path, base: &str) -> Result<std::collections::HashSet<String>, String> {
     let base_ref = format!("origin/{base}");
     let out = git(
         &[
             "for-each-ref",
-            "--format=%(refname)",
+            "--format=%(refname)\t%(objectname)",
             "--merged",
             &base_ref,
             "refs/remotes/origin",
@@ -238,12 +246,19 @@ fn merged_branches(repo: &Path, base: &str) -> Result<std::collections::HashSet<
         ],
         repo,
     )?;
+    let first_parents = git(&["rev-list", "--first-parent", &base_ref], repo)?;
+    if !first_parents.ok() {
+        return Err(first_parents.stderr.trim().to_string());
+    }
+    let mainline: std::collections::HashSet<&str> = first_parents.lines().into_iter().collect();
     Ok(out
         .lines()
         .into_iter()
-        .filter_map(|l| {
-            l.strip_prefix("refs/remotes/origin/")
-                .or_else(|| l.strip_prefix("refs/heads/"))
+        .filter_map(|l| l.split_once(REF_SEP))
+        .filter(|(_, sha)| !mainline.contains(sha))
+        .filter_map(|(r, _)| {
+            r.strip_prefix("refs/remotes/origin/")
+                .or_else(|| r.strip_prefix("refs/heads/"))
         })
         .filter(|n| *n != "HEAD" && *n != base)
         .map(|n| n.to_string())
@@ -543,6 +558,30 @@ mod tests {
         // Merged and pushed: origin still has every one of its commits.
         assert_eq!(unique_commits(&work, "merged", 10).1, 0);
         assert_eq!(unique_commits(&work, "shared", 10).1, 0);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A branch just cut from main holds no work yet, so it isn't merged,
+    /// though `--merged` says so: that is what flagged every new workspace
+    /// as stale.
+    #[test]
+    fn a_branch_with_no_commits_of_its_own_is_not_merged() {
+        let dir = std::env::temp_dir().join(format!("parallelist-fresh-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        fixture(&dir);
+        let work = dir.join("work");
+        let g = |args: &[&str]| assert!(git(args, &work).unwrap().ok(), "git {args:?}");
+        g(&["branch", "--no-track", "fresh", "origin/main"]);
+        // Cut before main moved on, and pushed before committing anything.
+        g(&["branch", "--no-track", "cut-earlier", "origin/main~1"]);
+        g(&["push", "--quiet", "origin", "cut-earlier"]);
+
+        let merged = merged_branches(&work, "main").unwrap();
+        assert!(merged.contains("merged"), "{merged:?}");
+        assert!(!merged.contains("fresh"), "{merged:?}");
+        assert!(!merged.contains("cut-earlier"), "{merged:?}");
 
         std::fs::remove_dir_all(&dir).ok();
     }

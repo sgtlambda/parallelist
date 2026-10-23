@@ -6,7 +6,6 @@ import TerminalMark from './TerminalMark.vue'
 import { goToItem, nextWaiting, queue, working, type QueueItem } from '../attention'
 import { api } from '../api'
 import { basename } from '../format'
-import { refreshPalette } from '../palette'
 import { state } from '../store'
 import { boxTasks } from '../tasks'
 
@@ -29,14 +28,6 @@ const rows = computed<Row[]>(() => [
   ...(queue.value.length && working.value.length ? [{ key: 'divider' as const, item: null }] : []),
   ...working.value.map((item) => ({ key: item.path, item })),
 ])
-
-// A terminal in a project not looked at since launch has no branch to go to
-// until that project is peeked, as the palette does on opening.
-watch(
-  () => cards.value.some((w) => !w.entry),
-  (unplaced) => unplaced && refreshPalette(),
-  { immediate: true },
-)
 
 /**
  * What each waiting terminal last asked, from Claude Code's transcript,
@@ -73,7 +64,7 @@ watch(
   { immediate: true },
 )
 
-/** The card's middle line: what a working program says it does, or what a
+/** The card's second line: what a working program says it does, or what a
  *  waiting one asked. A blocked one's own message, if it sent one, is the
  *  more current of the two. */
 function said(item: QueueItem): string | null {
@@ -100,9 +91,7 @@ function elapsed(item: QueueItem): string {
 }
 
 function title(item: QueueItem): string {
-  const where = item.entry
-    ? `${item.entry.projectName} · ${item.entry.branch.name}\n${item.path}`
-    : item.path
+  const where = `${item.entry.projectName} · ${item.entry.branch.name}\n${item.path}`
   const text = said(item)
   return [TITLES[item.kind], text, where].filter(Boolean).join('\n\n')
 }
@@ -137,8 +126,7 @@ const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0
             class="attention-card"
             :class="[item.kind, { here: item.here }]"
             role="button"
-            :tabindex="item.entry ? 0 : -1"
-            :aria-disabled="!item.entry"
+            tabindex="0"
             :title="title(item)"
             layout
             :initial="arriving"
@@ -149,20 +137,21 @@ const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0
             @keydown.enter.prevent="goToItem(item)"
             @keydown.space.prevent="goToItem(item)"
           >
+            <!-- The workspace's directory name, not its branch: it is what the
+                 user knows the terminal by, and the project is usually in it
+                 (`app-1234-fix-header`). Project, branch and path are in the
+                 tooltip. -->
             <span class="row">
               <TerminalMark :paths="[item.path]" />
-              <span class="truncate attention-branch">
-                {{ item.entry?.branch.name ?? basename(item.path) }}
+              <span class="truncate attention-workspace">
+                {{ basename(item.path) }}
               </span>
               <span class="spacer" />
               <span class="attention-age faint">{{ elapsed(item) }}</span>
             </span>
-            <span class="truncate attention-said" :class="{ faint: !said(item) }">
-              {{ said(item) ?? (item.kind === 'working' ? 'Working…' : '') }}
-            </span>
             <span class="row">
-              <span class="truncate attention-where">
-                {{ item.entry ? `${item.entry.projectName} · ${basename(item.path)}` : 'Looking…' }}
+              <span class="truncate attention-said" :class="{ faint: !said(item) }">
+                {{ said(item) ?? (item.kind === 'working' ? 'Working…' : '') }}
               </span>
               <span class="spacer" />
               <kbd v-if="item.path === nextWaiting?.path" class="attention-kbd" title="Go here with ⌘↵"

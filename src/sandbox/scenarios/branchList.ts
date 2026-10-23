@@ -34,7 +34,7 @@ export default defineGroup('Branch list', [
   {
     id: 'removed',
     title: 'A removed workspace whose terminal is still open',
-    note: 'Listed from Overview.removed until nothing in the terminal needs the user.',
+    note: 'Not in the overview, so listed on the branch its terminal was opened on until nothing in it needs the user.',
     component: BranchList,
     ...box,
     async setup() {
@@ -42,13 +42,29 @@ export default defineGroup('Branch list', [
       const base = overview()
       await boot({
         filter: 'workspaces',
+        overview: { ...base, workspaces: base.workspaces.filter((w) => w.path !== gone.path) },
+      })
+      terminals([{ path: gone.path, branch: 'fix/billing-rounding', status: 'idle', ready: true }])
+    },
+  },
+  {
+    id: 'removed-branch',
+    title: 'Removed along with its branch',
+    note: 'The branch is on no ref any more, so the terminal brings its row back, as deleted.',
+    component: BranchList,
+    ...box,
+    async setup() {
+      const gone = workspace('app-billing', 'worktree', 'fix/billing-rounding')
+      const base = overview()
+      await boot({
+        filter: 'active',
         overview: {
           ...base,
+          branches: base.branches.filter((b) => b.name !== gone.branch),
           workspaces: base.workspaces.filter((w) => w.path !== gone.path),
-          removed: [gone],
         },
       })
-      terminals([{ path: gone.path, status: 'idle', ready: true }])
+      terminals([{ path: gone.path, branch: 'fix/billing-rounding', status: 'blocked' }])
     },
   },
   {

@@ -189,6 +189,23 @@ pub fn list(project: &ProjectConfig) -> Result<Vec<Entry>, String> {
     Ok(entries)
 }
 
+/// What kind of workspace `path` is, from what is on disk alone: the
+/// project's own directory, a linked worktree (its `.git` is a file), or a
+/// clone. For a terminal starting in it, where a `git worktree list` per
+/// clone would be the price of a word on a card.
+pub fn kind_at(project: &ProjectConfig, path: &Path) -> WorkspaceKind {
+    let git = path.join(".git");
+    if resolve(path) == resolve(Path::new(&project.path)) {
+        WorkspaceKind::Primary
+    } else if git.is_file() {
+        WorkspaceKind::Worktree
+    } else if git.is_dir() {
+        WorkspaceKind::Clone
+    } else {
+        WorkspaceKind::Orphan
+    }
+}
+
 /// Every workspace with its status.
 ///
 /// The per-workspace `git status` is the slow part — a few hundred
@@ -826,6 +843,23 @@ mod tests {
         g(&["add", "-A"]);
         g(&["commit", "--quiet", "-m", "base"]);
         g(&["branch", branch]);
+    }
+
+    #[test]
+    fn tells_the_kind_of_a_workspace_from_disk() {
+        let root = std::env::temp_dir().join(format!("parallelist-kind-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        for dir in ["repo/.git", "repo-b/.git", "repo-feature", "repo-gone"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        std::fs::write(root.join("repo-feature/.git"), "gitdir: ../repo/.git/worktrees/f").unwrap();
+        let project = ProjectConfig::new(root.join("repo"), "repo".into());
+
+        assert_eq!(kind_at(&project, &root.join("repo")), WorkspaceKind::Primary);
+        assert_eq!(kind_at(&project, &root.join("repo-b")), WorkspaceKind::Clone);
+        assert_eq!(kind_at(&project, &root.join("repo-feature")), WorkspaceKind::Worktree);
+        assert_eq!(kind_at(&project, &root.join("repo-gone")), WorkspaceKind::Orphan);
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

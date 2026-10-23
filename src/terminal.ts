@@ -5,9 +5,9 @@ import { Terminal, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { computed, reactive, watch } from 'vue'
 import { api, onTerminalExit, onTerminalStatus, type TerminalMessage } from './api'
-import { goToBranch, projectId as currentProject, refresh, saveConfig, state } from './store'
+import { goToBranch, projectId as currentProject, saveConfig, state } from './store'
 import { normalizePath } from './tasks'
-import { active, activeAt, projectOf, setStatus, statuses } from './terminalState'
+import { activeAt, homeOf, running, setStatus, statuses } from './terminalState'
 
 /**
  * Terminals in the detail pane: a shell per workspace, in the backend
@@ -32,6 +32,11 @@ import { active, activeAt, projectOf, setStatus, statuses } from './terminalStat
  *  the overview. */
 const shown = reactive(new Map<string, string>())
 
+/** Where each workspace's terminal was last asked for, which is where its
+ *  shell is at home when it starts (`TerminalInfo`). One already running
+ *  keeps the home it started with. */
+const startOn = new Map<string, { projectId: string; branch: string }>()
+
 function branchKey(projectId: string | null, branch: string | null): string | null {
   return projectId && branch ? `${projectId}\0${branch}` : null
 }
@@ -46,9 +51,9 @@ export function terminalFor(projectId: string | null, branch: string | null): st
 
 export function showTerminal(projectId: string | null, branch: string | null, path: string) {
   const key = branchKey(projectId, branch)
-  if (!key || !projectId) return
+  if (!key || !projectId || !branch) return
   shown.set(key, normalizePath(path))
-  projectOf.set(normalizePath(path), projectId)
+  startOn.set(normalizePath(path), { projectId, branch })
 }
 
 export function showOverview(projectId: string | null, branch: string | null) {
@@ -251,11 +256,13 @@ async function start(s: Session) {
     if (message instanceof ArrayBuffer) s.term.write(new Uint8Array(message))
     else ended(s, message.exit)
   }
-  const projectId = projectOf.get(s.path) ?? ''
+  const at = startOn.get(s.path) ?? running.get(s.path)
+  let opened
   try {
+    if (!at) throw new Error('No branch to open a terminal on')
+    opened = await api.terminalOpen(at.projectId, at.branch, s.path, s.term.cols, s.term.rows, channel)
     // One already running, after a reload, keeps the time it was listed with.
-    const started = await api.terminalOpen(projectId, s.path, s.term.cols, s.term.rows, channel)
-    if (started) activeAt.set(s.path, Date.now())
+    if (opened.started) activeAt.set(s.path, Date.now())
   } catch (e) {
     if (s.disposed) return
     s.term.write(`\r\n\x1b[31m${String(e)}\x1b[0m\r\n`)
@@ -265,14 +272,14 @@ async function start(s: Session) {
   // A shell can be gone before its open even returns.
   if (s.disposed || s.state !== 'starting') return
   s.state = 'running'
-  active.add(s.path)
+  running.set(s.path, homeOf(opened.terminal))
   send(s, '')
 }
 
 function ended(s: Session, code: number | null) {
   s.state = 'exited'
   s.pending = ''
-  active.delete(s.path)
+  running.delete(s.path)
   statuses.delete(s.path)
   const why = code === null ? 'No shell' : `Shell exited${code ? ` with ${code}` : ''}`
   s.term.write(`\r\n\x1b[2m${why}. Press Return to start a new one.\x1b[0m\r\n`)
@@ -338,7 +345,7 @@ export function runInTerminal(
   reveal = true,
 ) {
   const s = session(path)
-  projectOf.set(s.path, projectId)
+  startOn.set(s.path, { projectId, branch })
   if (s.state === 'running') send(s, `${command}\r`)
   else s.pending += `${command}\r`
   // A new one is otherwise started by being shown.
@@ -368,7 +375,7 @@ export function closeTerminal(path: string) {
     s.el.remove()
     sessions.delete(key)
   }
-  active.delete(key)
+  running.delete(key)
   statuses.delete(key)
   for (const [branch, shownPath] of shown) if (shownPath === key) shown.delete(branch)
   reportViewing()
@@ -383,9 +390,7 @@ export async function syncTerminals(): Promise<() => void> {
       const key = normalizePath(path)
       statuses.delete(key)
       // An attached session hears it on its own channel, with the exit code.
-      if (!sessions.has(key)) active.delete(key)
-      // Its workspace was removed, and its card was all that was left of it.
-      if (state.overview?.removed?.some((w) => normalizePath(w.path) === key)) void refresh()
+      if (!sessions.has(key)) running.delete(key)
     }),
     onTerminalStatus(setStatus),
   ])
@@ -398,9 +403,7 @@ export async function syncTerminals(): Promise<() => void> {
   window.addEventListener('blur', onBlur)
   try {
     for (const t of await api.terminalList()) {
-      const key = normalizePath(t.path)
-      projectOf.set(key, t.projectId)
-      active.add(key)
+      running.set(normalizePath(t.path), homeOf(t))
       setStatus(t)
     }
   } catch {

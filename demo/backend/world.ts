@@ -348,7 +348,6 @@ export function overview(id: string, peek = false): Overview {
     pullRequests: peek ? {} : data.prs,
     viewer: 'you',
     warnings: [],
-    removed: [],
   })
 }
 
