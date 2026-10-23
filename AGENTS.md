@@ -1,9 +1,11 @@
 # Parallelist — notes for agents
 
-A macOS app (Tauri 2 + Vue 3) for managing git branches, worktrees and clones
-across a few large repos. This file records the things that are **not** obvious
-from reading the code: why the model is shaped the way it is, and which
-apparently-redundant details are load-bearing.
+A macOS context switcher (Tauri 2 + Vue 3) that keeps the user's attention in
+one place while they work across several projects, dozens of branches, the
+worktrees and clones that hold them, and the shells running in those. This file
+records the things that are **not** obvious from reading the code: why the
+model is shaped the way it is, and which apparently-redundant details are
+load-bearing.
 
 Start with `README.md` for what the app does. This file is about working on it.
 
@@ -24,6 +26,24 @@ constantly spins up workspaces to review or test them. Sibling directories
 nobody knows which branch is where, which are merged, or which are safe to
 delete. That is attention lost to bookkeeping, and the app answers it so the
 user doesn't have to.
+
+### Agents, but not only agents — and not a TUI
+
+The app is plainly shaped by agent TUIs: Claude Code in several shells at once
+is what made the switching unbearable, and it is the program whose status the
+marks follow most closely. But the terminals are general-purpose. A dev
+server, a REPL, a test watcher, a plain shell: whatever terminal work the user
+does belongs here too. Nothing should *require* an agent, and features read
+"a program in a terminal" wherever they can, rather than "Claude".
+
+It is also a deliberate push back on the TUI hype. Everything is drifting into
+the terminal lately, and GUIs were invented for a reason: a list you can
+scan, a mark you can see out of the corner of your eye, a dialog that shows
+what will be lost before you confirm, a click. So the terminal is for the
+program running in it, and everything *around* the terminals is an ordinary
+Mac window. Don't reach for terminal idioms (text menus, key-only flows,
+status drawn as characters) where a native control would do, and don't
+treat the GUI as a wrapper waiting to be replaced by a TUI.
 
 ### What follows from that
 
@@ -209,6 +229,17 @@ redundant complexity and are not.
 
 ## Conventions
 
+- **The app is described in three places, and they change together.**
+  `README.md`, the landing page in `site/` and this file each say what the
+  app does, what it needs and how to build it. A change to any of those —
+  a feature added, renamed or dropped, a requirement, a `run.sh` flag, what
+  a mark means — updates all three in the same commit, not later. The site
+  also copies things from the app that won't follow it on their own:
+  `site/icon.svg` and `site/favicon.svg` are `src-tauri/icons/icon.svg` and
+  `icon-small.svg`, and its Figure 1 is a hand-drawn window using the colour
+  tokens from `src/styles.css` and the marks from `TerminalMark.vue`. Redraw
+  it when the window it pictures changes. The site deploys from `main` through
+  `.github/workflows/pages.yml` whenever `site/` changes.
 - **The UI says "Project"; the code says "repo"** (`RepoConfig`, `repoId`,
   `add_repo`, the `repos` key in `config.json`). This is deliberate — renaming
   the internals is churn with a config-migration risk and none of it is visible.
@@ -401,6 +432,22 @@ redundant complexity and are not.
   directory, as in `app-1234-fix-header`.
 - Error messages that say "git repository" are factual statements about git and
   should stay that way, even though the UI otherwise says "project".
+
+## Style guide
+
+For anything a user reads: the README, the site, and copy in the app.
+
+- **Modest, and a little self-aware.** The app is an attempt at a problem,
+  not its solution: "Parallelist is an attempt to keep that attention in one
+  place", not "Parallelist keeps your attention in one place". Say what it
+  *tries* to do when describing its purpose; describe concrete behaviour
+  ("the mark goes when you look at it") plainly, without hedging every line.
+- **No first person.** No "I", "we" or "my": the app isn't one person's
+  story. Addressing the reader as "you" is fine.
+- **No selling.** No superlatives, no exclamation marks. If a sentence would
+  be true of any app ("powerful", "seamless"), cut it.
+- **Use the app's own words.** "Workspace", "main workspace", "project",
+  never "checkout" or "repo" (see Conventions).
 
 ## Verifying work
 
