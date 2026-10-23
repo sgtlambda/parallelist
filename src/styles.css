@@ -335,10 +335,11 @@ code,
   grid-row: 2;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-width: 0;
   /* Cards are 71px tall in the strip's 83px (--queue-h less its top rule),
-     which leaves 6px above and below; the sides match it. */
+     which leaves 6px above and below; the sides, and the space between
+     cards, match it. */
+  gap: 6px;
+  min-width: 0;
   padding: 0 6px;
   border-top: 1px solid var(--border);
   background: var(--bg-sidebar);
@@ -385,13 +386,13 @@ code,
 }
 
 /* Between the cards that wait for the user and the ones still working. The
-   space on either side is the strip's 6px padding, as above and below the
-   cards: the 8px flex gap less 2px. */
+   space on either side is the strip's 6px gap, the same as around the
+   cards. */
 .attention-divider {
   flex: none;
   align-self: stretch;
   width: 1px;
-  margin: 16px -2px;
+  margin: 16px 0;
   background: var(--border);
 }
 
