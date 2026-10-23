@@ -322,6 +322,11 @@ code,
   background: linear-gradient(to right, transparent, var(--bg-sidebar) 56px);
 }
 
+/* Nothing in the strip to cover. */
+.task-backdrop.centered {
+  display: none;
+}
+
 /* Across the bottom of the window, under all three columns. Cards run left
    to right, oldest first; a long queue scrolls sideways rather than
    wrapping, so the strip keeps its height. */
@@ -1221,6 +1226,28 @@ code,
   height: calc(var(--queue-h) - 1px);
   padding: 0 16px;
   cursor: pointer;
+}
+
+/* Alone in the strip: the middle of it, not the right end. Margins rather
+   than a transform, which the box's motion owns. */
+.task-box.centered {
+  left: 0;
+  margin: 0 auto;
+}
+
+/* Its rows centre too: the title (spinner and badges with it), the line
+   under it and a Ready task's buttons. */
+.task-box.centered .row,
+.task-box.centered .actions {
+  justify-content: center;
+}
+
+.task-box.centered .spacer {
+  display: none;
+}
+
+.task-box.centered .task-line {
+  text-align: center;
 }
 
 .task-box-body {

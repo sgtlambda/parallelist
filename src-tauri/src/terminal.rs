@@ -237,10 +237,12 @@ impl Terminal {
         was
     }
 
-    /// Its directory is gone and nothing in it needs the user any more: the
+    /// Its workspace is gone and nothing in it needs the user any more: the
     /// program in it is neither working nor blocked on an answer, no turn
     /// ended there unseen, and it isn't on screen. `shown` is the terminal
-    /// that is.
+    /// that is. A directory that is still there but no longer holds a
+    /// workspace counts as gone: a dev server left running in a removed
+    /// worktree recreates its cache folder there.
     fn outlived(&self, shown: Option<&str>) -> bool {
         if shown == Some(self.info.path.as_str()) {
             return false;
@@ -250,7 +252,7 @@ impl Terminal {
             return false;
         }
         drop(status);
-        !Path::new(&self.info.path).exists()
+        !crate::git::is_git_repo(Path::new(&self.info.path))
     }
 
     /// SIGHUP to the shell alone is enough: it leads the terminal's session,
@@ -789,7 +791,8 @@ mod tests {
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("parallelist-term-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        // A workspace, as far as `outlived` can tell.
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
         dir.canonicalize().unwrap()
     }
 
@@ -1078,6 +1081,21 @@ mod tests {
         terminals.view(None, true);
         read_until(&rx, "<exit");
         assert!(terminals.list().is_empty());
+    }
+
+    /// A dev server running on in a removed worktree recreates the directory
+    /// with a cache folder in it. That isn't the workspace being there.
+    #[test]
+    fn a_directory_recreated_without_its_workspace_is_gone_too() {
+        let dir = temp_dir("removed-recreated");
+        let path = dir.to_string_lossy().to_string();
+        let terminals = Terminals::new(Arc::new(|_| {}));
+        let (tx, rx) = sink();
+        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(dir.join(".vite")).unwrap();
+        assert_eq!(terminals.reap(), [path]);
+        read_until(&rx, "<exit");
     }
 
     /// Nothing needs the user in a plain shell, or once the program in it

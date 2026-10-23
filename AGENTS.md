@@ -264,7 +264,9 @@ redundant complexity and are not.
   that race the listing harmless). The `TaskBox` sits in the right end of
   the attention queue's strip, without a card of its own, over a backdrop
   of the strip's colour that fades in from the left (so cards running on
-  under it are covered, not shown through). It features one task (anything
+  under it are covered, not shown through). With no cards in the strip it
+  moves to the middle of it instead, with no backdrop, and "Nothing needs
+  your attention" gives way to it. It features one task (anything
   asking for attention, else the oldest running) with a `+N` count;
   clicking it opens `TasksDialog`. The box animates with `motion-v` (enter,
   sinking exit, its lines via `layout`), chosen over hand-rolled CSS. That
@@ -354,7 +356,10 @@ redundant complexity and are not.
     card shows greyed as "removed". Before this the shell lived on
     unreachable: the project lit up with a terminal no row could show.
     "On screen" is reported apart from focus, so switching apps isn't
-    leaving it.
+    leaving it. "Removed" means the directory no longer holds a workspace
+    (no `.git`), not that it is gone: a dev server left running in a removed
+    worktree recreates its cache folder there, and a bare directory like that
+    used to keep the terminal, and its card in the queue, for good.
   - "Active", which the project list, branch list and cards mark, means the
     shell is running.
   - **Claude Code's status comes from OSC 7501** (its "Program Status

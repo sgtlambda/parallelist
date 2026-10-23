@@ -196,8 +196,9 @@ fn track_removed(seen: &mut LastSeen, live: &[terminal::TerminalInfo], overview:
             continue;
         }
         // Not listed but still there is not a removal: a terminal opened
-        // before the workspace's create finished, say.
-        if Path::new(&t.path).exists() {
+        // before the workspace's create finished, say. A directory with no
+        // workspace in it is not still there (`Terminal::outlived`).
+        if git::is_git_repo(Path::new(&t.path)) {
             continue;
         }
         let Some((workspace, branch)) = seen.get(&t.path) else {
@@ -1108,7 +1109,7 @@ mod tests {
     fn a_workspace_removed_under_its_terminal_stays_listed_while_it_is_open() {
         let root = std::env::temp_dir().join(format!("parallelist-removed-{}", std::process::id()));
         let dir = root.join("repo-feature");
-        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
         let path = dir.to_string_lossy().to_string();
         let project = ProjectConfig::new(root.join("repo"), "repo".into());
         let branch = BranchInfo {
@@ -1160,7 +1161,9 @@ mod tests {
         track_removed(&mut seen, &live, &mut gone);
         assert!(gone.removed.is_empty(), "not removed while the directory is there");
 
+        // Removed, and recreated bare by a dev server still running there.
         std::fs::remove_dir_all(&root).unwrap();
+        std::fs::create_dir_all(dir.join(".vite")).unwrap();
         let mut gone = overview(Vec::new(), Vec::new());
         track_removed(&mut seen, &live, &mut gone);
         assert_eq!(gone.removed.len(), 1);

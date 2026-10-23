@@ -11,6 +11,7 @@ import {
   taskLine,
   type LiveTask,
 } from '../tasks'
+import { queue, working } from '../attention'
 import { openTargetsFor } from '../store'
 import { openTaskIn, targetBusy, targetTitle } from '../openIn'
 
@@ -25,6 +26,9 @@ const emit = defineEmits<{ (e: 'error', message: string): void }>()
  * task dialog on it.
  */
 const featured = computed(() => boxTasks.value[0] ?? null)
+/** With no cards in the strip the box has nothing to sit beside, and takes
+ *  the middle of it instead of the right end. */
+const centered = computed(() => !queue.value.length && !working.value.length)
 const others = computed(() => Math.max(0, boxTasks.value.length - 1))
 
 /**
@@ -73,6 +77,7 @@ async function reveal(task: LiveTask) {
         v-if="featured"
         key="task-backdrop"
         class="task-backdrop"
+        :class="{ centered }"
         :initial="{ opacity: 0 }"
         :animate="{ opacity: 1, transition: { duration: 0.18 } }"
         :exit="{ opacity: 0, transition: { duration: 0.22 } }"
@@ -81,6 +86,7 @@ async function reveal(task: LiveTask) {
         v-if="featured"
         key="task-box"
         class="task-box"
+        :class="{ centered }"
         layout
         :initial="tucked"
         :animate="settled"
