@@ -126,10 +126,6 @@ export interface Overview {
   pullRequests: Record<string, PullRequest>
   viewer: string | null
   warnings: string[]
-  /** Workspaces whose directory was deleted while their terminal is still
-   *  open — by the program in it, typically — as they last looked. Listed
-   *  until the backend closes the terminal, once nothing in it needs you. */
-  removed: Workspace[]
 }
 
 export interface AheadBehind {
@@ -237,16 +233,25 @@ export const api = {
   getTask: (id: string) => invoke<Task | null>('get_task', { id }),
   setTaskAttention: (id: string, attention: boolean) =>
     invoke<void>('set_task_attention', { id, attention }),
-  /** Attach to the workspace's terminal, starting a shell if it has none.
-   *  Resolves true for a new shell; an existing one replays its recent
-   *  output into the channel first. */
+  /** Attach to the workspace's terminal, starting a shell if it has none,
+   *  at home on `branch`. An existing one keeps its own home, and replays
+   *  its recent output into the channel first. */
   terminalOpen: (
     projectId: string,
+    branch: string,
     path: string,
     cols: number,
     rows: number,
     channel: Channel<TerminalMessage>,
-  ) => invoke<boolean>('terminal_open', { projectId, path, cols, rows, channel }),
+  ) =>
+    invoke<{ started: boolean; terminal: TerminalInfo }>('terminal_open', {
+      projectId,
+      branch,
+      path,
+      cols,
+      rows,
+      channel,
+    }),
   /** Resolves to when the terminal was last active, which typing makes now. */
   terminalWrite: (path: string, data: string) => invoke<number>('terminal_write', { path, data }),
   terminalResize: (path: string, cols: number, rows: number) =>
@@ -269,7 +274,12 @@ export type TerminalMessage = ArrayBuffer | { exit: number }
 
 export interface TerminalInfo {
   path: string
+  /** Its home, fixed when the shell starts: the project, and the branch and
+   *  kind of workspace it was opened on. Where it is listed whenever the
+   *  overview doesn't put its workspace on a branch (`branchesOf`). */
   projectId: string
+  branch: string
+  kind: WorkspaceKind
   /** What the program in it last reported over OSC 7501 — Claude Code's
    *  `idle`, `working`, `done`, `blocked` — or null. */
   status: string | null

@@ -1,8 +1,8 @@
 import { computed } from 'vue'
-import { entryForPath, type Entry } from './palette'
+import { entryOf, type Entry } from './palette'
 import { goToBranch, projectId, state } from './store'
 import { showTerminal, terminalFor } from './terminal'
-import { active, statuses } from './terminalState'
+import { running, statuses } from './terminalState'
 
 /**
  * The attention queue: every terminal waiting for the user, blocked on an
@@ -19,6 +19,10 @@ import { active, statuses } from './terminalState'
  * user, so never where ⌘↵ goes, but what will join the queue next. They
  * are in the order they started working, so one finishing unseen moves
  * from the head of that line to the back of the queue, right beside it.
+ *
+ * Each card is on the branch the list has it on, found through the same
+ * placement (`branchesOf`), so there is always a row to go to. A terminal
+ * of a project no longer in the config has none, and no card either.
  */
 
 export interface QueueItem {
@@ -28,8 +32,8 @@ export interface QueueItem {
   since: number
   /** What the program says it is doing, while working or blocked. */
   message: string | null
-  /** Its branch, or null while no project known so far lists it. */
-  entry: Entry | null
+  /** Its branch, as the branch list has it. */
+  entry: Entry
   /** The terminal on screen. Still listed (one blocked waits there until
    *  answered), but already where ⌘↵ would go, so ⌘↵ goes past it. */
   here: boolean
@@ -43,15 +47,11 @@ const items = computed(() => {
   const here = terminalFor(projectId.value, state.selectedBranch)
   const waiting: QueueItem[] = []
   const working: QueueItem[] = []
-  for (const path of active) {
+  for (const path of running.keys()) {
     const s = statuses.get(path)
-    if (!s) continue
-    const item = {
-      path,
-      message: s.message,
-      entry: entryForPath(path),
-      here: path === here,
-    }
+    const entry = entryOf.value.get(path)
+    if (!s || !entry) continue
+    const item = { path, message: s.message, entry, here: path === here }
     if (s.waitingSince) {
       // Blocked outweighs ready, as in the terminal mark.
       const kind = s.status === 'blocked' ? 'blocked' : 'ready'
@@ -71,11 +71,10 @@ export const working = computed(() => items.value.working)
 
 /** Where ⌘↵ goes: the terminal that has waited longest, other than the one
  *  on screen. */
-export const nextWaiting = computed(() => queue.value.find((w) => !w.here && w.entry) ?? null)
+export const nextWaiting = computed(() => queue.value.find((w) => !w.here) ?? null)
 
 /** Show a terminal on its branch, and give it the keyboard. */
 export function goToItem(item: QueueItem) {
-  if (!item.entry) return
   const { projectId, branch } = item.entry
   // Asked for outright, so a search field that had focus lets go of it, or
   // the terminal would leave the keyboard there (`mayTakeFocus`).

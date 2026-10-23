@@ -176,7 +176,6 @@ export function overview(overrides: Partial<Overview> = {}): Overview {
     },
     viewer: 'sam',
     warnings: [],
-    removed: [],
     ...overrides,
   }
 }

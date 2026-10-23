@@ -188,8 +188,8 @@ const handlers: Record<string, Handler> = {
   set_task_attention: ({ id, attention }: { id: string; attention: boolean }) =>
     tasks.setAttention(id, attention),
 
-  terminal_open: ({ projectId, path, cols, rows, channel }: any) =>
-    terminals.open(projectId, path, cols, rows, channel),
+  terminal_open: ({ projectId, branch, path, cols, rows, channel }: any) =>
+    terminals.open(projectId, branch, path, cols, rows, channel),
   terminal_write: ({ path, data }: { path: string; data: string }) => terminals.write(path, data),
   terminal_resize: ({ path, cols }: { path: string; cols: number }) =>
     terminals.resize(path, cols),

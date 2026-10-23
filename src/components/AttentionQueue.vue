@@ -6,7 +6,6 @@ import TerminalMark from './TerminalMark.vue'
 import { goToItem, nextWaiting, queue, working, type QueueItem } from '../attention'
 import { api } from '../api'
 import { basename } from '../format'
-import { refreshPalette } from '../palette'
 import { state } from '../store'
 import { boxTasks } from '../tasks'
 
@@ -29,16 +28,6 @@ const rows = computed<Row[]>(() => [
   ...(queue.value.length && working.value.length ? [{ key: 'divider' as const, item: null }] : []),
   ...working.value.map((item) => ({ key: item.path, item })),
 ])
-
-// A terminal in a project not looked at since launch has no branch to go to
-// until that project is peeked, as the palette does on opening. Not before
-// the config is in: terminals are listed first, and peeking no projects then
-// left the cards unplaced until something else peeked.
-watch(
-  () => !!state.config && cards.value.some((w) => !w.entry),
-  (unplaced) => unplaced && refreshPalette(),
-  { immediate: true },
-)
 
 /**
  * What each waiting terminal last asked, from Claude Code's transcript,
@@ -102,9 +91,7 @@ function elapsed(item: QueueItem): string {
 }
 
 function title(item: QueueItem): string {
-  const where = item.entry
-    ? `${item.entry.projectName} · ${item.entry.branch.name}\n${item.path}`
-    : item.path
+  const where = `${item.entry.projectName} · ${item.entry.branch.name}\n${item.path}`
   const text = said(item)
   return [TITLES[item.kind], text, where].filter(Boolean).join('\n\n')
 }
@@ -139,8 +126,7 @@ const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0
             class="attention-card"
             :class="[item.kind, { here: item.here }]"
             role="button"
-            :tabindex="item.entry ? 0 : -1"
-            :aria-disabled="!item.entry"
+            tabindex="0"
             :title="title(item)"
             layout
             :initial="arriving"
@@ -154,7 +140,7 @@ const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0
             <span class="row">
               <TerminalMark :paths="[item.path]" />
               <span class="truncate attention-branch">
-                {{ item.entry?.branch.name ?? basename(item.path) }}
+                {{ item.entry.branch.name }}
               </span>
               <span class="spacer" />
               <span class="attention-age faint">{{ elapsed(item) }}</span>
@@ -164,7 +150,7 @@ const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0
             </span>
             <span class="row">
               <span class="truncate attention-where">
-                {{ item.entry ? `${item.entry.projectName} · ${basename(item.path)}` : 'Looking…' }}
+                {{ item.entry.projectName }} · {{ basename(item.path) }}
               </span>
               <span class="spacer" />
               <kbd v-if="item.path === nextWaiting?.path" class="attention-kbd" title="Go here with ⌘↵"

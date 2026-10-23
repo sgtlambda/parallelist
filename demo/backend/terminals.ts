@@ -1,5 +1,5 @@
 import type { Channel } from '@tauri-apps/api/core'
-import type { TerminalInfo, TerminalMessage } from '../../src/api'
+import type { TerminalInfo, TerminalMessage, WorkspaceKind } from '../../src/api'
 import { emit } from '../shims/event'
 import { locate, shortHome } from './world'
 
@@ -57,6 +57,7 @@ export interface Session {
   path: string
   projectId: string
   branch: string
+  kind: WorkspaceKind
   dir: string
   /** Columns, as last reported. */
   cols: number
@@ -177,6 +178,8 @@ function info(s: Session): TerminalInfo {
   return {
     path: s.path,
     projectId: s.projectId,
+    branch: s.branch,
+    kind: s.kind,
     status: s.status,
     ready: s.ready,
     activeAt: s.activeAt,
@@ -236,6 +239,7 @@ export function create(
     path,
     projectId: found?.projectId ?? projectId,
     branch: found?.workspace.branch ?? path.split('/').pop() ?? '',
+    kind: found?.workspace.kind ?? 'worktree',
     dir: shortHome(path),
     cols: 60,
     mode: 'shell',
@@ -272,26 +276,27 @@ function prompt(s: Session) {
 
 export function open(
   projectId: string,
+  branch: string,
   path: string,
   cols: number,
   _rows: number,
   channel: Channel<TerminalMessage>,
-): boolean {
+): { started: boolean; terminal: TerminalInfo } {
   const found = sessions.get(path)
-  const s = found ?? create(projectId, path)
+  const s = found ?? create(projectId, path, { branch })
   s.channel = channel
   s.cols = cols
   if (!found) {
     out(s, `${C.d}Last login: ${new Date().toDateString()} on ttys001${C.r}\n`)
     prompt(s)
-    return true
+    return { started: true, terminal: info(s) }
   }
   // Attaching to a running one replays what it printed.
   // Seeded backlogs are written with plain newlines.
   s.backlog = resolve(s.backlog, cols).replace(/\r?\n/g, '\r\n')
   const replay = s.backlog + (s.spinner ? `\r\x1b[2K${s.spinner}` : '')
   channel.onmessage(encoder.encode(replay).buffer as ArrayBuffer)
-  return false
+  return { started: false, terminal: info(s) }
 }
 
 export function resize(path: string, cols: number) {

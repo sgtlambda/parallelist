@@ -182,7 +182,7 @@ function menuItems(row: Row): MenuItem[] {
 /** The row's workspaces with a running shell, including any removed from
  *  under it, as the row's terminal mark counts them. */
 function menuTerminals(row: Row): string[] {
-  return [...row.workspaces, ...row.removed].map((w) => w.path).filter(terminalActive)
+  return [...row.workspaces, ...row.unlisted].map((w) => w.path).filter(terminalActive)
 }
 
 function openMenu(row: Row) {
@@ -345,7 +345,7 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
           </span>
           <span class="spacer" />
           <span class="age faint" style="font-size: 11px">{{ relativeTime(row.branch.committedAt) }}</span>
-          <TerminalMark :paths="[...row.workspaces, ...row.removed].map((w) => w.path)" />
+          <TerminalMark :paths="[...row.workspaces, ...row.unlisted].map((w) => w.path)" />
         </div>
 
         <div class="branch-meta">

@@ -10,13 +10,21 @@ import { normalizePath } from './tasks'
  * it without an import cycle.
  */
 
-/** Which project each workspace's terminal belongs to, so the sidebar can
- *  mark a project without knowing its workspaces. */
-export const projectOf = new Map<string, string>()
+/** Where a terminal belongs (`TerminalInfo`): its project, and the branch
+ *  and kind of workspace it was opened on. */
+export type Home = Pick<TerminalInfo, 'projectId' | 'branch' | 'kind'>
 
-/** Workspaces with a running shell: what the project list, branch list and
- *  cards mark. */
-export const active = reactive(new Set<string>())
+/**
+ * Every running shell, by workspace path, with its home: what the project
+ * list, branch list, cards and attention queue mark. One map, so a terminal
+ * can't be running without somewhere to be listed (`branchesOf`), and the
+ * sidebar can mark a project without knowing its workspaces.
+ */
+export const running = reactive(new Map<string, Home>())
+
+export function homeOf(t: TerminalInfo): Home {
+  return { projectId: t.projectId, branch: t.branch, kind: t.kind }
+}
 
 /** What the program in each terminal reports over OSC 7501, when it does,
  *  whether a turn ended there unseen (`ready`, kept by the backend), since
@@ -64,7 +72,7 @@ export function setStatus(t: TerminalInfo) {
 }
 
 export function terminalActive(path: string): boolean {
-  return active.has(normalizePath(path))
+  return running.has(normalizePath(path))
 }
 
 export interface TerminalMark {
@@ -84,7 +92,7 @@ export interface TerminalMark {
  * branch rows, the cards and the palette alike.
  */
 export function terminalMark(paths: string[]): TerminalMark | null {
-  const keys = paths.map(normalizePath).filter((p) => active.has(p))
+  const keys = paths.map(normalizePath).filter((p) => running.has(p))
   if (!keys.length) return null
   const reported = keys.map((k) => statuses.get(k))
   const working = reported.some((r) => r?.status === 'working')
@@ -103,7 +111,8 @@ export function terminalMark(paths: string[]): TerminalMark | null {
 }
 
 export function projectTerminalMark(projectId: string): TerminalMark | null {
-  return terminalMark([...active].filter((path) => projectOf.get(path) === projectId))
+  const paths = [...running].filter(([, home]) => home.projectId === projectId)
+  return terminalMark(paths.map(([path]) => path))
 }
 
 /** How much a terminal asks of the user, in the same order as its mark's
@@ -119,7 +128,7 @@ export type Tier = (typeof TIER)[keyof typeof TIER]
  */
 const tiers = computed<Map<string, Tier>>((previous) => {
   const next = new Map<string, Tier>()
-  for (const path of active) {
+  for (const path of running.keys()) {
     const s = statuses.get(path)
     next.set(path, s?.status === 'blocked' ? TIER.blocked : s?.ready ? TIER.ready : TIER.running)
   }

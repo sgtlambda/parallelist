@@ -367,11 +367,6 @@ code,
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 
-.attention-card[aria-disabled='true'] {
-  cursor: default;
-  opacity: 0.6;
-}
-
 .attention-card:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;

@@ -53,13 +53,25 @@ const row = selectedRow
  * is done its card holds that slot and the real one waits — otherwise the
  * same path shows twice, and the half-installed one offers Open and Remove.
  */
-const cards = computed(() => {
+const pending = computed(() => {
   const listed = new Set((row.value?.workspaces ?? []).map((w) => normalizePath(w.path)))
-  const pending = createTasksFor(projectId.value, state.selectedBranch).filter(
+  return createTasksFor(projectId.value, state.selectedBranch).filter(
     (t) => hasCard(t) && !(t.status === 'done' && listed.has(normalizePath(t.path ?? ''))),
   )
+})
+
+/** The row's terminals whose workspace the overview doesn't list, other than
+ *  a create's: removed from inside the terminal, which is still open. A
+ *  create's terminal can start before a refresh lists its workspace, and
+ *  until then the create's card stands for it. */
+const removed = computed(() => {
+  const creating = new Set(pending.value.map((t) => normalizePath(t.path ?? '')))
+  return (row.value?.unlisted ?? []).filter((w) => !creating.has(normalizePath(w.path)))
+})
+
+const cards = computed(() => {
   const claimed = new Set(
-    pending.filter((t) => t.status !== 'done').map((t) => normalizePath(t.path ?? '')),
+    pending.value.filter((t) => t.status !== 'done').map((t) => normalizePath(t.path ?? '')),
   )
   const real = (row.value?.workspaces ?? []).filter((w) => !claimed.has(normalizePath(w.path)))
   return [
@@ -72,14 +84,14 @@ const cards = computed(() => {
     })),
     // Removed from inside its own terminal, which is still open. Same key as
     // the card it was, so that card is patched in place.
-    ...(row.value?.removed ?? []).map((gone) => ({
+    ...removed.value.map((gone) => ({
       key: normalizePath(gone.path),
       workspace: null,
       job: null,
       gone,
       removal: null,
     })),
-    ...pending.map((job) => ({
+    ...pending.value.map((job) => ({
       key: normalizePath(job.path ?? ''),
       workspace: null,
       job,
@@ -118,7 +130,7 @@ const hiddenCount = computed(() => {
 const terminal = computed((): Pick<Workspace, 'path' | 'kind'> | null => {
   const path = terminalFor(projectId.value, state.selectedBranch)
   if (!path) return null
-  const listed = [...(row.value?.workspaces ?? []), ...(row.value?.removed ?? [])]
+  const listed = [...(row.value?.workspaces ?? []), ...(row.value?.unlisted ?? [])]
   const workspace = listed.find((w) => normalizePath(w.path) === path)
   if (workspace) return workspace
   const created = createTasksFor(projectId.value, state.selectedBranch).find(
@@ -130,7 +142,7 @@ const terminal = computed((): Pick<Workspace, 'path' | 'kind'> | null => {
 /** The terminal on screen outlived its workspace: it closes once you leave
  *  it, unless its program is still working or waiting on you. */
 const terminalOrphaned = computed(
-  () => !!terminal.value && !!row.value?.removed.some((w) => w === terminal.value),
+  () => !!terminal.value && removed.value.some((w) => w === terminal.value),
 )
 
 /** A card was clicked. A create opens its log; a workspace opens its
@@ -200,8 +212,9 @@ const originState = computed(() => {
   if (!branch) return null
   const base = state.overview?.baseBranch ?? 'the base branch'
 
-  // Listed only for a removed workspace's terminal (`Overview.removed`).
-  if (!branch.hasLocal && !branch.hasRemote) {
+  // On no ref: a row only for a terminal (`branchesOf`). With its workspace
+  // removed, the branch went too; otherwise it is being created.
+  if (!branch.hasLocal && !branch.hasRemote && removed.value.length) {
     return {
       text: 'branch deleted',
       cls: '',
@@ -330,7 +343,8 @@ async function openPullRequest() {
       <div v-if="row" class="card">
         <div class="card-title">Commit</div>
         <div>{{ row.branch.subject || '—' }}</div>
-        <div class="muted" style="font-size: 11.5px">
+        <!-- No commit for a branch on no ref (`branchesOf`). -->
+        <div v-if="row.branch.sha" class="muted" style="font-size: 11.5px">
           {{ row.branch.author }} · {{ ago(row.branch.committedAt) }} ·
           <code class="selectable">{{ row.branch.sha.slice(0, 8) }}</code>
         </div>
