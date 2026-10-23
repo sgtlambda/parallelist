@@ -332,7 +332,9 @@ code,
   align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 0 10px;
+  /* Cards are 71px tall in the strip's 83px (--queue-h less its top rule),
+     which leaves 6px above and below; the sides match it. */
+  padding: 0 6px;
   border-top: 1px solid var(--border);
   background: var(--bg-sidebar);
   overflow-x: auto;
