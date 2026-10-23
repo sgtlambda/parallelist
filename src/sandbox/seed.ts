@@ -1,5 +1,5 @@
 import { loadConfig, refresh, state } from '../store'
-import { activeAt, active, projectOf, statuses } from '../terminalState'
+import { active, projectOf, setStatus } from '../terminalState'
 import { normalizePath } from '../tasks'
 import type { AppConfig, Overview, TerminalInfo } from '../api'
 import { backend } from './backend'
@@ -45,9 +45,17 @@ export function terminals(
 ) {
   for (const t of list) {
     const key = normalizePath(t.path)
+    const at = Date.now() - (t.minutesAgo ?? 0) * 60_000
     active.add(key)
     projectOf.set(key, projectId)
-    activeAt.set(key, Date.now() - (t.minutesAgo ?? 0) * 60_000)
-    if (t.status || t.ready) statuses.set(key, { status: t.status ?? null, ready: t.ready ?? false })
+    setStatus({
+      path: key,
+      projectId,
+      status: t.status ?? null,
+      ready: t.ready ?? false,
+      activeAt: at,
+      waitingSince: t.status === 'blocked' || t.ready ? at : null,
+      message: null,
+    })
   }
 }
