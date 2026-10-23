@@ -122,7 +122,6 @@ async function reveal(task: LiveTask) {
                 {{ featured.status === 'failed' ? '✕' : '◷' }}
               </span>
               <span class="truncate task-title">{{ featured.title }}</span>
-              <span class="spacer" />
               <button
                 v-if="featured.attention"
                 class="btn ghost small task-dismiss"
