@@ -40,7 +40,14 @@ export async function boot(options: Boot = {}) {
 /** Terminals as the backend reports them: a running shell per entry, with
  *  what its program last said. Keyed and normalised as `setStatus` does. */
 export function terminals(
-  list: { path: string; status?: TerminalInfo['status']; ready?: boolean; minutesAgo?: number }[],
+  list: {
+    path: string
+    status?: TerminalInfo['status']
+    ready?: boolean
+    minutesAgo?: number
+    /** What a working or blocked program says it is doing. */
+    message?: string
+  }[],
   projectId = 'app',
 ) {
   for (const t of list) {
@@ -55,7 +62,7 @@ export function terminals(
       ready: t.ready ?? false,
       activeAt: at,
       waitingSince: t.status === 'blocked' || t.ready ? at : null,
-      message: null,
+      message: t.message ?? null,
     })
   }
 }

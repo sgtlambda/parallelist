@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { homeDir } from '@tauri-apps/api/path'
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import AttentionQueue from './components/AttentionQueue.vue'
 import BranchList from './components/BranchList.vue'
 import CleanupDialog from './components/CleanupDialog.vue'
@@ -8,6 +8,7 @@ import CommandPalette from './components/CommandPalette.vue'
 import CreateDialog from './components/CreateDialog.vue'
 import DetailPane from './components/DetailPane.vue'
 import Icon from './components/Icon.vue'
+import Onboarding from './components/Onboarding.vue'
 import ProjectSidebar from './components/ProjectSidebar.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import TaskBox from './components/TaskBox.vue'
@@ -39,6 +40,10 @@ import {
   state,
   stopBackgroundSync,
 } from './store'
+
+/** No project yet: an introduction takes the place of the three columns and
+ *  the attention queue under them. */
+const onboarding = computed(() => !!state.config && state.config.projects.length === 0)
 
 const createOpen = ref(false)
 const createBranch = ref('')
@@ -212,35 +217,42 @@ onUnmounted(() => {
       '--list-w': `${listWidth}px`,
       '--list-min': `${LIST_MIN}px`,
       '--detail-min': `${DETAIL_MIN}px`,
+      // Nothing to queue, and the strip would only say so.
+      ...(onboarding ? { '--queue-h': '0px' } : {}),
     }"
   >
     <!-- The sidebar's strip under the overlay title bar: clears the traffic
          lights and gives the window somewhere to be dragged from. The gear
          sits at its far end, level with the lights; being a button, it never
          starts a drag. -->
-    <div class="titlebar" data-tauri-drag-region>
+    <div class="titlebar" :class="{ wide: onboarding }" data-tauri-drag-region>
       <button class="btn ghost small icon" title="Settings (⌘,)" @click="settingsOpen = true">
         <Icon name="settings" />
       </button>
     </div>
 
-    <ProjectSidebar @error="state.error = $event" />
-    <BranchList @create="openCreate('')" />
-    <DetailPane
-      @create="openCreate(state.selectedBranch ?? '')"
-      @remove="openCleanup($event, [], 'Remove workspace')"
-      @error="state.error = $event"
-    />
+    <Onboarding v-if="onboarding" />
+    <template v-else>
+      <ProjectSidebar />
+      <BranchList @create="openCreate('')" />
+      <DetailPane
+        @create="openCreate(state.selectedBranch ?? '')"
+        @remove="openCleanup($event, [], 'Remove workspace')"
+        @error="state.error = $event"
+      />
+    </template>
 
-    <AttentionQueue />
+    <AttentionQueue v-if="!onboarding" />
 
     <div
+      v-if="!onboarding"
       class="splitter"
       :class="{ dragging: dragging === 'sidebar' }"
       :style="{ left: `${sidebarWidth}px` }"
       @pointerdown="startDrag('sidebar', $event)"
     />
     <div
+      v-if="!onboarding"
       class="splitter"
       :class="{ dragging: dragging === 'list' }"
       :style="{ left: 'calc(var(--sidebar-w) + var(--list-fit))' }"

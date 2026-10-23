@@ -1,3 +1,4 @@
+import { open } from '@tauri-apps/plugin-dialog'
 import { computed, reactive, ref, watch } from 'vue'
 import {
   api,
@@ -430,6 +431,20 @@ export async function selectProject(id: string | null, branch?: string) {
 
   await api.selectProject(id)
   await refresh({ fetch: true })
+}
+
+/** Ask for a project's main workspace and open it. A folder git rejects is
+ *  reported in `state.error`, as every other failure is. */
+export async function addProject() {
+  const picked = await open({ directory: true, multiple: false, title: "Choose the project's main workspace" })
+  if (typeof picked !== 'string') return
+  try {
+    const added = await api.addProject(picked)
+    await loadConfig()
+    await selectProject(added.id)
+  } catch (e) {
+    state.error = String(e)
+  }
 }
 
 /** Jump to a branch of any project, as the command palette does. */
