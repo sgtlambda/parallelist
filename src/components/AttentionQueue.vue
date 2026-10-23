@@ -31,9 +31,11 @@ const rows = computed<Row[]>(() => [
 ])
 
 // A terminal in a project not looked at since launch has no branch to go to
-// until that project is peeked, as the palette does on opening.
+// until that project is peeked, as the palette does on opening. Not before
+// the config is in: terminals are listed first, and peeking no projects then
+// left the cards unplaced until something else peeked.
 watch(
-  () => cards.value.some((w) => !w.entry),
+  () => !!state.config && cards.value.some((w) => !w.entry),
   (unplaced) => unplaced && refreshPalette(),
   { immediate: true },
 )
