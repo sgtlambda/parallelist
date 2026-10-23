@@ -1,4 +1,4 @@
-# Parallelist — notes for agents
+# parallelist — notes for agents
 
 A macOS context switcher (Tauri 2 + Vue 3) that keeps the user's attention in
 one place while they work across several projects, dozens of branches, the
@@ -15,7 +15,7 @@ The app is about **attention**. The user switches context all the time, across
 several projects, dozens of branches and a handful of shells at once, many of
 them running Claude Code. Each switch used to mean a different terminal window,
 IDE or browser tab, and a moment spent remembering where things were. The job
-of Parallelist is to keep the user's attention **in one place** while they
+of parallelist is to keep the user's attention **in one place** while they
 switch: one window that shows every project, branch, workspace and shell, says
 which of them needs the user right now, and gets them there in a keystroke.
 
@@ -477,9 +477,14 @@ redundant complexity and are not.
 
 For anything a user reads: the README, the site, and copy in the app.
 
+- **The name is "parallelist", always lowercase**, in titles, headings and at
+  the start of a sentence too. The exceptions are identifiers that aren't
+  copy: `productName` in `tauri.conf.json` (it names `Parallelist.app`, which
+  `run.sh` and the build paths refer to) and the `TERM_PROGRAM` the terminals
+  set, which programs may match on.
 - **Modest, and a little self-aware.** The app is an attempt at a problem,
-  not its solution: "Parallelist is an attempt to keep that attention in one
-  place", not "Parallelist keeps your attention in one place". Say what it
+  not its solution: "parallelist is an attempt to keep that attention in one
+  place", not "parallelist keeps your attention in one place". Say what it
   *tries* to do when describing its purpose; describe concrete behaviour
   ("the mark goes when you look at it") plainly, without hedging every line.
 - **No first person.** No "I", "we" or "my": the app isn't one person's

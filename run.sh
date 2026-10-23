@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run Parallelist. No arguments: a dev build with hot reload.
+# Run parallelist. No arguments: a dev build with hot reload.
 #   ./run.sh            dev build, reloads as you edit
 #   ./run.sh --build    release .app, installed to /Applications and launched
 set -euo pipefail

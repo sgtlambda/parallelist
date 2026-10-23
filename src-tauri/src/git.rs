@@ -1,4 +1,4 @@
-//! Everything Parallelist knows about a repository, derived from `git`.
+//! Everything parallelist knows about a repository, derived from `git`.
 
 use crate::proc::{run, run_timeout, Output, NETWORK_TIMEOUT};
 use crate::status::Status;
