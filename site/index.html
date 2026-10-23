@@ -183,12 +183,17 @@ give them up.</p>
 
 <h2>A branch, start to finish</h2>
 
-<p>A branch made for one thing, worked on, merged
-and gone, often within the hour. A <b>workspace</b> is a directory holding
-one, a git worktree or a full clone. The aim is that a new branch with a dev
-app running in it takes seconds to set up and seconds to remove. If setting
-one up is slow you skip it and work in a directory that is already open; if
-removing one feels risky it stays on disk.</p>
+<p>parallelist is built around branches you start and finish many times a
+day. Each branch gets a <b>workspace</b>, a directory of its own holding it as
+a git worktree or a full clone, so several programs can work on the same
+project at once without changing each other's files. Some branches need
+careful review and a trail of comments for whoever reads the history later.
+Others are a way to build several things side by side while you iterate, and
+are merged and removed within the hour. Both kinds need quick ends: a new
+workspace with its dev app running in seconds, and gone in seconds once the
+branch is done. If setting one up were slow, you would skip it and work in a
+directory that is already open. If removing one felt risky, it would stay on
+disk.</p>
 
 <ol>
   <li><b>Start.</b> Type a branch name, or pick one of the project's open

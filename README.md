@@ -28,12 +28,17 @@ Built with [Tauri 2](https://tauri.app) and Vue 3.
 
 ## A branch, start to finish
 
-A branch made for one thing, worked on, merged
-and gone, often within the hour. A **workspace** is a directory holding one,
-a git worktree or a full clone. The aim is that a new branch with a dev app
-running in it takes seconds to set up and seconds to remove. If setting one
-up is slow you skip it and work in a directory that is already open; if
-removing one feels risky it stays on disk.
+parallelist is built around branches you start and finish many times a day.
+Each branch gets a **workspace**, a directory of its own holding it as a git
+worktree or a full clone, so several programs can work on the same project
+at once without changing each other's files. Some branches need careful
+review and a trail of comments for whoever reads the history later. Others
+are a way to build several things side by side while you iterate, and are
+merged and removed within the hour. Both kinds need quick ends: a new
+workspace with its dev app running in seconds, and gone in seconds once the
+branch is done. If setting one up were slow, you would skip it and work in a
+directory that is already open. If removing one felt risky, it would stay on
+disk.
 
 1. **Start.** In **New workspace**, type a branch name or pick one of the
    project's open issues, which names the branch and the directory. The
