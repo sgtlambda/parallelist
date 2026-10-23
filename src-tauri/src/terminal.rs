@@ -26,6 +26,12 @@
 //! started, its program's status changed, or the user typed into it. Not its
 //! output, or a dev server's logging would keep it on top for good.
 //!
+//! A terminal that **waits** for the user — blocked on an answer, or ready —
+//! keeps when it started to, for as long as it goes on waiting. That orders
+//! the attention queue, oldest first, and lives here so a webview reload
+//! doesn't put everything back at the same moment. Going from blocked to
+//! ready is still the same wait.
+//!
 //! A terminal can outlive its directory: Claude Code often removes its own
 //! worktree once it has merged it, from inside the very shell it runs in.
 //! Removing a workspace through the app closes its terminal first; one
@@ -78,6 +84,13 @@ pub struct TerminalInfo {
     pub ready: bool,
     /// When it was last active, in epoch milliseconds.
     pub active_at: u64,
+    /// When it started waiting for the user, blocked or ready, in epoch
+    /// milliseconds; `None` while it isn't.
+    pub waiting_since: Option<u64>,
+    /// What the program says along with its status (OSC 7501's `msg`):
+    /// Claude Code sends what it is doing while `working`. `done` carries
+    /// none, so what a finished turn asks comes from `transcript` instead.
+    pub message: Option<String>,
 }
 
 /// What the user can mark a terminal as from its branch's menu, as if its
@@ -121,8 +134,23 @@ struct Terminal {
 #[derive(Default)]
 struct Status {
     state: Option<String>,
+    message: Option<String>,
     ready: bool,
     active_at: u64,
+    waiting_since: Option<u64>,
+}
+
+impl Status {
+    /// Start the wait when it begins and end it when it does, after
+    /// anything that changes `state` or `ready`.
+    fn settle(&mut self) {
+        let waiting = self.ready || self.state.as_deref() == Some("blocked");
+        if !waiting {
+            self.waiting_since = None;
+        } else if self.waiting_since.is_none() {
+            self.waiting_since = Some(now_ms());
+        }
+    }
 }
 
 impl Terminal {
@@ -132,6 +160,8 @@ impl Terminal {
             status: status.state.clone(),
             ready: status.ready,
             active_at: status.active_at,
+            waiting_since: status.waiting_since,
+            message: status.message.clone(),
             ..self.info.clone()
         }
     }
@@ -147,8 +177,8 @@ impl Terminal {
                 let mut writer = self.writer.lock().unwrap();
                 let _ = writer.write_all(b"\x1b]7501;?\x07");
                 let _ = writer.flush();
-            } else if let Some(state) = parse_status(&payload) {
-                changed |= self.set_status(state, viewed);
+            } else if let Some(report) = parse_status(&payload) {
+                changed |= self.set_status(report, viewed);
             }
         }
         // A program killed outright never sends `clear`. Its shell is back in
@@ -156,22 +186,29 @@ impl Terminal {
         if self.status.lock().unwrap().state.is_some() && self.shell_pid.is_some() {
             let leader = self.master.lock().unwrap().process_group_leader();
             if leader == self.shell_pid {
-                changed |= self.set_status(None, viewed);
+                changed |= self.set_status(Report::default(), viewed);
             }
         }
         changed
     }
 
-    fn set_status(&self, state: Option<String>, viewed: bool) -> bool {
+    fn set_status(&self, Report { state, message }: Report, viewed: bool) -> bool {
         let mut status = self.status.lock().unwrap();
         if status.state == state {
-            return false;
+            // Saying what it does now is news, but not activity.
+            if status.message == message {
+                return false;
+            }
+            status.message = message;
+            return true;
         }
+        status.message = message;
         // A turn that ends out of sight waits to be seen. Anything else that
         // happens next — a new prompt, quitting — the user did themselves.
         status.ready = state.as_deref() == Some("done") && !viewed;
         status.state = state;
         status.active_at = now_ms();
+        status.settle();
         true
     }
 
@@ -185,14 +222,19 @@ impl Terminal {
             Mark::Unseen => status.ready = true,
             Mark::Blocked => {
                 status.state = Some("blocked".into());
+                status.message = None;
                 status.ready = false;
             }
         }
+        status.settle();
     }
 
     /// The user is looking at it: whatever was waiting to be seen has been.
     fn seen(&self) -> bool {
-        std::mem::take(&mut self.status.lock().unwrap().ready)
+        let mut status = self.status.lock().unwrap();
+        let was = std::mem::take(&mut status.ready);
+        status.settle();
+        was
     }
 
     /// Its directory is gone and nothing in it needs the user any more: the
@@ -367,6 +409,8 @@ impl Terminals {
                 status: None,
                 ready: false,
                 active_at: 0,
+                waiting_since: None,
+                message: None,
             },
             master: Mutex::new(pair.master),
             writer: Mutex::new(writer),
@@ -529,6 +573,14 @@ impl Terminals {
         self.reap();
     }
 
+    /// The process leading the terminal's foreground, other than its shell:
+    /// whatever program is running in it, such as Claude Code.
+    pub fn foreground(&self, path: &str) -> Option<i32> {
+        let term = self.get(path).ok()?;
+        let leader = term.master.lock().unwrap().process_group_leader()?;
+        (Some(leader) != term.shell_pid).then_some(leader)
+    }
+
     /// Mark a terminal by hand, reported like any status change.
     pub fn mark(&self, path: &str, mark: Mark) -> Result<(), String> {
         let term = self.get(path)?;
@@ -553,7 +605,7 @@ impl Terminals {
     pub fn waiting(&self) -> usize {
         self.list()
             .iter()
-            .filter(|info| info.ready || info.status.as_deref() == Some("blocked"))
+            .filter(|info| info.waiting_since.is_some())
             .count()
     }
 }
@@ -637,11 +689,22 @@ fn terminator(rest: &[u8]) -> Option<(usize, usize)> {
     None
 }
 
-/// The state a status payload sets: `Some(None)` for `clear`. Statuses with
-/// an `id` are a program's secondary ones (its background tasks); only its
-/// own, without one, describes the terminal.
-fn parse_status(payload: &str) -> Option<Option<String>> {
+/// What a status payload says: the state it sets, `None` for `clear`, and
+/// its message.
+#[derive(Debug, Default, PartialEq)]
+struct Report {
+    state: Option<String>,
+    message: Option<String>,
+}
+
+/// Parse a status payload. Statuses with an `id` are a program's secondary
+/// ones (its background tasks); only its own, without one, describes the
+/// terminal. `msg` is base64, as Claude Code sends it (it builds the
+/// payload as `state=…:app=…[:kind=…][:progress=…][:title=…][:msg=…]`).
+fn parse_status(payload: &str) -> Option<Report> {
+    use base64::Engine;
     let mut state = None;
+    let mut message = None;
     for field in payload.split(':') {
         let Some((name, value)) = field.split_once('=') else {
             continue;
@@ -649,11 +712,21 @@ fn parse_status(payload: &str) -> Option<Option<String>> {
         match name {
             "state" => state = Some(value),
             "id" => return None,
+            "msg" => {
+                message = base64::engine::general_purpose::STANDARD
+                    .decode(value)
+                    .ok()
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+                    .filter(|m| !m.trim().is_empty())
+            }
             _ => {}
         }
     }
     let state = state?;
-    Some((state != "clear").then(|| state.to_string()))
+    Some(Report {
+        state: (state != "clear").then(|| state.to_string()),
+        message,
+    })
 }
 
 /// Keep the newest `BACKLOG` bytes, cut at a line break so a replay doesn't
@@ -851,12 +924,22 @@ mod tests {
 
     #[test]
     fn statuses_parse_as_claude_code_sends_them() {
-        assert_eq!(parse_status("state=working:app=claude-code"), Some(Some("working".into())));
+        let state = |s: &str| Report { state: Some(s.into()), message: None };
+        assert_eq!(parse_status("state=working:app=claude-code"), Some(state("working")));
         assert_eq!(
             parse_status("state=blocked:app=claude-code:kind=permission:msg=a b"),
-            Some(Some("blocked".into()))
+            Some(state("blocked")),
+            "a message that isn't base64 is dropped"
         );
-        assert_eq!(parse_status("state=clear"), Some(None));
+        // As observed from Claude Code 2.1.309 running a Bash command.
+        assert_eq!(
+            parse_status("state=working:app=claude-code:msg=Q3JlYXRpbmcgdGhlIHByb2JlIGZpbGU="),
+            Some(Report {
+                state: Some("working".into()),
+                message: Some("Creating the probe file".into())
+            })
+        );
+        assert_eq!(parse_status("state=clear"), Some(Report::default()));
         // A background task's own status says nothing about the terminal.
         assert_eq!(parse_status("state=working:app=claude-code:id=7"), None);
         assert_eq!(parse_status("nonsense"), None);
@@ -897,14 +980,17 @@ mod tests {
 
         report(&terminals, &path, "working");
         assert_eq!(next(), (Some("working".into()), false));
+        assert_eq!(terminals.list()[0].waiting_since, None);
         report(&terminals, &path, "done");
         assert_eq!(next(), (Some("done".into()), true), "ended while nobody looked");
         assert!(terminals.list()[0].ready);
         assert_eq!(terminals.waiting(), 1);
+        let since = terminals.list()[0].waiting_since.expect("waiting");
 
         terminals.view(Some(&path), true);
         assert_eq!(next(), (Some("done".into()), false), "seen");
         assert_eq!(terminals.waiting(), 0);
+        assert_eq!(terminals.list()[0].waiting_since, None);
 
         report(&terminals, &path, "working");
         assert_eq!(next(), (Some("working".into()), false));
@@ -913,6 +999,8 @@ mod tests {
         report(&terminals, &path, "blocked");
         assert_eq!(next(), (Some("blocked".into()), false));
         assert_eq!(terminals.waiting(), 1, "blocked waits, seen or not");
+        let again = terminals.list()[0].waiting_since.expect("waiting");
+        assert!(again >= since, "a new wait starts at the back");
         assert!(terminals.close(&path));
     }
 
@@ -942,8 +1030,13 @@ mod tests {
         terminals.mark(&path, Mark::Blocked).unwrap();
         assert_eq!(next(), (Some("blocked".into()), false));
         assert_eq!(terminals.waiting(), 1);
+        let since = terminals.list()[0].waiting_since.expect("waiting");
+        terminals.mark(&path, Mark::Unseen).unwrap();
+        assert_eq!(next(), (Some("blocked".into()), true));
+        assert_eq!(terminals.list()[0].waiting_since, Some(since), "still the same wait");
         report(&terminals, &path, "working");
         assert_eq!(next(), (Some("working".into()), false), "the program's word wins");
+        assert_eq!(terminals.list()[0].waiting_since, None);
 
         assert!(terminals.mark("/nowhere", Mark::Blocked).is_err());
         assert!(terminals.close(&path));

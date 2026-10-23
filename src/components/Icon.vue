@@ -31,6 +31,14 @@ export const GLYPHS = {
     '<path d="M4 5h4.6l1.8 2.2H20a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/>' +
     '<path d="m9.6 10.7 4.8 4.8"/>' +
     '<path d="m14.4 10.7-4.8 4.8"/>',
+  // the app icon's cascading frames (`src-tauri/icons/icon.svg`), stripped
+  // of its background and of the branch on the front one: the app itself,
+  // at rest. Filled, not stroked, at the icon's own opacities.
+  logo:
+    '<rect x="6" y="3" width="17" height="13" rx="2" fill="currentColor" fill-opacity="0.28" stroke="none"/>' +
+    '<rect x="3.5" y="5.5" width="17" height="13" rx="2" fill="currentColor" fill-opacity="0.5" stroke="none"/>' +
+    '<rect x="1" y="8" width="17" height="13" rx="2" fill="currentColor" stroke="none"/>',
+
   // check: something finished and worked. One stroke, 22.6 units long, so it
   // can be drawn in with a dash of 23 (see `.icon-draw`).
   check: '<path d="M20 6 9 17l-5-5"/>',

@@ -19,6 +19,9 @@ Built with [Tauri 2](https://tauri.app) and Vue 3.
   elsewhere. Claude Code running in one reports whether it is working, blocked
   or finished, and the app marks it.
 - **`⌘P` jumps to any branch of any project**, with what's waiting first.
+- **An attention queue** along the bottom: every terminal waiting for you,
+  oldest on the left, with what Claude asked; then the ones still working.
+  `⌘↵` goes to the one that has waited longest.
 - **New workspaces in the background**: a worktree, or a clone when the branch
   already has a worktree. Optional setup steps copy env files, symlink
   dependencies or run an install.

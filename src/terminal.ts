@@ -185,6 +185,9 @@ function session(path: string): Session {
     theme: theme(),
     linkHandler: { ...link, allowNonHttpProtocols: true },
   })
+  // ⌘↵ is the app's (the attention queue). xterm would send it as a plain
+  // Return, so in a Claude Code prompt it would also submit what was typed.
+  term.attachCustomKeyEventHandler((event) => !(event.metaKey && event.key === 'Enter'))
   const fit = new FitAddon()
   term.loadAddon(fit)
   term.loadAddon(new WebLinksAddon(link.activate, link))

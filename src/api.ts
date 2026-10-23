@@ -256,6 +256,9 @@ export const api = {
   /** The terminal on screen in the focused window, or null. */
   terminalViewing: (path: string | null, focused: boolean) =>
     invoke<void>('terminal_viewing', { path, focused }),
+  /** What the Claude Code in a workspace's terminal last asked, read from
+   *  its transcript, or null. */
+  terminalQuestion: (path: string) => invoke<string | null>('terminal_question', { path }),
   /** Mark a terminal by hand, as if its program had reported it. */
   terminalMark: (path: string, mark: 'unseen' | 'blocked') =>
     invoke<void>('terminal_mark', { path, mark }),
@@ -275,6 +278,13 @@ export interface TerminalInfo {
   /** When it was last active — started, its status changed, typed into —
    *  in epoch milliseconds. */
   activeAt: number
+  /** When it started waiting for the user — blocked or ready — in epoch
+   *  milliseconds, or null while it isn't. What orders the attention queue. */
+  waitingSince: number | null
+  /** What the program says along with its status: Claude Code sends what
+   *  it is doing while `working`. A finished turn has none; what it asked
+   *  is `terminalQuestion`. */
+  message: string | null
 }
 
 /** A shell exited, whether or not anything was attached to it. */

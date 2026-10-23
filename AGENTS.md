@@ -40,8 +40,9 @@ against them before anything else:
   marked. Noise is a cost: output alone never counts as activity, and a
   stray `.DS_Store` is not uncommitted work.
 - **Getting there is one keystroke.** ⌘P reaches any branch of any project
-  with what's waiting ranked first. A shown terminal takes the keyboard
-  without needing a click first.
+  with what's waiting ranked first, and ⌘↵ goes straight to whatever has
+  waited longest. A shown terminal takes the keyboard without needing a
+  click first.
 - **Never steal attention.** Work the user started carries on without them
   (dialogs close at once and become tasks), and when it finishes it doesn't
   pull them back. A terminal target for a branch they have left starts
@@ -227,7 +228,9 @@ redundant complexity and are not.
   Rust-side so a task and its log survive a webview reload mid-install;
   `src/tasks.ts` mirrors it from `list_tasks` plus the `task` / `task-line` /
   `task-removed` events (header revisions and line numbers make the events
-  that race the listing harmless). The bottom-left `TaskBox` features one task
+  that race the listing harmless). The `TaskBox`, at the right end of the attention queue's strip
+  over a backdrop of the strip's colour that fades in from the left (so
+  cards running on under it are covered, not shown through), features one task
   (anything asking for attention, else the oldest running) with a `+N` count;
   clicking it opens `TasksDialog`. The box animates with `motion-v` (enter,
   sinking exit, height via `layout`), chosen over hand-rolled CSS. That
@@ -382,6 +385,42 @@ redundant complexity and are not.
   terminals first. Recency only breaks ties, so it never beats a better
   match. Going to a branch clears a search or switches to All when the
   list would otherwise hide it.
+- **The attention queue** (`src/attention.ts`, `AttentionQueue.vue`) is a
+  strip under all three columns with one card per terminal waiting for the
+  user — blocked, or ready — in the order they started waiting: oldest on
+  the left, newcomers on the right. First in, first out and nothing else;
+  unlike the palette, blocked doesn't jump ahead of ready. The backend
+  keeps when each wait began (`waitingSince`, set by `Status::settle`) so
+  a reload keeps the order; blocked turning into ready is the same wait,
+  and a terminal that starts waiting again joins at the back. The terminal
+  on screen keeps its card (a blocked one waits there until answered),
+  marked "here", and ⌘↵ goes to the first card past it. The strip is there
+  even when empty, so the panes above never change height and the terminal
+  in them never reflows as cards come and go. Its cards find their branch
+  through the palette's entries, peeking projects when one isn't known yet.
+  xterm sends ⌘↵ as a plain Return — it would submit a Claude Code prompt —
+  so each terminal's `attachCustomKeyEventHandler` lets it through to the
+  window's handler instead. Over a dialog ⌘↵ is left alone.
+  Behind the queue, past a divider, are the terminals that are *working*,
+  oldest first: never where ⌘↵ goes, but what joins the queue next. The two
+  are one keyed list, so a turn ending unseen slides its card from the head
+  of the working line to the back of the queue instead of replacing it.
+  Each card's middle line says what is going on. A working one shows the
+  `msg` Claude Code sends with `working` (base64 in the payload; what it is
+  doing, e.g. a Bash command's description). A waiting one shows what the
+  turn ended on, which the status can't say: `done` carries no `msg`, even
+  when the turn ends on a question (observed driving `claude` 2.1.309 in a
+  pty). It comes from Claude Code's transcript (`src-tauri/src/transcript.rs`):
+  the terminal's foreground process is Claude Code's pid,
+  `~/.claude/sessions/<pid>.json` names its session and starting
+  directory, and the session is `~/.claude/projects/<mangled dir>/<id>.jsonl`.
+  Found by pid, not by newest file, because several sessions can share a
+  directory. From its last assistant entry it takes the last question, else
+  the last paragraph; an `AskUserQuestion` call's question; or, for a tool
+  call waiting on permission, what the call is for. This is Claude Code's
+  private layout, so anything missing is just no line. The webview asks
+  for it twice per wait (`terminal_question`), since `done` can arrive
+  before the transcript has the turn.
 - **The New workspace dialog's branch field is a combobox** (`BranchPicker.vue`,
   logic in `src/branchPicker.ts`) over the project's branches and its open
   issues. Its first entry is always the text as typed — "Create branch …",
