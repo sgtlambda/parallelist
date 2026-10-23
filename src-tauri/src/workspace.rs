@@ -830,7 +830,7 @@ mod tests {
 
     #[test]
     fn deletes_a_branch_but_never_the_base_or_a_checked_out_one() {
-        let dir = std::env::temp_dir().join(format!("switcheroo-del-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("parallelist-del-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         repo_with_branch(&dir, "leftover");
@@ -866,7 +866,7 @@ mod tests {
 
     #[test]
     fn removes_a_worktree_that_hangs_off_a_secondary_clone() {
-        let root = std::env::temp_dir().join(format!("switcheroo-own-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("parallelist-own-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();
         std::fs::create_dir_all(&root).unwrap();
 
@@ -947,7 +947,7 @@ mod tests {
     /// in its clone, a clone takes everything of its own with it.
     #[test]
     fn counts_what_each_kind_of_removal_actually_loses() {
-        let root = std::env::temp_dir().join(format!("switcheroo-impact-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("parallelist-impact-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();
         std::fs::create_dir_all(&root).unwrap();
         let g = |cwd: &Path, args: &[&str]| {
@@ -1075,7 +1075,7 @@ mod tests {
     /// the directory.
     #[test]
     fn clones_a_branch_that_was_never_pushed() {
-        let root = std::env::temp_dir().join(format!("switcheroo-localclone-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("parallelist-localclone-{}", std::process::id()));
         let project = project_with_local_only_branch(&root);
         let req = request(&root, "repo-b", "local-only", "clone");
 
@@ -1094,7 +1094,7 @@ mod tests {
     /// workspace with every file deleted and takes the path from the retry.
     #[test]
     fn a_failed_create_leaves_nothing_behind() {
-        let root = std::env::temp_dir().join(format!("switcheroo-failcreate-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("parallelist-failcreate-{}", std::process::id()));
         let project = project_with_local_only_branch(&root);
 
         // A clone of a branch that exists nowhere fails after `git clone`

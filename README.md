@@ -1,4 +1,4 @@
-# Switcheroo
+# Parallelist
 
 A macOS app for working with a lot of branches across a few big repos: see
 what's on origin, put a branch into a **workspace** — a worktree or a clone —
@@ -35,13 +35,13 @@ local state hung off the side.
 
 A place a branch lives on disk is a **workspace**. It is always one of two
 things: a linked **worktree** (cheap, shares the object store) or a full
-**clone**. The project's own clone — the one you added to Switcheroo — is the
+**clone**. The project's own clone — the one you added to Parallelist — is the
 **main workspace**, and the other two hang off it.
 
 That worktree/clone distinction only matters twice:
 
 - **Creating one.** Git allows a branch in exactly one worktree per clone. When
-  the branch you want already has a worktree, Switcheroo says so and offers a
+  the branch you want already has a worktree, Parallelist says so and offers a
   clone instead — which is what an `app-b` directory next to `app` really is.
 - **Removing one.** A worktree is unregistered with `git worktree remove`; a
   clone is just deleted.
@@ -171,9 +171,11 @@ cancelled.
 ## Configuration
 
 App settings live in
-`~/Library/Application Support/com.jmversteeg.switcheroo/config.json` and are
-edited in the settings pane. A repo may also commit a `.switcheroo.json` at its
-root, which wins field by field over the stored config —
+`~/Library/Application Support/com.jmversteeg.parallelist/config.json` and are
+edited in the settings pane (on first launch they are carried over from
+`com.jmversteeg.switcheroo`, from when the app was called Switcheroo). A repo may also
+commit a `.parallelist.json` at its root — a `.switcheroo.json` is still read
+when there is none — which wins field by field over the stored config —
 `baseBranch`, `pathTemplate`, `setupSteps` and `openTargets`:
 
 ```json
@@ -210,8 +212,8 @@ means writing a launch configuration and opening that:
 
 ```
 d=~/.warp/launch_configurations; mkdir -p $d;
-find $d -maxdepth 1 -name "switcheroo-*.yaml" -delete 2>/dev/null;
-n=switcheroo-$(date +%s)-$RANDOM;
+find $d -maxdepth 1 -name "parallelist-*.yaml" -delete 2>/dev/null;
+n=parallelist-$(date +%s)-$RANDOM;
 printf "name: %s\nwindows:\n  - tabs:\n      - layout:\n          cwd: %s\n          commands:\n            - exec: claude\n" $n {path} > $d/$n.yaml && open warp://launch/$n
 ```
 
@@ -228,7 +230,7 @@ Needs [Rust](https://rustup.rs) and [pnpm](https://pnpm.io).
 ./run.sh              # install if needed, then run it
 ./run.sh --build      # release .app -> /Applications, launched
 pnpm tauri dev        # what run.sh ends up calling
-pnpm tauri build      # -> src-tauri/target/release/bundle/macos/Switcheroo.app
+pnpm tauri build      # -> src-tauri/target/release/bundle/macos/Parallelist.app
 pnpm typecheck        # vue-tsc
 pnpm test             # cargo test
 pnpm lint             # cargo clippy

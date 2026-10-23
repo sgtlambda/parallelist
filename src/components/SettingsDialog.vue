@@ -172,7 +172,7 @@ async function save() {
                 Shell commands, offered as checkboxes when creating a workspace and
                 run inside it. <code>{primary}</code> <code>{path}</code>
                 <code>{branch}</code> are substituted and shell-quoted. A committed
-                <code>.switcheroo.json</code> in the project overrides these.
+                <code>.parallelist.json</code> in the project overrides these.
               </span>
               <div
                 v-for="step in project.setupSteps"

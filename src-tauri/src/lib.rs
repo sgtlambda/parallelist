@@ -40,7 +40,7 @@ impl AppState {
         self.config.lock().unwrap().clone()
     }
 
-    /// The stored project with its `.switcheroo.json` overrides applied.
+    /// The stored project with its `.parallelist.json` overrides applied.
     fn project(&self, id: &str) -> Result<ProjectConfig, String> {
         self.config()
             .project(id)
@@ -1083,7 +1083,7 @@ pub fn run() {
             terminal_mark,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running switcheroo");
+        .expect("error while running parallelist");
 }
 
 #[cfg(test)]
@@ -1096,7 +1096,7 @@ mod tests {
     /// back as last seen, and go once the terminal does.
     #[test]
     fn a_workspace_removed_under_its_terminal_stays_listed_while_it_is_open() {
-        let root = std::env::temp_dir().join(format!("switcheroo-removed-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("parallelist-removed-{}", std::process::id()));
         let dir = root.join("repo-feature");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.to_string_lossy().to_string();
@@ -1168,7 +1168,7 @@ mod tests {
     /// that clone, and every status measured there is against it.
     #[test]
     fn a_fetching_refresh_fetches_secondary_clones_too() {
-        let root = std::env::temp_dir().join(format!("switcheroo-fetch-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("parallelist-fetch-{}", std::process::id()));
         std::fs::remove_dir_all(&root).ok();
         std::fs::create_dir_all(&root).unwrap();
         let g = |cwd: &Path, args: &[&str]| {
