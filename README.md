@@ -1,7 +1,13 @@
 # Parallelist
 
-A macOS app for working with a lot of branches across a few big repos: see
-what's on origin, put a branch into a **workspace** — a worktree or a clone —
+A macOS app for keeping your **attention** in one place while you switch
+between projects, branches and shells all day. Every project, every branch on
+origin, every workspace it is in and every shell running there sit in one
+window, which tells you which of them needs you and gets you there in a
+keystroke.
+
+Underneath, it manages the mess that working like this leaves on disk: put a
+branch into a **workspace** (a worktree or a clone), see what each one holds,
 and clean up the ones you're done with.
 
 Built with [Tauri 2](https://tauri.app) (Rust) and Vue 3.
@@ -28,6 +34,25 @@ runs `pnpm install` the first time, and hands over to `pnpm tauri dev`.
 state to appear.
 
 ## The idea
+
+Context switching is cheap when everything is in one place. Switching between
+five terminal windows, an IDE per worktree and a browser tab per PR is not:
+each switch costs a moment of remembering where things were, and the shell
+that has been waiting on you for ten minutes is in the window you aren't
+looking at. Parallelist keeps all of it in one window:
+
+- **Shells live in the app**, one per workspace, and keep running while you
+  look elsewhere.
+- **It says what is waiting.** Claude Code running in one of those shells
+  reports whether it is working, blocked on a question or finished, and the
+  project, branch and workspace show it. Failed tasks and workspaces finished
+  while you were elsewhere are flagged until you deal with them. Things you
+  are already looking at aren't flagged.
+- **Getting anywhere is one keystroke.** `⌘P` jumps to any branch of any
+  project, ranked with what's waiting first.
+- **Nothing pulls you away.** Slow work (fetching, creating a workspace,
+  `pnpm install`, removal) runs in the background, and when it finishes it
+  doesn't take you back there.
 
 Branches live on **origin**. Having one on disk is a side effect, so the list
 you look at is origin's branch list, kept fresh by a background fetch, with
@@ -77,15 +102,37 @@ branch names, commit subjects, authors, PR numbers and titles, and **workspace
 directory paths** — so a clone is findable by its folder name (`app-b`) even
 when its branch exists nowhere else.
 
-`⌘F` search (or just start typing) · `⌘R` fetch now · `⌘N` new workspace of the selected branch.
+`⌘P` go to any branch of any project · `⌘F` search (or just start typing) ·
+`⌘R` fetch now · `⌘N` new workspace of the selected branch.
+
+## Terminals
 
 Click a workspace card to swap the right-hand pane for a terminal in that
-workspace — your login shell, in its directory. Each branch remembers whether it
-was showing its overview or a terminal, and each terminal keeps running while
-you look at other branches and projects; a terminal icon marks the projects,
-branches and workspaces that have one. `‹` goes back to the overview, `×`
-closes the terminal and hangs up on its shell. Removing a workspace closes its
-terminal first.
+workspace: your login shell, in its directory. It takes the keyboard as soon as
+it is shown. Each branch remembers whether it was showing its overview or a
+terminal, and each terminal keeps running while you look at other branches and
+projects, with its scrollback intact when you come back. `‹` goes back to the
+overview, `×` closes the terminal and hangs up on its shell. Removing a
+workspace closes its terminal first.
+
+A terminal glyph marks the projects, branches and workspaces with a running
+shell. When the shell runs Claude Code, the glyph says what it is doing:
+
+| mark | meaning |
+|---|---|
+| blinking | working |
+| orange box | blocked, waiting for an answer |
+| blue box | finished a turn you haven't looked at yet |
+
+Running terminals sort to the top of the branch list and of the `⌘P` palette:
+blocked first, then finished, then the rest, most recently active first.
+Recency is only picked up when the list re-sorts anyway, so rows don't move
+under the pointer. A workspace that Claude Code removes from inside its own
+terminal, as it does after merging its branch, keeps that terminal until
+you've seen what it left there.
+
+`⌘`-click follows a link: web links open in the browser, file links in Quick
+Look. `⌘+` / `⌘−` / `⌘0` zoom every terminal at once.
 
 ## Creating a workspace
 
@@ -161,7 +208,7 @@ removed stay greyed out until the list drops them.
 ## Tasks
 
 Refreshes, creates, removals and branch deletions all run as tasks. A small
-box in the top right shows one of them, what it last printed ("Checking
+box in the bottom left shows one of them, what it last printed ("Checking
 working trees 22/24", the newest line of `pnpm install`) and how many others
 are going. Failures, and finished workspaces you have navigated away from,
 take the box first and stay until dismissed. Click the box for every task and
