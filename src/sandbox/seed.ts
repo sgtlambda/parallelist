@@ -1,5 +1,5 @@
 import { loadConfig, refresh, state } from '../store'
-import { homeOf, running, setStatus } from '../terminalState'
+import { homeOf, running, setStatus, statuses } from '../terminalState'
 import { normalizePath } from '../tasks'
 import type { AppConfig, Overview, TerminalInfo } from '../api'
 import { backend } from './backend'
@@ -70,5 +70,14 @@ export function terminals(
     }
     running.set(key, homeOf(info))
     setStatus(info)
+  }
+}
+
+/** These terminals' shells exit, which takes them off the list as closing one does. */
+export function stopTerminals(paths: string[]) {
+  for (const path of paths) {
+    const key = normalizePath(path)
+    running.delete(key)
+    statuses.delete(key)
   }
 }

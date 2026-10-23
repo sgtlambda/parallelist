@@ -480,6 +480,12 @@ redundant complexity and are not.
     typing either. Recency is deliberately not reactive: the branch list
     re-sorts on its own only when a tier changes, and picks up recency
     whenever it re-sorts anyway, so rows don't move under the pointer.
+    When rows do change places, they slide there (`src/reorder.ts`, a
+    hand-rolled FLIP on the Web Animations API), so the eye can follow the
+    one that moved. Only within one listing: another tab, search or project
+    is a different list and just appears. It is not motion-v's `layout`,
+    which animates every layout change, keystrokes in the search included,
+    on a list that can be hundreds of rows.
     The mark state lives in `terminalState.ts`, apart from the xterm
     sessions, because the store sorts by it and `terminal.ts` imports the
     store: importing that back evaluates `terminal.ts` first and its
