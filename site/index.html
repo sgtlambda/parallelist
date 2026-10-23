@@ -102,7 +102,7 @@
     line-height: 1.5;
   }
 
-  figure { margin: 28px 0 8px; }
+  figure { margin: 28px 0; }
   figcaption { margin-top: 10px; font-size: 13px; color: var(--ink-dim); text-align: center; }
 
   .footer { font-size: 13px; color: var(--ink-dim); }
@@ -168,8 +168,13 @@
   @media (max-width: 600px) {
     .window { grid-template-columns: 1fr; }
     .side, .search, .hide-sm { display: none; }
-    .masthead img { width: 64px; height: 64px; }
+    body { font-size: 13px; }
+    .page { padding-top: 28px; }
+    .masthead img { display: none; }
     h1 { font-size: 24px; }
+    h2 { font-size: 15px; margin-top: 28px; }
+    figcaption, .footer { font-size: 12px; }
+    dd { margin-left: 16px; }
   }
 </style>
 </head>
@@ -212,8 +217,6 @@
   </div>
   <figcaption>Figure 1. One project's branches. The ones that need your attention come first.</figcaption>
 </figure>
-
-<h2>Why</h2>
 
 <p>Working across a few large repositories tends to mean dozens of branches at
 a time and several shells open, more and more of them running coding agents.
