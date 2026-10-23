@@ -1,4 +1,4 @@
-# Parallelist
+# parallelist
 
 A context switcher for macOS that keeps your attention in one place while you
 switch between projects, branches and shells all day. Every project, every

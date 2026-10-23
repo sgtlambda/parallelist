@@ -1,6 +1,6 @@
 //! Thin wrappers around spawning external processes.
 //!
-//! Everything Parallelist does to a repository goes through the real `git` and
+//! Everything parallelist does to a repository goes through the real `git` and
 //! `gh` binaries rather than a linked library: worktrees, hooks, credential
 //! helpers and SSH config then behave exactly as they do in the user's shell.
 

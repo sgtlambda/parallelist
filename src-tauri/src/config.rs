@@ -1,6 +1,6 @@
 //! Persisted configuration.
 //!
-//! Two layers: Parallelist's own config file (`config.json` in the app config
+//! Two layers: parallelist's own config file (`config.json` in the app config
 //! dir) and an optional `.parallelist.json` committed at the root of a repo.
 //! The repo file wins field by field, so a project can ship its own setup
 //! recipe without stopping you from overriding the parts you care about.
