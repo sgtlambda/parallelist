@@ -473,6 +473,6 @@ access and fails without it. The `.app` is the deliverable.
 - Right-clicking a project in the sidebar removes it immediately, with no
   confirmation and no visual hint that it is possible. Known, deliberately left
   alone, flagged to the user.
-- No CI, no LICENSE.
+- No CI.
 - The `git fetch` hang was traced to a half-open connection upstream. The timeout
   makes it recoverable; the root cause is network-side and is not fixed.
