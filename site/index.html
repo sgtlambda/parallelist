@@ -72,7 +72,7 @@
 
   table { border-collapse: collapse; margin: 6px 0 14px; }
   td { padding: 6px 12px 6px 0; vertical-align: top; }
-  td:first-child { padding-top: 9px; }
+  td:first-child { padding-top: calc(6px + (1.6em - 16px) / 2); } /* centres a 16px mark on the first line */
 
   pre {
     margin: 0 0 14px;
@@ -113,7 +113,7 @@
     transform-origin: 0 0;
   }
 
-  .mark { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; color: var(--text-dim); vertical-align: -3px; }
+  .mark { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; color: var(--text-dim); }
   .mark svg { width: 11px; height: 11px; }
   .mark.blocked { color: #fff; background: var(--orange); }
   .mark.ready { color: #fff; background: var(--accent); }
