@@ -2,7 +2,7 @@ import { computed, reactive, ref } from 'vue'
 import { api, type BranchInfo, type Overview, type Workspace } from './api'
 import { basename } from './format'
 import { fuzzyMatch } from './fuzzy'
-import { groupByBranch, knownOverview, projectId, state } from './store'
+import { branchesOf, knownOverview, projectId, state } from './store'
 import { normalizePath } from './tasks'
 import { byTerminalRank, terminalRank, TIER, type TerminalRank, type Tier } from './terminalState'
 
@@ -101,19 +101,19 @@ export function refreshPalette() {
   }
 }
 
+/** Every branch of every project, placed as the branch list places them
+ *  (`branchesOf`): for the project on screen, from the very overview the
+ *  list shows. A project not looked at yet still has its terminals' rows. */
 const entries = computed<Entry[]>(() => {
   const out: Entry[] = []
   for (const p of state.config?.projects ?? []) {
-    const ov = latest(p.id)?.overview
-    if (!ov) continue
-    // A removed workspace's terminal can still be waiting on the user.
-    const byBranch = groupByBranch([...ov.workspaces, ...(ov.removed ?? [])])
-    for (const branch of ov.branches) {
+    for (const placed of branchesOf(p.id, latest(p.id)?.overview ?? null)) {
       out.push({
         projectId: p.id,
         projectName: p.name,
-        branch,
-        workspaces: byBranch.get(branch.name) ?? [],
+        branch: placed.branch,
+        // A removed workspace's terminal can still be waiting on the user.
+        workspaces: [...placed.workspaces, ...placed.unlisted],
         current: p.id === projectId.value,
       })
     }
@@ -121,14 +121,15 @@ const entries = computed<Entry[]>(() => {
   return out
 })
 
-/** The branch a workspace's terminal belongs to, from what the palette
- *  holds, or null if no project known so far lists it. */
-export function entryForPath(path: string): Entry | null {
+/** The branch each workspace is on, by normalised path: where the attention
+ *  queue finds a terminal's row, so it finds the one the list shows. */
+export const entryOf = computed(() => {
+  const byPath = new Map<string, Entry>()
   for (const entry of entries.value) {
-    if (entry.workspaces.some((w) => normalizePath(w.path) === path)) return entry
+    for (const w of entry.workspaces) byPath.set(normalizePath(w.path), entry)
   }
-  return null
-}
+  return byPath
+})
 
 function weighted(score: number): number {
   return score > 0 ? score * SECONDARY_WEIGHT : score

@@ -211,11 +211,17 @@ export default defineGroup('Attention queue', [
     },
   },
   {
-    id: 'unplaced',
-    title: 'A terminal no project lists yet',
-    note: 'Shown by its directory with "Looking…" while the palette peeks every project, and not clickable until one lists it. This path is in none, so it stays that way.',
+    id: 'removed',
+    title: 'Its workspace removed, and its branch',
+    note: 'Removed from inside the terminal, which still waits. The list has the card\'s row too: the same placement puts both on the branch the terminal was opened on.',
     component: Window,
     props: queue,
-    setup: () => withQueue([{ path: `${WS}/elsewhere-1234`, status: 'idle', ready: true, minutesAgo: 5 }]),
+    async setup() {
+      const gone = `${WS}/app-site-copy`
+      await withQueue(
+        [{ path: gone, branch: 'docs/site-copy', status: 'idle', ready: true, minutesAgo: 4 }],
+        { asked: { [gone]: 'Pushed to main and removed the worktree. Anything else?' } },
+      )
+    },
   },
 ])

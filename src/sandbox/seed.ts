@@ -1,5 +1,5 @@
 import { loadConfig, refresh, state } from '../store'
-import { active, projectOf, setStatus } from '../terminalState'
+import { homeOf, running, setStatus } from '../terminalState'
 import { normalizePath } from '../tasks'
 import type { AppConfig, Overview, TerminalInfo } from '../api'
 import { backend } from './backend'
@@ -38,10 +38,13 @@ export async function boot(options: Boot = {}) {
 }
 
 /** Terminals as the backend reports them: a running shell per entry, with
- *  what its program last said. Keyed and normalised as `setStatus` does. */
+ *  what its program last said. Keyed and normalised as `setStatus` does.
+ *  Each is at home on its workspace's branch in the overview on screen,
+ *  unless it says otherwise. */
 export function terminals(
   list: {
     path: string
+    branch?: string
     status?: TerminalInfo['status']
     ready?: boolean
     minutesAgo?: number
@@ -53,16 +56,19 @@ export function terminals(
   for (const t of list) {
     const key = normalizePath(t.path)
     const at = Date.now() - (t.minutesAgo ?? 0) * 60_000
-    active.add(key)
-    projectOf.set(key, projectId)
-    setStatus({
+    const listed = state.overview?.workspaces.find((w) => normalizePath(w.path) === key)
+    const info: TerminalInfo = {
       path: key,
       projectId,
+      branch: t.branch ?? listed?.branch ?? key.split('/').pop()!,
+      kind: listed?.kind ?? 'worktree',
       status: t.status ?? null,
       ready: t.ready ?? false,
       activeAt: at,
       waitingSince: t.status === 'blocked' || t.ready ? at : null,
       message: t.message ?? null,
-    })
+    }
+    running.set(key, homeOf(info))
+    setStatus(info)
   }
 }

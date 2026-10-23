@@ -38,7 +38,9 @@
 //! removed from inside is closed **once nothing in it needs the user** —
 //! not while its program works or is blocked on an answer, not while a turn
 //! that ended there is unseen, and not while it is on screen (`reap`). Until
-//! then it stays reachable from the overview's `removed` list.
+//! then it stays reachable through its `Home`: the project and branch it was
+//! opened on, which is where the frontend lists any terminal whose workspace
+//! the overview doesn't put on a branch.
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
@@ -49,6 +51,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::git::WorkspaceKind;
 use crate::tasks::now_ms;
 
 /// How much recent output a terminal keeps for replay on reattach. A few
@@ -70,11 +73,28 @@ pub enum Chunk {
 
 pub type Sink = Box<dyn Fn(Chunk) -> bool + Send>;
 
+/// Where a terminal belongs, fixed when its shell starts. The frontend lists
+/// a terminal on its workspace's branch, as the overview has it; this is
+/// where it goes instead whenever the overview doesn't put its workspace on
+/// a branch — removed from inside the terminal, on a detached HEAD
+/// mid-rebase, or newer than the overview — so a running terminal always
+/// has a row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Home {
+    pub project_id: String,
+    /// The branch it was opened on.
+    pub branch: String,
+    /// What its workspace was then (`workspace::kind_at`).
+    pub kind: WorkspaceKind,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalInfo {
     pub path: String,
-    pub project_id: String,
+    #[serde(flatten)]
+    pub home: Home,
     /// What the program in it last reported over OSC 7501 (`working`,
     /// `idle`, `done`, `blocked`…), or `None` when nothing has, or it cleared
     /// its status, or it is gone.
@@ -91,6 +111,15 @@ pub struct TerminalInfo {
     /// Claude Code sends what it is doing while `working`. `done` carries
     /// none, so what a finished turn asks comes from `transcript` instead.
     pub message: Option<String>,
+}
+
+/// What `Terminals::open` found or started.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Opened {
+    /// A new shell, rather than one that was already running.
+    pub started: bool,
+    pub terminal: TerminalInfo,
 }
 
 /// What the user can mark a terminal as from its branch's menu, as if its
@@ -355,16 +384,17 @@ impl Terminals {
     }
 
     /// Attach `sink` to the workspace's terminal, starting one with `command`
-    /// if there is none. Returns whether a new shell was started. The backlog
-    /// of an existing terminal is replayed into the sink before anything new.
+    /// if there is none, at `home`; one already running keeps its own. The
+    /// backlog of an existing terminal is replayed into the sink before
+    /// anything new.
     pub fn open(
         &self,
-        project_id: &str,
+        home: Home,
         path: &str,
         size: PtySize,
         command: CommandBuilder,
         sink: Sink,
-    ) -> Result<bool, String> {
+    ) -> Result<Opened, String> {
         let key = key(path);
         let mut map = self.by_path.lock().unwrap();
         if let Some(term) = map.get(&key) {
@@ -377,7 +407,10 @@ impl Terminals {
                 output.sink = alive.then_some(sink);
                 drop(output);
                 let _ = term.master.lock().unwrap().resize(size);
-                return Ok(false);
+                return Ok(Opened {
+                    started: false,
+                    terminal: term.info(),
+                });
             }
         }
 
@@ -407,7 +440,7 @@ impl Terminals {
         let term = Arc::new(Terminal {
             info: TerminalInfo {
                 path: key.clone(),
-                project_id: project_id.to_string(),
+                home,
                 status: None,
                 ready: false,
                 active_at: 0,
@@ -430,6 +463,10 @@ impl Terminals {
         });
         map.insert(key.clone(), Arc::clone(&term));
         drop(map);
+        let opened = Opened {
+            started: true,
+            terminal: term.info(),
+        };
 
         let (drained_tx, drained_rx) = mpsc::channel::<()>();
         let reading = Arc::clone(&term);
@@ -491,7 +528,7 @@ impl Terminals {
             }
         });
 
-        Ok(true)
+        Ok(opened)
     }
 
     fn get(&self, path: &str) -> Result<Arc<Terminal>, String> {
@@ -759,6 +796,14 @@ mod tests {
         pixel_height: 0,
     };
 
+    fn home() -> Home {
+        Home {
+            project_id: "p".into(),
+            branch: "feature".into(),
+            kind: WorkspaceKind::Worktree,
+        }
+    }
+
     fn sink() -> (Sink, Receiver<Chunk>) {
         let (tx, rx) = mpsc::channel();
         (Box::new(move |chunk| tx.send(chunk).is_ok()), rx)
@@ -802,7 +847,7 @@ mod tests {
         let path = dir.to_string_lossy().to_string();
         let terminals = Terminals::default();
         let (tx, rx) = sink();
-        assert!(terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap());
+        assert!(terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap().started);
         terminals.write(&path, b"pwd; exit 3\n").unwrap();
         let seen = read_until(&rx, "<exit 3>");
         assert!(seen.contains(&path), "{seen:?}");
@@ -817,7 +862,7 @@ mod tests {
         let path = dir.to_string_lossy().to_string();
         let terminals = Terminals::default();
         let (tx, rx) = sink();
-        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
         let started = terminals.list()[0].active_at;
         assert!(started > 0, "a new terminal is active from the start");
 
@@ -838,13 +883,13 @@ mod tests {
         let path = dir.to_string_lossy().to_string();
         let terminals = Terminals::default();
         let (tx, rx) = sink();
-        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
         terminals.write(&path, b"echo first-$((40+2))\n").unwrap();
         read_until(&rx, "first-42");
         drop(rx);
 
         let (tx, rx) = sink();
-        assert!(!terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap(), "no second shell");
+        assert!(!terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap().started, "no second shell");
         read_until(&rx, "first-42");
         terminals.write(&path, b"echo second-$((40+3))\n").unwrap();
         read_until(&rx, "second-43");
@@ -861,7 +906,7 @@ mod tests {
         let path = dir.to_string_lossy().to_string();
         let terminals = Terminals::default();
         let (tx, rx) = sink();
-        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
         // `exec` keeps the pid it printed, so this is the sleep's own.
         terminals
             .write(&path, b"sh -c 'echo pid=$$; exec sleep 300'\n")
@@ -891,7 +936,7 @@ mod tests {
         let (tx, _rx) = sink();
         let missing = "/nonexistent/parallelist-workspace";
         let err = terminals
-            .open("p", missing, SIZE, sh(Path::new(missing)), tx)
+            .open(home(), missing, SIZE, sh(Path::new(missing)), tx)
             .unwrap_err();
         assert!(err.contains("does not exist"), "{err}");
     }
@@ -970,7 +1015,7 @@ mod tests {
         let (hook, statuses) = status_hook();
         let terminals = Terminals::new(hook);
         let (tx, _rx) = sink();
-        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
         // A program in the foreground reporting each state it reads, as
         // Claude Code stays in the foreground between turns.
         terminals
@@ -1014,7 +1059,7 @@ mod tests {
         let (hook, statuses) = status_hook();
         let terminals = Terminals::new(hook);
         let (tx, _rx) = sink();
-        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
         terminals
             .write(
                 &path,
@@ -1055,7 +1100,7 @@ mod tests {
         let (hook, statuses) = status_hook();
         let terminals = Terminals::new(hook);
         let (tx, rx) = sink();
-        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
         terminals
             .write(
                 &path,
@@ -1091,7 +1136,7 @@ mod tests {
         let path = dir.to_string_lossy().to_string();
         let terminals = Terminals::new(Arc::new(|_| {}));
         let (tx, rx) = sink();
-        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         std::fs::create_dir_all(dir.join(".vite")).unwrap();
         assert_eq!(terminals.reap(), [path]);
@@ -1107,7 +1152,7 @@ mod tests {
         let path = dir.to_string_lossy().to_string();
         let terminals = Terminals::new(Arc::new(|_| {}));
         let (tx, rx) = sink();
-        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
         terminals.write(&path, b"echo up\n").unwrap();
         read_until(&rx, "up");
         assert!(terminals.reap().is_empty(), "the directory is still there");
@@ -1128,7 +1173,7 @@ mod tests {
         let dir = temp_dir("removed-plain");
         let path = dir.to_string_lossy().to_string();
         let (tx, rx) = sink();
-        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(terminals.reap(), [path]);
         read_until(&rx, "<exit");
@@ -1144,7 +1189,7 @@ mod tests {
         let (hook, statuses) = status_hook();
         let terminals = Terminals::new(hook);
         let (tx, rx) = sink();
-        terminals.open("p", &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
 
         terminals
             .write(

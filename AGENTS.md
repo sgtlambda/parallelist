@@ -350,16 +350,32 @@ redundant complexity and are not.
     terminal until nothing in it needs the user: not while its program
     works or is blocked, not while a turn that ended there is unseen, not
     while it is on screen (`Terminals::reap`, asked on refresh, on leaving
-    a terminal and when its program goes quiet). Until then the overview
-    lists it under `removed`, as last seen, with its branch's row put back
-    (neither local nor remote: "branch deleted") if that went too, and its
-    card shows greyed as "removed". Before this the shell lived on
-    unreachable: the project lit up with a terminal no row could show.
+    a terminal and when its program goes quiet). Until then it is listed
+    by its home (below), and its card shows greyed as "removed". Before
+    this the shell lived on unreachable: the project lit up with a
+    terminal no row could show.
     "On screen" is reported apart from focus, so switching apps isn't
     leaving it. "Removed" means the directory no longer holds a workspace
     (no `.git`), not that it is gone: a dev server left running in a removed
     worktree recreates its cache folder there, and a bare directory like that
     used to keep the terminal, and its card in the queue, for good.
+  - **Every running terminal has a row, by construction.** Each has a
+    *home*, fixed when its shell starts: the project and branch it was
+    opened on, and its workspace's kind (`terminal::Home`, on every
+    `TerminalInfo`; `running` in `terminalState.ts` maps path → home, so
+    nothing can be running without one). `branchesOf` in `store.ts` is the
+    one place terminals are put on branches: where the overview has the
+    workspace on a branch, there; otherwise on its home branch — as itself
+    if listed without one (a detached HEAD, mid-rebase), as `unlisted` if
+    not listed at all — with a row made up for a branch no ref has
+    (neither local nor remote: "branch deleted", or not created yet). The
+    branch list, the palette and the attention queue all read it, the
+    queue through the palette's entries, which for the project on screen
+    come from the very overview the list shows. The backend used to keep
+    how each terminal's workspace last looked and put removed ones back
+    into the overview; a terminal opened after the last refresh had no
+    "last look", and waited in the queue as "Looking…" with no row
+    anywhere. Don't reintroduce a second source for where a terminal is.
   - "Active", which the project list, branch list and cards mark, means the
     shell is running.
   - **Claude Code's status comes from OSC 7501** (its "Program Status
@@ -436,7 +452,7 @@ redundant complexity and are not.
   marked "here", and ⌘↵ goes to the first card past it. The strip is there
   even when empty, so the panes above never change height and the terminal
   in them never reflows as cards come and go. Its cards find their branch
-  through the palette's entries, peeking projects when one isn't known yet.
+  through the palette's entries, placed as the list places them (above).
   xterm sends ⌘↵ as a plain Return — it would submit a Claude Code prompt —
   so each terminal's `attachCustomKeyEventHandler` lets it through to the
   window's handler instead. Over a dialog ⌘↵ is left alone.

@@ -9,20 +9,24 @@ import {
   type Overview,
   type PullRequest,
 } from './api'
-import { hasPendingCreate } from './tasks'
-import { byTerminalRank, terminalRank } from './terminalState'
+import { hasPendingCreate, normalizePath } from './tasks'
+import { byTerminalRank, running, terminalRank } from './terminalState'
 
 export type Filter = 'active' | 'prs' | 'assigned' | 'workspaces' | 'all'
 
-/** A branch with everything we know about it hung off the side. */
-export interface Row {
+/** A branch and the workspaces on it (`branchesOf`). */
+export interface Placed {
   branch: BranchInfo
-  pr: PullRequest | null
   workspaces: Workspace[]
-  /** Deleted from under a terminal that is still open (`Overview.removed`):
-   *  not on disk, so counted nowhere, but listed so the terminal can be
-   *  reached. */
-  removed: Workspace[]
+  /** Running terminals on this branch whose workspace the overview doesn't
+   *  list: removed from inside the terminal, typically, or newer than the
+   *  overview. Counted nowhere, but listed so the terminal can be reached. */
+  unlisted: Workspace[]
+}
+
+/** A branch with everything we know about it hung off the side. */
+export interface Row extends Placed {
+  pr: PullRequest | null
   aheadBehind: AheadBehind | null
   /** Finished work — merged or closed — with a workspace still on disk. */
   stale: boolean
@@ -91,19 +95,68 @@ export function groupByBranch(workspaces: Workspace[]): Map<string, Workspace[]>
   return byBranch
 }
 
+/**
+ * A project's branches with their workspaces on them: the overview's, and
+ * every running terminal of the project. The branch list, the palette and
+ * the attention queue all read this, which is what keeps them agreeing:
+ * nothing can wait in the queue without a row in the list to find it on.
+ *
+ * A terminal goes wherever the overview puts its workspace. Where the
+ * overview puts it on no branch, it goes on its home branch, the one it was
+ * opened on (`TerminalInfo`): a workspace listed without a branch — a
+ * detached HEAD, mid-rebase — as itself, and one not listed at all as
+ * `unlisted`. A branch that no ref has any more, or not yet, gets a row of
+ * its own: neither local nor on origin, which no listed branch otherwise is.
+ */
+export function branchesOf(id: string, ov: Overview | null): Placed[] {
+  const branches = [...(ov?.branches ?? [])]
+  const workspaces = [...(ov?.workspaces ?? [])]
+  const unlisted: Workspace[] = []
+  const listed = new Map(workspaces.map((w, i) => [normalizePath(w.path), i]))
+  for (const [path, home] of running) {
+    if (home.projectId !== id) continue
+    const i = listed.get(path)
+    if (i === undefined) {
+      unlisted.push({ path, kind: home.kind, branch: home.branch, owner: null, status: null, statusError: null })
+    } else if (!workspaces[i].branch) {
+      workspaces[i] = { ...workspaces[i], branch: home.branch }
+    }
+  }
+  const named = new Set(branches.map((b) => b.name))
+  for (const { branch } of [...workspaces, ...unlisted]) {
+    if (!branch || named.has(branch)) continue
+    named.add(branch)
+    branches.push({
+      name: branch,
+      hasLocal: false,
+      hasRemote: false,
+      wasPushed: false,
+      merged: false,
+      sha: '',
+      committedAt: 0,
+      author: '',
+      subject: '',
+    })
+  }
+  const byBranch = groupByBranch(workspaces)
+  const unlistedByBranch = groupByBranch(unlisted)
+  return branches.map((branch) => ({
+    branch,
+    workspaces: byBranch.get(branch.name) ?? [],
+    unlisted: unlistedByBranch.get(branch.name) ?? [],
+  }))
+}
+
 export const rows = computed<Row[]>(() => {
   const ov = state.overview
   if (!ov) return []
-  const byBranch = groupByBranch(ov.workspaces)
-  const removedByBranch = groupByBranch(ov.removed ?? [])
-  return ov.branches.map((branch) => {
+  return branchesOf(ov.project.id, ov).map(({ branch, workspaces, unlisted }) => {
     const pr = ov.pullRequests[branch.name] ?? null
-    const workspaces = byBranch.get(branch.name) ?? []
     return {
       branch,
       pr,
       workspaces,
-      removed: removedByBranch.get(branch.name) ?? [],
+      unlisted,
       aheadBehind: state.aheadBehind[branch.name] ?? null,
       // Finished work, not merely absent from origin. A branch that was
       // never pushed is also "not on origin", and treating that as stale
@@ -130,7 +183,7 @@ export const rows = computed<Row[]>(() => {
 function inOrder(list: Row[]): Row[] {
   const main = mainWorkspaceBranch.value
   const ranks = new Map(
-    list.map((r) => [r, terminalRank([...r.workspaces, ...r.removed].map((w) => w.path))]),
+    list.map((r) => [r, terminalRank([...r.workspaces, ...r.unlisted].map((w) => w.path))]),
   )
   return [...list].sort(
     (a, b) =>
@@ -182,7 +235,7 @@ function isActive(row: Row, activeDays: number): boolean {
   if (row.pr?.state === 'open') return true
   // Anything on disk is active by definition — it's occupying a directory.
   // So is a terminal still open in one that has just been removed.
-  if (row.workspaces.length > 0 || row.removed.length > 0) return true
+  if (row.workspaces.length > 0 || row.unlisted.length > 0) return true
   // Finished work with no workspace left is done, however recently it was
   // committed. Without this a branch merged yesterday outranks one that is
   // still open, purely on recency.
