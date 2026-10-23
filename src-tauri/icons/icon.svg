@@ -23,7 +23,7 @@
   </defs>
   <!-- The 824 px body of Apple's 1024 px grid: corner radius 22.5%, smoothed 60% into a continuous curve. -->
   <path fill="url(#body)" filter="url(#shadow)" d="M627.36 100c103.83 0 155.75 0 195.41 20.21a185.4 185.4 0 0 1 81.02 81.02c20.21 39.66 20.21 91.58 20.21 195.41L924 627.36c0 103.83 0 155.75 -20.21 195.41a185.4 185.4 0 0 1 -81.02 81.02c-39.66 20.21 -91.58 20.21 -195.41 20.21L396.64 924c-103.83 0 -155.75 0 -195.41 -20.21a185.4 185.4 0 0 1 -81.02 -81.02c-20.21 -39.66 -20.21 -91.58 -20.21 -195.41L100 396.64c0 -103.83 0 -155.75 20.21 -195.41a185.4 185.4 0 0 1 81.02 -81.02c39.66 -20.21 91.58 -20.21 195.41 -20.21Z"/>
-  <g transform="translate(28 8)">
+  <g transform="translate(28 -13)">
     <rect x="350" y="250" width="444" height="340" rx="40" fill="#FFFFFF" fill-opacity="0.28"/>
     <rect x="290" y="310" width="444" height="340" rx="40" fill="#FFFFFF" fill-opacity="0.5"/>
     <rect x="230" y="370" width="444" height="340" rx="40" fill="#FFFFFF" filter="url(#lift)"/>
