@@ -1,12 +1,12 @@
 [package]
-name = "switcheroo"
+name = "parallelist"
 version = "0.1.0"
 description = "Manage git branches, worktrees and clones across your repos"
 authors = ["jmversteeg"]
 edition = "2021"
 
 [lib]
-name = "switcheroo_lib"
+name = "parallelist_lib"
 crate-type = ["rlib"]
 
 [build-dependencies]

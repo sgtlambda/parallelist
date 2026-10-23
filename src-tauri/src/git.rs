@@ -1,4 +1,4 @@
-//! Everything Switcheroo knows about a repository, derived from `git`.
+//! Everything Parallelist knows about a repository, derived from `git`.
 
 use crate::proc::{run, run_timeout, Output, NETWORK_TIMEOUT};
 use crate::status::Status;
@@ -528,7 +528,7 @@ mod tests {
     /// would report the commit that `shared` still holds as about to be lost.
     #[test]
     fn counts_only_the_commits_no_other_ref_holds() {
-        let dir = std::env::temp_dir().join(format!("switcheroo-unique-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("parallelist-unique-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         fixture(&dir);
@@ -550,7 +550,7 @@ mod tests {
     /// A long branch reports its true total and still only lists `limit`.
     #[test]
     fn caps_the_listing_without_capping_the_count() {
-        let dir = std::env::temp_dir().join(format!("switcheroo-cap-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("parallelist-cap-{}", std::process::id()));
         std::fs::remove_dir_all(&dir).ok();
         std::fs::create_dir_all(&dir).unwrap();
         fixture(&dir);

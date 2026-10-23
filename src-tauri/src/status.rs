@@ -361,7 +361,7 @@ mod tests {
 
     impl Fixture {
         fn new(name: &str) -> Self {
-            let root = std::env::temp_dir().join(format!("switcheroo-status-{name}-{}", std::process::id()));
+            let root = std::env::temp_dir().join(format!("parallelist-status-{name}-{}", std::process::id()));
             std::fs::remove_dir_all(&root).ok();
             std::fs::create_dir_all(root.join("origin.git")).unwrap();
             let f = Fixture { work: root.join("work"), root };

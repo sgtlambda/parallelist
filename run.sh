@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run Switcheroo. No arguments: a dev build with hot reload.
+# Run Parallelist. No arguments: a dev build with hot reload.
 #   ./run.sh            dev build, reloads as you edit
 #   ./run.sh --build    release .app, installed to /Applications and launched
 set -euo pipefail
@@ -29,15 +29,15 @@ command -v gh >/dev/null 2>&1 ||
 
 if [ "${1:-}" = "--build" ]; then
   pnpm tauri build
-  app="src-tauri/target/release/bundle/macos/Switcheroo.app"
-  rm -rf "/Applications/Switcheroo.app"
+  app="src-tauri/target/release/bundle/macos/Parallelist.app"
+  rm -rf "/Applications/Parallelist.app"
   cp -R "$app" /Applications/
   # `open` hands the app its caller's environment, so launching it from a
   # terminal gives it a PATH it will never see from the Dock — the exact reason
   # missing-`gh` bugs hide from terminal testing. `env -i` reproduces the
   # launchd environment instead; HOME is kept so it finds its config.
-  env -i HOME="$HOME" PATH=/usr/bin:/bin open -na /Applications/Switcheroo.app
-  echo "installed and launched /Applications/Switcheroo.app (launchd-like environment)"
+  env -i HOME="$HOME" PATH=/usr/bin:/bin open -na /Applications/Parallelist.app
+  echo "installed and launched /Applications/Parallelist.app (launchd-like environment)"
 else
   # A random free port rather than the fixed 1420, so a dev build can run from
   # several worktrees at once. Vite reads it from the environment (strictPort,
@@ -47,6 +47,6 @@ else
     lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 || break
   done
   echo "dev server on port $port"
-  SWITCHEROO_DEV_PORT=$port pnpm tauri dev \
+  PARALLELIST_DEV_PORT=$port pnpm tauri dev \
     --config "{\"build\":{\"devUrl\":\"http://localhost:$port\"}}"
 fi

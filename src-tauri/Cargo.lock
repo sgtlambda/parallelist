@@ -2457,6 +2457,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "parallelist"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "libc",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "uuid",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3371,22 +3387,6 @@ dependencies = [
  "base64 0.21.7",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "switcheroo"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "libc",
- "portable-pty",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "uuid",
 ]
 
 [[package]]

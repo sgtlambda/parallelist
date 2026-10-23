@@ -295,7 +295,7 @@ impl Terminals {
         }
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
-        cmd.env("TERM_PROGRAM", "Switcheroo");
+        cmd.env("TERM_PROGRAM", "Parallelist");
         // Programs that link their output decide by `TERM_PROGRAM`, and don't
         // know ours. Claude Code links `[Image #1]` to the image this way.
         cmd.env("FORCE_HYPERLINK", "1");
@@ -715,7 +715,7 @@ mod tests {
     }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("switcheroo-term-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("parallelist-term-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         dir.canonicalize().unwrap()
     }
@@ -813,7 +813,7 @@ mod tests {
     fn a_missing_directory_is_an_error_not_home() {
         let terminals = Terminals::default();
         let (tx, _rx) = sink();
-        let missing = "/nonexistent/switcheroo-workspace";
+        let missing = "/nonexistent/parallelist-workspace";
         let err = terminals
             .open("p", missing, SIZE, sh(Path::new(missing)), tx)
             .unwrap_err();
@@ -1060,7 +1060,7 @@ mod tests {
         std::env::set_var("TERM_PROGRAM", "iTerm.app");
         let cmd = Terminals::shell_command("/tmp");
         assert!(cmd.get_env("npm_config_prefix").is_none());
-        assert_eq!(cmd.get_env("TERM_PROGRAM").unwrap(), "Switcheroo");
+        assert_eq!(cmd.get_env("TERM_PROGRAM").unwrap(), "Parallelist");
         assert_eq!(cmd.get_env("TERM").unwrap(), "xterm-256color");
         assert_eq!(cmd.get_env("FORCE_HYPERLINK").unwrap(), "1");
         assert!(cmd.is_default_prog(), "the user's login shell");

@@ -1,6 +1,6 @@
 //! Thin wrappers around spawning external processes.
 //!
-//! Everything Switcheroo does to a repository goes through the real `git` and
+//! Everything Parallelist does to a repository goes through the real `git` and
 //! `gh` binaries rather than a linked library: worktrees, hooks, credential
 //! helpers and SSH config then behave exactly as they do in the user's shell.
 
@@ -338,7 +338,7 @@ mod tests {
     fn a_timeout_takes_grandchildren_with_it() {
         // Mirrors `git fetch` spawning ssh: killing only the direct child
         // leaves the grandchild running.
-        let marker = std::env::temp_dir().join(format!("switcheroo-test-{}", std::process::id()));
+        let marker = std::env::temp_dir().join(format!("parallelist-test-{}", std::process::id()));
         let _ = std::fs::remove_file(&marker);
         let script = format!(
             "sh -c 'sleep 2; touch {}' & wait",

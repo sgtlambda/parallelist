@@ -1,7 +1,7 @@
 //! Persisted configuration.
 //!
-//! Two layers: Switcheroo's own config file (`config.json` in the app config
-//! dir) and an optional `.switcheroo.json` committed at the root of a repo.
+//! Two layers: Parallelist's own config file (`config.json` in the app config
+//! dir) and an optional `.parallelist.json` committed at the root of a repo.
 //! The repo file wins field by field, so a project can ship its own setup
 //! recipe without stopping you from overriding the parts you care about.
 
@@ -9,7 +9,14 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub const CONFIG_FILE: &str = "config.json";
-pub const PROJECT_CONFIG_FILE: &str = ".switcheroo.json";
+pub const PROJECT_CONFIG_FILE: &str = ".parallelist.json";
+/// The name the project file had while the app was called Switcheroo. Repos
+/// that committed one can't be rewritten by the app, so it is still read
+/// when there is no `.parallelist.json`.
+pub const LEGACY_PROJECT_CONFIG_FILE: &str = ".switcheroo.json";
+/// The app config dir's name while the app was called Switcheroo: a sibling
+/// of the current one, whose `config.json` is carried over on first launch.
+pub const LEGACY_CONFIG_DIR: &str = "com.jmversteeg.switcheroo";
 
 /// A step offered in the create-workspace dialog. Every step is opt-in at
 /// creation time; `default_enabled` only decides how the checkbox starts.
@@ -27,7 +34,7 @@ pub struct SetupStep {
     /// symlinking are one-line shell commands, and having them as separate
     /// step types bought nothing a `cp` or `ln -s` doesn't say more clearly.
     ///
-    /// Defaulted so a hand-written `.switcheroo.json` can omit it.
+    /// Defaulted so a hand-written `.parallelist.json` can omit it.
     #[serde(default)]
     pub script: String,
 }
@@ -36,7 +43,7 @@ fn yes() -> bool {
     true
 }
 
-/// Settings that a project's own `.switcheroo.json` may override.
+/// Settings that a project's own `.parallelist.json` may override.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectOverrides {
@@ -315,10 +322,25 @@ pub fn sniff_setup_steps(project: &Path) -> Vec<SetupStep> {
 impl AppConfig {
     pub fn load(dir: &Path) -> Self {
         let path = dir.join(CONFIG_FILE);
+        if !path.exists() {
+            Self::adopt_legacy(dir);
+        }
         std::fs::read_to_string(path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default()
+    }
+
+    /// Copy `config.json` over from the Switcheroo-era config dir, so the
+    /// rename doesn't start the user from an empty project list. Copied, not
+    /// moved, so an old build still launches with its settings.
+    fn adopt_legacy(dir: &Path) {
+        let Some(legacy) = dir.parent().map(|p| p.join(LEGACY_CONFIG_DIR).join(CONFIG_FILE)) else {
+            return;
+        };
+        if legacy.is_file() && std::fs::create_dir_all(dir).is_ok() {
+            let _ = std::fs::copy(legacy, dir.join(CONFIG_FILE));
+        }
     }
 
     pub fn save(&self, dir: &Path) -> Result<(), String> {
@@ -345,11 +367,15 @@ impl ProjectConfig {
         }
     }
 
-    /// Apply `.switcheroo.json` from the repo root on top of the stored config.
+    /// Apply `.parallelist.json` (or a legacy `.switcheroo.json`) from the
+    /// repo root on top of the stored config.
     pub fn resolved(&self) -> ProjectConfig {
         let mut out = self.clone();
-        let file = Path::new(&self.path).join(PROJECT_CONFIG_FILE);
-        let Ok(text) = std::fs::read_to_string(file) else {
+        let root = Path::new(&self.path);
+        let Some(text) = [PROJECT_CONFIG_FILE, LEGACY_PROJECT_CONFIG_FILE]
+            .iter()
+            .find_map(|name| std::fs::read_to_string(root.join(name)).ok())
+        else {
             return out;
         };
         let Ok(over) = serde_json::from_str::<ProjectOverrides>(&text) else {
@@ -368,5 +394,50 @@ impl ProjectConfig {
             out.open_targets = v;
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("parallelist-config-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn carries_the_config_over_from_switcheroo() {
+        let root = scratch("legacy");
+        let legacy = root.join(LEGACY_CONFIG_DIR);
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join(CONFIG_FILE), r#"{"fetchIntervalSecs": 77}"#).unwrap();
+
+        let dir = root.join("com.jmversteeg.parallelist");
+        assert_eq!(AppConfig::load(&dir).fetch_interval_secs, 77);
+        // Copied, so the old directory is left as it was.
+        assert!(legacy.join(CONFIG_FILE).is_file());
+
+        // Once there is a config of its own, the old one is no longer read.
+        std::fs::write(dir.join(CONFIG_FILE), r#"{"fetchIntervalSecs": 5}"#).unwrap();
+        assert_eq!(AppConfig::load(&dir).fetch_interval_secs, 5);
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn reads_a_switcheroo_project_file_only_without_a_parallelist_one() {
+        let root = scratch("project");
+        let project = ProjectConfig {
+            base_branch: None,
+            ..ProjectConfig::new(root.clone(), "p".into())
+        };
+        std::fs::write(root.join(LEGACY_PROJECT_CONFIG_FILE), r#"{"baseBranch": "old"}"#).unwrap();
+        assert_eq!(project.resolved().base_branch.as_deref(), Some("old"));
+
+        std::fs::write(root.join(PROJECT_CONFIG_FILE), r#"{"baseBranch": "new"}"#).unwrap();
+        assert_eq!(project.resolved().base_branch.as_deref(), Some("new"));
+        std::fs::remove_dir_all(&root).ok();
     }
 }

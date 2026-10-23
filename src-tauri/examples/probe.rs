@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::time::Instant;
-use switcheroo_lib::{build_overview, peek_overview, workspace, config::ProjectConfig, gh, git};
+use parallelist_lib::{build_overview, peek_overview, workspace, config::ProjectConfig, gh, git};
 
 fn main() {
     let path = PathBuf::from(std::env::args().nth(1).expect("usage: probe <repo path> [overview.json]"));
@@ -138,7 +138,7 @@ fn main() {
     // The quick pass shown while that runs: it should have the same rows.
     let t = Instant::now();
     let peek = peek_overview(ProjectConfig::new(path.clone(), "probe".into())).unwrap();
-    let names = |o: &switcheroo_lib::Overview| {
+    let names = |o: &parallelist_lib::Overview| {
         let mut n: Vec<String> = o.branches.iter().map(|b| b.name.clone()).collect();
         n.sort();
         n

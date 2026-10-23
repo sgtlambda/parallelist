@@ -1,4 +1,4 @@
-# Switcheroo — notes for agents
+# Parallelist — notes for agents
 
 A macOS app (Tauri 2 + Vue 3) for managing git branches, worktrees and clones
 across a few large repos. This file records the things that are **not** obvious
@@ -181,7 +181,7 @@ redundant complexity and are not.
 - **The UI says "main workspace"; the wire says `primary`.** `WorkspaceKind`
   serialises that variant as `'primary'`, and setup steps and "Open in" commands
   substitute `{primary}` for its path. Both are load-bearing: the placeholder is
-  baked into the user's saved `config.json` and into `.switcheroo.json` files
+  baked into the user's saved `config.json` and into `.parallelist.json` files
   committed inside repos, which the app can never rewrite. Renaming it without
   an alias fails *silently* — `.replace("{primary}", …)` stops matching and the
   literal text reaches the shell. Same rule as above: don't "fix" it unasked.
@@ -397,7 +397,7 @@ renderer is too limited to be a useful check.
 export PATH="$HOME/.cargo/bin:$PATH"   # rustup ran with --no-modify-path
 pnpm install
 pnpm tauri dev
-pnpm tauri build      # -> src-tauri/target/release/bundle/macos/Switcheroo.app
+pnpm tauri build      # -> src-tauri/target/release/bundle/macos/Parallelist.app
 pnpm typecheck        # vue-tsc
 pnpm test             # cargo test
 pnpm lint             # cargo clippy
@@ -408,9 +408,16 @@ access and fails without it. The `.app` is the deliverable.
 
 ## Configuration
 
-- App config: `~/Library/Application Support/com.jmversteeg.switcheroo/config.json`
-- Per-project override: `.switcheroo.json` committed at a project's root, which
+- App config: `~/Library/Application Support/com.jmversteeg.parallelist/config.json`
+- Per-project override: `.parallelist.json` committed at a project's root, which
   wins field by field over the app config.
+- **The app used to be called Switcheroo, and two traces of that are
+  load-bearing.** A project without a `.parallelist.json` still has its
+  `.switcheroo.json` read, because those are committed in repos the app can't
+  rewrite. And when `com.jmversteeg.parallelist/config.json` doesn't exist yet,
+  `AppConfig::load` copies it over from `com.jmversteeg.switcheroo/` (the bundle
+  identifier names the directory, so the rename would otherwise have started
+  the user from an empty project list). Keep both until asked to drop them.
 - "Open in" targets and setup steps are user-editable shell templates run
   through the login shell. `{path}` is the workspace being acted on and
   `{primary}` the main workspace, in both. Path templates use `{project}` for
