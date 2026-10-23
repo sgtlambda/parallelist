@@ -17,21 +17,11 @@
     --visited: #6b3fa0;
     --pre: #f3f1ea;
 
-    /* The app's own tokens, for the window in figure 1 */
-    --bg: #f6f6f7;
-    --bg-raised: #ffffff;
-    --bg-sidebar: #ececee;
-    --bg-active: rgba(0, 0, 0, 0.075);
+    /* The app's own tokens, for the marks and the frame around figure 1 */    --bg: #f6f6f7;
     --border: rgba(0, 0, 0, 0.14);
-    --border-soft: rgba(0, 0, 0, 0.06);
-    --text: #1c1c1e;
     --text-dim: #6d6d72;
-    --text-faint: #96969c;
     --accent: #2f6fed;
-    --green: #1a7f37;
-    --amber: #9a6700;
     --orange: #d0630e;
-    --purple: #7b47c4;
     color-scheme: light;
   }
   @media (prefers-color-scheme: dark) {
@@ -45,19 +35,10 @@
       --pre: #262522;
 
       --bg: #1c1c1e;
-      --bg-raised: #262629;
-      --bg-sidebar: #202022;
-      --bg-active: rgba(255, 255, 255, 0.09);
       --border: rgba(255, 255, 255, 0.14);
-      --border-soft: rgba(255, 255, 255, 0.07);
-      --text: #f2f2f4;
       --text-dim: #9e9ea5;
-      --text-faint: #6f6f77;
       --accent: #4b8bff;
-      --green: #4ac26b;
-      --amber: #d4a72c;
       --orange: #f0883e;
-      --purple: #b585f5;
       color-scheme: dark;
     }
   }
@@ -103,58 +84,34 @@
   }
 
   figure { margin: 28px 0; }
-  figcaption { margin-top: 10px; font-size: 13px; color: var(--ink-dim); text-align: center; }
 
   .footer { font-size: 13px; color: var(--ink-dim); }
 
-  /* Figure 1: the app's window, drawn with its own colours */
-  .window {
+  /* Figure 1: the app itself, in a frame. The page inside is built at about
+     980px and is scaled down, not reflowed, when the column is narrower. */
+  figure.demo {
+    position: relative;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(980px, calc(100vw - 32px));
+  }
+  .demo-frame {
+    --s: 1;
+    height: calc(560px * var(--s));
     border-radius: 9px;
     border: 1px solid var(--border);
     background: var(--bg);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
     overflow: hidden;
-    display: grid;
-    grid-template-columns: 150px 1fr;
-    font: 12px/1.3 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
-    color: var(--text);
   }
-  .side { background: var(--bg-sidebar); border-right: 1px solid var(--border-soft); padding: 10px 6px; }
-  .lights { display: flex; gap: 7px; padding: 2px 6px 14px; }
-  .lights i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; }
-  .lights i:nth-child(2) { background: #febc2e; }
-  .lights i:nth-child(3) { background: #28c840; }
-  .label { padding: 0 8px 5px; font-size: 10.5px; font-weight: 600; color: var(--text-faint); }
-  .proj { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 5px; }
-  .proj.on { background: var(--bg-active); font-weight: 600; }
-  .proj span:first-child { flex: 1; }
-  .main { background: var(--bg-raised); min-width: 0; }
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border-soft);
-    color: var(--text-dim);
+  .demo-frame iframe {
+    display: block;
+    width: calc(100% / var(--s));
+    height: 560px;
+    border: 0;
+    transform: scale(var(--s));
+    transform-origin: 0 0;
   }
-  .toolbar b { color: var(--text); font-size: 13px; }
-  .search { margin-left: auto; padding: 2px 8px; border: 1px solid var(--border); border-radius: 5px; color: var(--text-faint); white-space: nowrap; }
-  .row {
-    display: grid;
-    grid-template-columns: 16px 1fr auto;
-    align-items: center;
-    gap: 9px;
-    padding: 7px 12px;
-    border-bottom: 1px solid var(--border-soft);
-  }
-  .row:last-child { border-bottom: 0; }
-  .row.sel { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-  .name { font-family: Menlo, monospace; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .sub { display: block; margin-top: 2px; font-family: -apple-system, "Helvetica Neue", sans-serif; font-size: 11px; color: var(--text-faint); }
-  .badge { padding: 0 6px; border-radius: 99px; font-size: 10.5px; font-weight: 600; white-space: nowrap; border: 1px solid currentColor; }
-  .badge.unpushed { color: var(--amber); }
-  .badge.open { color: var(--green); }
-  .badge.merged { color: var(--purple); }
 
   .mark { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 4px; color: var(--text-dim); vertical-align: -3px; }
   .mark svg { width: 11px; height: 11px; }
@@ -166,14 +123,12 @@
   @media (prefers-reduced-motion: reduce) { .mark.working svg { animation: none; } }
 
   @media (max-width: 600px) {
-    .window { grid-template-columns: 1fr; }
-    .side, .search, .hide-sm { display: none; }
     body { font-size: 13px; }
     .page { padding-top: 28px; }
     .masthead img { display: none; }
     h1 { font-size: 24px; }
     h2 { font-size: 15px; margin-top: 28px; }
-    figcaption, .footer { font-size: 12px; }
+    .footer { font-size: 12px; }
     dd { margin-left: 16px; }
   }
 </style>
@@ -182,7 +137,6 @@
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-term" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 4 4 4-4 4M9 12h4"/></symbol>
-  <symbol id="i-pin" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="3"/></symbol>
 </svg>
 
 <div class="page">
@@ -195,27 +149,10 @@
   </div>
 </div>
 
-<figure>
-  <div class="window" role="img" aria-label="The parallelist window: a sidebar of projects, and a branch list where a blocked terminal and a finished one are marked first.">
-    <div class="side">
-      <div class="lights"><i></i><i></i><i></i></div>
-      <div class="label">Projects</div>
-      <div class="proj on"><span>shop</span><span class="mark blocked"><svg><use href="#i-term"/></svg></span></div>
-      <div class="proj"><span>api</span><span class="mark ready"><svg><use href="#i-term"/></svg></span></div>
-      <div class="proj"><span>design-system</span><span class="mark working"><svg><use href="#i-term"/></svg></span></div>
-      <div class="proj"><span>infra</span></div>
-    </div>
-    <div class="main">
-      <div class="toolbar"><b>shop</b><span>origin, fetched just now</span><span class="search">⌘P Go to branch…</span></div>
-      <div class="row"><span class="mark"><svg><use href="#i-pin"/></svg></span><span class="name">main<span class="sub">Main workspace</span></span><span></span></div>
-      <div class="row sel"><span class="mark blocked"><svg><use href="#i-term"/></svg></span><span class="name">1234-fix-header<span class="sub">Claude Code is waiting for an answer</span></span><span class="badge open">#1234</span></div>
-      <div class="row"><span class="mark ready"><svg><use href="#i-term"/></svg></span><span class="name">feature/sso-login<span class="sub">Finished while you were away</span></span><span class="badge unpushed">2 unpushed</span></div>
-      <div class="row"><span class="mark working"><svg><use href="#i-term"/></svg></span><span class="name">fix/invoice-rounding<span class="sub">Working</span></span><span class="badge open hide-sm">#1251</span></div>
-      <div class="row"><span class="mark none"><svg><use href="#i-term"/></svg></span><span class="name">maintenance/php-8.4<span class="sub">Workspace · clone</span></span><span class="badge merged">merged</span></div>
-      <div class="row"><span class="mark none"><svg><use href="#i-term"/></svg></span><span class="name">feature/gift-cards<span class="sub">On origin</span></span><span></span></div>
-    </div>
+<figure class="demo">
+  <div class="demo-frame">
+    <iframe src="demo/" title="The parallelist window" loading="lazy"></iframe>
   </div>
-  <figcaption>Figure 1. One project's branches. The ones that need your attention come first.</figcaption>
 </figure>
 
 <p>Working across a few large repositories tends to mean dozens of branches at
@@ -244,7 +181,7 @@ give them up.</p>
 
 <table>
   <tr><td><span class="mark blocked"><svg><use href="#i-term"/></svg></span></td><td><b>Orange.</b> Something in that terminal is waiting for an answer.</td></tr>
-  <tr><td><span class="mark ready"><svg><use href="#i-term"/></svg></span></td><td><b>Blue.</b> Claude Code finished while you were looking elsewhere. Look at it and the mark goes.</td></tr>
+  <tr><td><span class="mark ready"><svg><use href="#i-term"/></svg></span></td><td><b>Blue.</b> A program finished while you were looking elsewhere. Look at it and the mark goes.</td></tr>
   <tr><td><span class="mark working"><svg><use href="#i-term"/></svg></span></td><td><b>Blinking.</b> Still working. Not your problem yet.</td></tr>
 </table>
 
@@ -306,6 +243,18 @@ The source, and the place to report problems, is
 <a href="https://github.com/sgtlambda/parallelist">on GitHub</a>.</p>
 
 </div>
+
+<script>
+  // Figure 1 is laid out for 760px or more; a narrower column scales it down.
+  (function () {
+    var frame = document.querySelector('.demo-frame');
+    if (!frame || !window.ResizeObserver) return;
+    new ResizeObserver(function (entries) {
+      var scale = Math.min(1, entries[0].contentRect.width / 760);
+      frame.style.setProperty('--s', scale);
+    }).observe(frame.parentNode);
+  })();
+</script>
 
 </body>
 </html>

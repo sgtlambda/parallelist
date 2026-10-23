@@ -1,0 +1,75 @@
+/* What the page adds to the app: the window chrome macOS would have drawn, and
+   the menus Tauri would have popped up natively. */
+
+/* The traffic lights, where the overlay title bar leaves room for them. */
+.titlebar::before {
+  content: '';
+  position: absolute;
+  left: 15.5px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow:
+    20px 0 #febc2e,
+    40px 0 #28c840;
+}
+
+.demo-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+}
+
+.demo-menu {
+  position: absolute;
+  min-width: 190px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.demo-menu-item {
+  position: relative;
+  padding: 3px 10px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.demo-menu-item:hover:not(.disabled) {
+  background: var(--accent);
+  color: #fff;
+}
+
+.demo-menu-item.disabled {
+  color: var(--text-faint);
+}
+
+.demo-menu-item.has-children::after {
+  content: '›';
+  float: right;
+  margin-left: 18px;
+}
+
+.demo-menu-rule {
+  height: 0;
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+.demo-submenu {
+  display: none;
+  top: -5px;
+  left: 100%;
+}
+
+.demo-menu-item:hover > .demo-submenu {
+  display: block;
+}
