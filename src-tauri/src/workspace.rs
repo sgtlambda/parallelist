@@ -839,9 +839,11 @@ mod tests {
         let err = delete_branch(&dir, "main", "main").unwrap_err();
         assert!(err.contains("refusing"), "{err}");
 
-        // A checked-out branch is refused by git, and its message — "used by
-        // worktree at <path>", which names what still holds it — is what
-        // surfaces to the dialog.
+        // A checked-out branch is refused by git, and its message, which
+        // names the worktree still holding it, is what surfaces to the
+        // dialog. Only the path is asserted: git 2.42 says "used by worktree
+        // at <path>", Apple's 2.39 "checked out at <path>". And only its
+        // last component, since git reports it resolved (`/private/var/…`).
         let checkout = |branch: &str| {
             assert!(run("git", &["checkout", "--quiet", branch], Some(&dir))
                 .unwrap()
@@ -849,7 +851,8 @@ mod tests {
         };
         checkout("leftover");
         let err = delete_branch(&dir, "main", "leftover").unwrap_err();
-        assert!(err.contains("worktree at"), "{err}");
+        let holder = dir.file_name().unwrap().to_string_lossy();
+        assert!(err.contains(&*holder), "{err}");
         checkout("main");
 
         delete_branch(&dir, "main", "leftover").expect("deletes a leftover");
