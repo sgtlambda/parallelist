@@ -1237,15 +1237,20 @@ code,
   margin: 0 auto;
 }
 
-/* Its rows centre too: the title (spinner and badges with it), the line
-   under it and a Ready task's buttons. */
+/* Its rows follow it, to the right end or the middle: the title (spinner
+   and badges with it), the line under it and a Ready task's buttons. */
+.task-box .row,
+.task-box .actions {
+  justify-content: flex-end;
+}
+
+.task-box .task-line {
+  text-align: right;
+}
+
 .task-box.centered .row,
 .task-box.centered .actions {
   justify-content: center;
-}
-
-.task-box.centered .spacer {
-  display: none;
 }
 
 .task-box.centered .task-line {
