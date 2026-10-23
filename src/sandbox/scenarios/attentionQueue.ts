@@ -181,20 +181,21 @@ export default defineGroup('Attention queue', [
   {
     id: 'long',
     title: 'Long lines truncate',
-    note: 'Branch, message and where, each cut with an ellipsis rather than growing the card.',
+    note: 'Workspace name and message, each cut with an ellipsis rather than growing the card or pushing the age and ⌘↵ out of it.',
     component: Window,
     props: queue,
     async setup() {
       const long = 'feature/a-branch-name-long-enough-that-it-cannot-possibly-fit-in-one-card'
+      const dir = 'app-a-workspace-directory-name-long-enough-that-it-cannot-fit-in-one-card'
       const base = overview()
       await withQueue(
         [
-          { path: `${WS}/app-long`, status: 'blocked', message: 'Run bundle exec rspec spec/controllers/admin/billing_reports_controller_spec.rb', minutesAgo: 9 },
-          { path: `${WS}/app-long-2`, status: 'idle', ready: true, minutesAgo: 4 },
+          { path: `${WS}/${dir}`, status: 'blocked', message: 'Run bundle exec rspec spec/controllers/admin/billing_reports_controller_spec.rb', minutesAgo: 9 },
+          { path: `${WS}/${dir}-2`, status: 'idle', ready: true, minutesAgo: 4 },
         ],
         {
           asked: {
-            [`${WS}/app-long-2`]:
+            [`${WS}/${dir}-2`]:
               'Do you want the report to include refunds issued after the period closed, or only those issued within it?',
           },
           overview: {
@@ -202,8 +203,8 @@ export default defineGroup('Attention queue', [
             branches: [...base.branches, branch(long, { hasLocal: true }), branch(`${long}-2`, { hasLocal: true })],
             workspaces: [
               ...base.workspaces,
-              workspace('app-long', 'worktree', long),
-              workspace('app-long-2', 'worktree', `${long}-2`),
+              workspace(dir, 'worktree', long),
+              workspace(`${dir}-2`, 'worktree', `${long}-2`),
             ],
           },
         },

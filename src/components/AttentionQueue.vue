@@ -64,7 +64,7 @@ watch(
   { immediate: true },
 )
 
-/** The card's middle line: what a working program says it does, or what a
+/** The card's second line: what a working program says it does, or what a
  *  waiting one asked. A blocked one's own message, if it sent one, is the
  *  more current of the two. */
 function said(item: QueueItem): string | null {
@@ -137,20 +137,21 @@ const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0
             @keydown.enter.prevent="goToItem(item)"
             @keydown.space.prevent="goToItem(item)"
           >
+            <!-- The workspace's directory name, not its branch: it is what the
+                 user knows the terminal by, and the project is usually in it
+                 (`app-1234-fix-header`). Project, branch and path are in the
+                 tooltip. -->
             <span class="row">
               <TerminalMark :paths="[item.path]" />
-              <span class="truncate attention-branch">
-                {{ item.entry.branch.name }}
+              <span class="truncate attention-workspace">
+                {{ basename(item.path) }}
               </span>
               <span class="spacer" />
               <span class="attention-age faint">{{ elapsed(item) }}</span>
             </span>
-            <span class="truncate attention-said" :class="{ faint: !said(item) }">
-              {{ said(item) ?? (item.kind === 'working' ? 'Working…' : '') }}
-            </span>
             <span class="row">
-              <span class="truncate attention-where">
-                {{ item.entry.projectName }} · {{ basename(item.path) }}
+              <span class="truncate attention-said" :class="{ faint: !said(item) }">
+                {{ said(item) ?? (item.kind === 'working' ? 'Working…' : '') }}
               </span>
               <span class="spacer" />
               <kbd v-if="item.path === nextWaiting?.path" class="attention-kbd" title="Go here with ⌘↵"

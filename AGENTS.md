@@ -460,7 +460,9 @@ redundant complexity and are not.
   oldest first: never where ⌘↵ goes, but what joins the queue next. The two
   are one keyed list, so a turn ending unseen slides its card from the head
   of the working line to the back of the queue instead of replacing it.
-  Each card's middle line says what is going on. A working one shows the
+  A card is two lines: its workspace's directory name — what the user knows
+  the terminal by, and it usually names the project too — with how long it
+  has waited, and a line that says what is going on. A working one shows the
   `msg` Claude Code sends with `working` (base64 in the payload; what it is
   doing, e.g. a Bash command's description). A waiting one shows what the
   turn ended on, which the status can't say: `done` carries no `msg`, even
