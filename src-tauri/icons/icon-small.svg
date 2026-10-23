@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Switcheroo at 16 and 32 px: icon.svg simplified to two windows and a heavier branch, which at those sizes would otherwise be a smudge. -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7189FF"/>
+      <stop offset="1" stop-color="#4636D8"/>
+    </linearGradient>
+    <!-- The drop shadow from Apple's macOS icon template. -->
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="10"/>
+      <feOffset dy="10"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.3"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- The 824 px body of Apple's 1024 px grid: corner radius 22.5%, smoothed 60% into a continuous curve. -->
+  <path fill="url(#body)" filter="url(#shadow)" d="M627.36 100c103.83 0 155.75 0 195.41 20.21a185.4 185.4 0 0 1 81.02 81.02c20.21 39.66 20.21 91.58 20.21 195.41L924 627.36c0 103.83 0 155.75 -20.21 195.41a185.4 185.4 0 0 1 -81.02 81.02c-39.66 20.21 -91.58 20.21 -195.41 20.21L396.64 924c-103.83 0 -155.75 0 -195.41 -20.21a185.4 185.4 0 0 1 -81.02 -81.02c-20.21 -39.66 -20.21 -91.58 -20.21 -195.41L100 396.64c0 -103.83 0 -155.75 20.21 -195.41a185.4 185.4 0 0 1 81.02 -81.02c39.66 -20.21 91.58 -20.21 195.41 -20.21Z"/>
+  <g transform="translate(20 -16)">
+    <rect x="330" y="250" width="470" height="380" rx="56" fill="#FFFFFF" fill-opacity="0.45"/>
+    <rect x="224" y="360" width="470" height="400" rx="56" fill="#FFFFFF"/>
+    <path d="M350 680V460M350 610C350 540 390 520 450 520H580" fill="none" stroke="#4F46E5" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
+    <g fill="#4F46E5">
+      <circle cx="350" cy="680" r="52"/>
+      <circle cx="350" cy="460" r="52"/>
+      <circle cx="580" cy="520" r="52"/>
+    </g>
+  </g>
+</svg>
