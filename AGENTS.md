@@ -1,6 +1,6 @@
 # parallelist — notes for agents
 
-A macOS context switcher (Tauri 2 + Vue 3) that keeps the user's attention in
+A context switcher (Tauri 2 + Vue 3) that keeps the user's attention in
 one place while they work across several projects, dozens of branches, the
 worktrees and clones that hold them, and the shells running in those. This file
 records the things that are **not** obvious from reading the code: why the
@@ -41,7 +41,7 @@ the terminal lately, and GUIs were invented for a reason: a list you can
 scan, a mark you can see out of the corner of your eye, a dialog that shows
 what will be lost before you confirm, a click. So the terminal is for the
 program running in it, and everything *around* the terminals is an ordinary
-Mac window. Don't reach for terminal idioms (text menus, key-only flows,
+window. Don't reach for terminal idioms (text menus, key-only flows,
 status drawn as characters) where a native control would do, and don't
 treat the GUI as a wrapper waiting to be replaced by a TUI.
 
