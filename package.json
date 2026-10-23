@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
+    "dev:demo": "vite --config demo/vite.config.ts",
+    "build:demo": "vite build --config demo/vite.config.ts",
     "tauri": "tauri",
     "typecheck": "vue-tsc --noEmit",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml",

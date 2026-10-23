@@ -49,7 +49,13 @@ Built with [Tauri 2](https://tauri.app) and Vue 3.
 pnpm typecheck      # vue-tsc
 pnpm test           # cargo test
 pnpm lint           # cargo clippy
+pnpm dev:demo       # the landing page's demo: this frontend, in a browser
 ```
+
+The landing page (`site/`) embeds that demo: the app's own components with
+made-up projects and scripted terminals behind them (`demo/`), built into
+`site/demo` by `pnpm build:demo`. A command added to `src/api.ts` needs an
+answer in `demo/backend/index.ts`.
 
 ## Configuration
 

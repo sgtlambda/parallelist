@@ -237,10 +237,12 @@ redundant complexity and are not.
   a mark means — updates all three in the same commit, not later. The site
   also copies things from the app that won't follow it on their own:
   `site/icon.svg` and `site/favicon.svg` are `src-tauri/icons/icon.svg` and
-  `icon-small.svg`, and its Figure 1 is a hand-drawn window using the colour
-  tokens from `src/styles.css` and the marks from `TerminalMark.vue`. Redraw
-  it when the window it pictures changes. The site deploys from `main` through
-  `.github/workflows/pages.yml` whenever `site/` changes.
+  `icon-small.svg`, and the small marks in its "What needs you" table are
+  drawn by hand from `TerminalMark.vue`'s colours. Its Figure 1 is the app
+  itself: the real frontend built for a browser (see **The demo** below), so
+  it follows the app on its own. The site deploys from `main` through
+  `.github/workflows/pages.yml` whenever `site/`, `src/` or `demo/` changes,
+  and that workflow builds `site/demo`, which is not committed.
 - **The UI says "Project"; the code says "repo"** (`RepoConfig`, `repoId`,
   `add_repo`, the `repos` key in `config.json`). This is deliberate — renaming
   the internals is churn with a config-migration risk and none of it is visible.
@@ -470,6 +472,26 @@ redundant complexity and are not.
   title behind a type prefix (`fix/`, `feature/`, `maintenance/`, …) — only
   a prefix the project's branches already use — and its number leads the
   directory, as in `app-1234-fix-header`.
+- **The demo** (`demo/`) is `src/` running in a browser, in an iframe on the
+  landing page. `vite.config.ts` there aliases every Tauri module the
+  frontend imports to a stand-in in `demo/shims/` (`invoke`, `listen`,
+  `Channel`, native menus, the dialog and opener plugins), and
+  `demo/backend/` answers what the Rust side would: a made-up machine
+  (`world.ts`: four projects, their branches, workspaces and PRs), tasks
+  with short logs, and scripted terminals (`terminals.ts`, `seed.ts`). The
+  shells understand a few commands. `agent` starts a made-up coding-agent
+  session, named for no real product, that reports `working` / `blocked` / `done` as the real one does
+  over OSC 7501, handed to the frontend as the `terminal-status` events the
+  Rust parser would have sent, so marks, the queue and the palette run
+  their real code. The app's components are never forked for it, so keep
+  it that way: a change that only works in Tauri belongs behind the api
+  layer, where the shims can answer it. A new command in `src/api.ts`
+  needs a handler in `demo/backend/index.ts`; a new event, an `emit`.
+  Two things exist only because it is in a page: a terminal's focus is held
+  back until the visitor has touched the frame (focusing inside an iframe
+  scrolls the page to it), and what the seeded sessions do on their own
+  starts when the frame scrolls into view. `pnpm dev:demo` runs it,
+  `pnpm build:demo` builds it into `site/demo`.
 - Error messages that say "git repository" are factual statements about git and
   should stay that way, even though the UI otherwise says "project".
 
@@ -488,6 +510,14 @@ For anything a user reads: the README, the site, and copy in the app.
   be true of any app ("powerful", "seamless"), cut it.
 - **Use the app's own words.** "Workspace", "main workspace", "project",
   never "checkout" or "repo" (see Conventions).
+- **Let it speak for itself.** The site's demo needs no caption, no "try
+  this" and no note that its terminals are scripted: if the window isn't
+  obvious on sight, change the window. The same goes for anything else a
+  user would be walked through. State what the app does, not how to operate
+  it.
+- **No product names on the site.** Not Claude Code, not any other agent or
+  tool, in the copy or inside the demo (its made-up agent is just `agent`).
+  Copy says "a program in a terminal", as the app's own wording does.
 
 ## Verifying work
 
