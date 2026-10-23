@@ -1,9 +1,15 @@
 # Parallelist
 
-A macOS app for keeping your attention in one place while you switch between
-projects, branches and shells all day. Every project, every branch on origin,
-every workspace holding one and every shell running there sit in one window,
-which shows what needs you and gets you there in a keystroke.
+A context switcher for macOS that keeps your attention in one place while you
+switch between projects, branches and shells all day. Every project, every
+branch on origin, every workspace holding one and every shell running there sit
+in one window, which shows what needs you and gets you there in a keystroke. A
+mark means something needs your attention, and nothing else gets one.
+
+The shells run whatever you like. Coding agents such as Claude Code are the
+obvious case, and the app shows when one is working, waiting on you or done,
+but a dev server or a plain shell is just as at home. Around them is an
+ordinary Mac window, with lists to scan and things to click.
 
 It also manages the mess this leaves on disk: put a branch into a
 **workspace** (a git worktree or a clone), see what each one holds, and clean
@@ -13,15 +19,15 @@ Built with [Tauri 2](https://tauri.app) and Vue 3.
 
 ## Features
 
-- **Origin-first branch list**, kept fresh by a background fetch, with pull
-  request, review and CI state from `gh`.
 - **A terminal per workspace**, built in, that keeps running while you look
   elsewhere. Claude Code running in one reports whether it is working, blocked
   or finished, and the app marks it.
 - **`⌘P` jumps to any branch of any project**, with what's waiting first.
-- **New workspaces in the background**: a worktree, or a clone when the branch
-  already has a worktree. Optional setup steps copy env files, symlink
-  dependencies or run an install.
+- **Origin-first branch list**, kept fresh by a background fetch, with pull
+  request, review and CI state from `gh`.
+- **New workspaces in the background**, so you carry on while they're made: a
+  worktree, or a clone when the branch already has a worktree. Optional setup
+  steps copy env files, symlink dependencies or run an install.
 - **Cleanup that shows the bill first**: uncommitted changes, commits origin
   doesn't have, stashes and size on disk, before anything is removed.
 
