@@ -356,7 +356,10 @@ redundant complexity and are not.
     card shows greyed as "removed". Before this the shell lived on
     unreachable: the project lit up with a terminal no row could show.
     "On screen" is reported apart from focus, so switching apps isn't
-    leaving it.
+    leaving it. "Removed" means the directory no longer holds a workspace
+    (no `.git`), not that it is gone: a dev server left running in a removed
+    worktree recreates its cache folder there, and a bare directory like that
+    used to keep the terminal, and its card in the queue, for good.
   - "Active", which the project list, branch list and cards mark, means the
     shell is running.
   - **Claude Code's status comes from OSC 7501** (its "Program Status
