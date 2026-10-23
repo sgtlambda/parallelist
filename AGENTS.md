@@ -2,7 +2,10 @@
 
 A context switcher (Tauri 2 + Vue 3) that keeps the user's attention in
 one place while they work across several projects, dozens of branches, the
-worktrees and clones that hold them, and the shells running in those. This file
+worktrees and clones that hold them, and the shells running in those. The
+user's attention is the resource the app is built to save. Most of the
+branches are short-lived: a workspace is made, used for one thing and
+removed, and the app aims to make each end of that take seconds. This file
 records the things that are **not** obvious from reading the code: why the
 model is shaped the way it is, and which apparently-redundant details are
 load-bearing.
@@ -11,13 +14,22 @@ Start with `README.md` for what the app does. This file is about working on it.
 
 ## The problem it solves: attention
 
-The app is about **attention**. The user switches context all the time, across
-several projects, dozens of branches and a handful of shells at once, many of
-them running Claude Code. Each switch used to mean a different terminal window,
-IDE or browser tab, and a moment spent remembering where things were. The job
-of parallelist is to keep the user's attention **in one place** while they
-switch: one window that shows every project, branch, workspace and shell, says
-which of them needs the user right now, and gets them there in a keystroke.
+The app is about **attention**. The user's attention is the scarcest
+resource in the setup, more than machine time or disk, and the app exists
+to use it well. The user switches context all the time, across several
+projects, dozens of branches and a handful of shells at once, many of them
+running Claude Code, which works on its own for a while and then needs an
+answer. Each switch used to mean a different terminal window, IDE or
+browser tab, and a moment spent remembering where things were.
+
+Ideally the user spends the day on **decisions**: answering a question a
+program asked, looking over a result, approving a diff, starting or
+finishing a branch. Finding the right window, remembering where things
+were, waiting for a clone and working out whether a directory is safe to
+delete are not decisions, and the app should take them over. That is how
+a feature is judged. The job of parallelist is one window that shows every
+project, branch, workspace and shell, says which of them needs the user
+right now, and gets them there in a keystroke.
 
 The worktree mess is where it started, and it is still one part of that job.
 The user works across many branches of a few big monoliths and
@@ -26,6 +38,40 @@ constantly spins up workspaces to review or test them. Sibling directories
 nobody knows which branch is where, which are merged, or which are safe to
 delete. That is attention lost to bookkeeping, and the app answers it so the
 user doesn't have to.
+
+### The short life of a branch
+
+The typical unit of work is a short-lived branch: made for one thing,
+worked on, merged and deleted, often within the hour and several times a
+day. The target is that **a new branch with a running dev app takes
+seconds to set up and seconds to remove**. If setting one up is slow, the
+user skips it and does the work in a directory that is already open, on top
+of something else. If removing one is risky, it stays on disk, which is how
+the sibling directories piled up.
+
+1. **Start.** New workspace, from a typed name or one of the project's open
+   issues (`BranchPicker`), which names the branch and the directory. The
+   dialog closes at once: the worktree or clone (`git clone --local`
+   hardlinks the object store, so a clone of a monolith is seconds), its
+   setup steps (env files, linked dependencies, an install) and the
+   "Open in" targets ticked in the dialog (an editor, a dev server or a
+   program started in its terminal) all run as a task while the user
+   carries on elsewhere.
+2. **Work.** The workspace's terminal holds the work, and the marks and the
+   attention queue say when it needs the user. ⌘↵ and ⌘P get there.
+3. **Finish.** A merged branch, or one whose PR closed, is marked `stale`
+   while it still has a workspace, and Cleanup offers the workspace and
+   then the branch up, showing first what removing them would lose, so
+   the user can decide from the dialog. A program that removes
+   its own workspace once it has merged — Claude Code does this — is the
+   same ending reached from inside, and the terminal stays until nothing
+   in it needs the user.
+
+A lot of what looks like care elsewhere in this file exists for this loop.
+The removal numbers are measured so carefully (invariants 11–13) because a
+throwaway workspace has to be safe to throw away without checking by hand;
+creates run in the background and clean up after themselves (invariant 15)
+because starting one must not cost a context switch either.
 
 ### Agents, but not only agents — and not a TUI
 
@@ -50,9 +96,21 @@ treat the GUI as a wrapper waiting to be replaced by a TUI.
 Most of the behaviour described below comes from a few rules. Weigh a change
 against them before anything else:
 
+- **Decisions only.** The user's time goes to decisions: answering,
+  reviewing, starting and finishing. Finding, waiting and checking by hand
+  are the app's job. A feature that hands one of those back to the user
+  needs a reason.
+- **Seconds at both ends.** Starting a branch and finishing one are the
+  most frequent steps, so they get the fewest clicks and the least waiting.
+  The target is seconds for each. A change that adds a step or a wait to
+  either needs a good reason.
 - **One place.** Anything the user would otherwise leave the app for belongs
   in it: shells live in the detail pane rather than in an external terminal,
   task logs are a click away, and "Open in" targets run from here.
+- **One list.** A piece of work is one row, whether it started as an issue,
+  a pull request, a branch or a directory, and the row is where its state
+  and its actions go. Don't add a second list, panel or badge for
+  something a row can show.
 - **Say what is waiting, and nothing else.** A mark means "this needs you":
   orange while a program is blocked, blue while a finished turn hasn't been
   seen, a task box that a failure or an unseen finished create takes over
@@ -76,6 +134,22 @@ against them before anything else:
 **Origin-first.** The branch list is *origin's* branches, kept fresh by a
 background fetch. Having a branch on disk locally is a side effect, not the
 source of truth. Filters, sorting and staleness all follow from this.
+
+**One row per piece of work.** Issues, pull requests, branches and
+workspaces are not four lists. The branch list has one `Row` per branch
+(`src/store.ts`), and the row carries everything about that piece of work:
+the pull request with its review and CI state, the workspaces holding the
+branch, the terminals running in them, and whether it is `stale`. An issue
+enters the same way: picking one in the New workspace dialog uses its linked
+branch or names one from its title, and from then on it is a row. There is
+no separate PR view or workspace view, only filters over the rows (Active,
+Open PRs, Assigned, Workspaces, All), and that list is the user's to-do
+list: Assigned is what is asked of them, Active is what is in flight, a
+stale row is done and waiting for Cleanup, and a row disappears when its
+branch does. So a piece of work is never tracked in two places, and
+anything that belongs to one (a status, a mark, an action) goes on its row.
+Issues that have no branch yet are the one exception today: they appear
+only in the dialog's picker, not as rows (see Open items).
 
 **"Workspace" is the central noun** — any directory holding a branch, whether a
 linked worktree or a full clone. It is the only word the UI uses for the idea:
@@ -534,6 +608,19 @@ For anything a user reads: the README, the site, and copy in the app.
   window", not that it tries to.
 - **No first person.** No "I", "we" or "my": the app isn't one person's
   story. Addressing the reader as "you" is fine.
+- **A mark is not a nuisance.** A mark, a queue card or a question from a
+  program is a decision for the user, and dealing with it is what they are
+  there for. Copy doesn't present it as a burden or something to be spared
+  ("not your problem yet", "bothering you", "leaving you alone"). Say what
+  is waiting and what isn't: "waiting for an answer", "nothing to decide
+  there yet". What the app protects the user from is the time between
+  decisions (finding, waiting, checking by hand), which is what "never
+  steal attention" refers to.
+- **Plain, not clever.** Readers notice and dislike the habits of
+  generated text, so avoid them: "not X, but Y" constructions, sets of
+  three for rhythm, a short aphorism to close a paragraph, a sentence that
+  restates the one before it, grand claims about what the app is for, and
+  em-dashes used for pacing. One idea per sentence, stated once.
 - **No selling.** No superlatives, no exclamation marks. If a sentence would
   be true of any app ("powerful", "seamless"), cut it.
 - **Use the app's own words.** "Workspace", "main workspace", "project",
@@ -542,7 +629,16 @@ For anything a user reads: the README, the site, and copy in the app.
   this" and no note that its terminals are scripted: if the window isn't
   obvious on sight, change the window. The same goes for anything else a
   user would be walked through. State what the app does, not how to operate
-  it.
+  it, and don't narrate the interface step by step ("the dialog closes",
+  "click the button"): say what the user ends up with.
+- **Concrete, and from the reader's side.** Describe the reader's day in
+  its own terms (the shells they have open, `app-1234-fix-header` next to
+  `app-b`, a program that worked for a while and now needs an answer)
+  rather than the app's categories. Where a claim could be an adjective,
+  make it a consequence instead: not that creating a workspace is fast,
+  but that if it were slow you would skip it and work in a directory that
+  is already open. Short sentences, one each, and a specific noun over a
+  general one.
 - **No product names on the site.** Not Claude Code, not any other agent or
   tool, in the copy or inside the demo (its made-up agent is just `agent`).
   Copy says "a program in a terminal", as the app's own wording does.
@@ -661,6 +757,10 @@ access and fails without it. The `.app` is the deliverable.
 
 ## Open items
 
+- Open issues without a branch are not rows. They are offered by the New
+  workspace dialog's picker, and become a row once a workspace is made for
+  one. Whether they should be listed before that, so the to-do list also
+  shows work not yet started, is undecided.
 - The onboarding screen should say that a folder can be dropped onto it to
   add a project (`TODO` in `Onboarding.vue`). Drag-and-drop is on a branch
   that is not merged yet; until it is, the line would promise too much.

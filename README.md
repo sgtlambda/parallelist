@@ -1,21 +1,55 @@
 # parallelist
 
-A context switcher that keeps your attention in one place while you
+A context switcher that tries to keep your attention in one place while you
 switch between projects, branches and shells all day. Every project, every
-branch on origin, every workspace holding one and every shell running there sit
-in one window, which shows what needs you and gets you there in a keystroke. A
-mark means something needs your attention.
+branch on origin, every workspace holding one and every shell running there
+sit in one window, which shows what needs you and gets you there in a
+keystroke.
+
+The idea is that your attention is the scarce resource, so it should go to
+decisions: answering a question a program asked, looking over a result,
+starting or finishing a branch. Finding the right window, waiting for a
+clone and checking whether a directory is safe to delete are the app's job.
+A mark means something is waiting for a decision, and nothing else is
+marked.
+
+Issues, pull requests, branches and workspaces are not separate lists. A
+branch's row carries its pull request, its workspaces and their terminals,
+and an issue becomes a row when you make a workspace for it. Filtered to
+what is assigned to you or in flight, the list is the to-do list, and a row
+goes when the work is merged and cleaned up.
 
 The shells run whatever you like. Coding agents such as Claude Code are the
 obvious case, and the app shows when one is working, waiting on you or done,
 but a dev server or a plain shell is just as at home. Around them is an
 ordinary window, with lists to scan and things to click.
 
-It also manages the mess this leaves on disk: put a branch into a
-**workspace** (a git worktree or a clone), see what each one holds, and clean
-up the ones you're done with.
-
 Built with [Tauri 2](https://tauri.app) and Vue 3.
+
+## A branch, start to finish
+
+Most of the work is short: a branch made for one thing, worked on, merged
+and gone, often within the hour. A **workspace** is a directory holding one,
+a git worktree or a full clone. The aim is that a new branch with a dev app
+running in it takes seconds to set up and seconds to remove. If setting one
+up is slow you skip it and work in a directory that is already open; if
+removing one feels risky it stays on disk.
+
+1. **Start.** In **New workspace**, type a branch name or pick one of the
+   project's open issues, which names the branch and the directory. The
+   workspace is made in the background (a
+   worktree, or a clone sharing the main workspace's objects when the branch
+   already has a worktree, so even a large one takes seconds), its setup
+   steps copy env files, link dependencies or run an install, and whatever
+   you ticked to open it in starts when it's ready: an editor, a dev server,
+   a program in its terminal.
+2. **Work.** The workspace's terminal runs whatever the work needs, and the
+   marks and the attention queue say when it needs an answer or has finished.
+3. **Finish.** Once the branch is merged or its pull request closed, its row
+   is marked stale, and Cleanup offers up the workspace and then the branch,
+   showing first what removing them would lose, so you can decide from the
+   dialog. When a program removes its own workspace after merging, as Claude
+   Code does, its terminal stays until you've seen how it ended.
 
 ## Features
 
@@ -32,7 +66,8 @@ Built with [Tauri 2](https://tauri.app) and Vue 3.
   worktree, or a clone when the branch already has a worktree. Optional setup
   steps copy env files, symlink dependencies or run an install.
 - **Cleanup that shows the bill first**: uncommitted changes, commits origin
-  doesn't have, stashes and size on disk, before anything is removed.
+  doesn't have in any form, stashes and size on disk, before anything is
+  removed. A workspace git can't answer for shows as unknown, never as clean.
 
 ## Requirements
 

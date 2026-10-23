@@ -66,6 +66,9 @@
   h2 { margin: 36px 0 8px; font-size: 18px; }
   p { margin: 0 0 14px; }
 
+  ol { margin: 0 0 14px; padding-left: 24px; }
+  li { margin-bottom: 8px; }
+
   dl { margin: 0; }
   dt { font-weight: bold; margin-top: 14px; }
   dd { margin: 2px 0 0 24px; }
@@ -156,24 +159,52 @@
 </figure>
 
 <p>Working across a few large repositories tends to mean dozens of branches at
-a time and several shells open, each busy with a different task.
-Every switch means finding the right terminal window, editor or browser tab,
-then remembering where things were. The directories pile up side by side
-(<code>app</code>, <code>app-1234-fix-header</code>, <code>app-b</code>) until
-nobody quite knows which branch is where, which are merged, or which are safe
-to delete. None of it is hard. All of it costs attention.</p>
+a time and several shells open, each busy with a different task, and more and
+more of them running a program that works on its own for a while and then
+needs an answer. The useful part of the day is the decisions: answering that
+question, looking over a result, starting a branch or finishing one. The rest
+is finding the right terminal window, editor or browser tab, remembering
+where things were, waiting for a clone, and wondering which of
+<code>app</code>, <code>app-1234-fix-header</code> and <code>app-b</code> is
+merged and safe to delete. None of it is hard. All of it costs attention.</p>
 
-<p>parallelist is an attempt to keep that attention in one place. It puts the
-projects, their branches, the workspaces holding them and the shells running
-there in a single window, tries to show only what actually needs you, and gets
-you there in a keystroke. It also tries not to pull you away from whatever
-you're in the middle of. That's the idea, anyway.</p>
+<p>parallelist is an attempt to keep that attention for the decisions. It puts
+the projects, their branches, the workspaces holding them and the shells
+running there in a single window, tries to show only what actually needs you,
+and gets you there in a keystroke. It also tries not to pull you away from
+whatever you're in the middle of. That's the idea, anyway.</p>
 
 <p>It's also a small bet against everything moving into the terminal. The
 terminals here run anything, an agent, a dev server, a plain shell, but
 everything around them is an ordinary window, with lists to scan and
 things to click. GUIs were invented for a reason, and it seems a shame to
 give them up.</p>
+
+<h2>A branch, start to finish</h2>
+
+<p>Most of the work is short: a branch made for one thing, worked on, merged
+and gone, often within the hour. A <b>workspace</b> is a directory holding
+one, a git worktree or a full clone. The aim is that a new branch with a dev
+app running in it takes seconds to set up and seconds to remove. If setting
+one up is slow you skip it and work in a directory that is already open; if
+removing one feels risky it stays on disk.</p>
+
+<ol>
+  <li><b>Start.</b> Type a branch name, or pick one of the project's open
+  issues and get a branch named after it. The workspace is made in the
+  background (a clone shares the main workspace's
+  objects when a worktree won't do, so even a large one takes seconds), its
+  setup steps copy env files, link dependencies or run an install, and
+  whatever you ticked to open it in starts when it's ready: an editor, a dev
+  server, a program in its terminal.</li>
+  <li><b>Work.</b> The workspace's terminal runs whatever the work needs, and
+  the marks below say when it needs an answer or has finished.</li>
+  <li><b>Finish.</b> Once the branch is merged, its row says so, and Cleanup
+  offers up the workspace and then the branch, showing first what removing
+  them would lose, so you can decide from the dialog. A program that
+  removes its own workspace after merging leaves its terminal open until
+  you've seen how it ended.</li>
+</ol>
 
 <h2>What needs you</h2>
 
@@ -182,44 +213,44 @@ give them up.</p>
 <table>
   <tr><td><span class="mark blocked"><svg><use href="#i-term"/></svg></span></td><td><b>Orange.</b> Something in that terminal is waiting for an answer.</td></tr>
   <tr><td><span class="mark ready"><svg><use href="#i-term"/></svg></span></td><td><b>Blue.</b> A program finished while you were looking elsewhere. Look at it and the mark goes.</td></tr>
-  <tr><td><span class="mark working"><svg><use href="#i-term"/></svg></span></td><td><b>Blinking.</b> Still working. Not your problem yet.</td></tr>
+  <tr><td><span class="mark working"><svg><use href="#i-term"/></svg></span></td><td><b>Blinking.</b> Still working. Nothing to decide there yet.</td></tr>
 </table>
 
 <p>Anything you're already looking at isn't marked, and output alone never
-counts, or a chatty dev server would never let you go. Work you start in the
-background finishes in the background: it waits for you to come to it rather
-than jumping in front of whatever you're doing.</p>
+counts, or a chatty dev server would sit at the top for good. Work you start
+in the background finishes in the background: it waits for you to come to it
+rather than jumping in front of whatever you're doing. The queue along the
+bottom lists everything that is waiting, oldest first, and <kbd>⌘↵</kbd>
+goes to the next one.</p>
 
 <h2>What it does</h2>
 
 <dl>
-  <dt>Gives every workspace a terminal</dt>
-  <dd>A workspace is any directory holding a branch, a git worktree or a full
-  clone. Its terminal lives in the window, runs whatever you start in it, and
-  keeps running while you look at something else.</dd>
+  <dt>Keeps one list</dt>
+  <dd>Origin's branches, kept current by a background fetch. Each row
+  carries the branch's pull request, review and CI status from
+  <code>gh</code>, its workspaces and their terminals, and an issue becomes
+  a row when you start a workspace for it. Filtered to what is assigned to
+  you or in flight, it is the to-do list, and a row goes when the work is
+  merged and cleaned up.</dd>
 
-  <dt>Jumps anywhere with <kbd>⌘P</kbd></dt>
-  <dd>Any branch of any project, with whatever is waiting for you listed
-  first. The terminal you land in takes the keyboard straight away.</dd>
+  <dt>Keeps every terminal running</dt>
+  <dd>Each workspace has its own, and it carries on while you look at
+  something else. Switching back finds it where you left it, scrollback and
+  all, and it takes the keyboard straight away. <kbd>⌘P</kbd> reaches any
+  branch of any project, with whatever is waiting listed first.</dd>
 
-  <dt>Lists origin's branches, not yours</dt>
-  <dd>A background fetch keeps the list current. Pull requests, reviews and CI
-  status come from <code>gh</code>.</dd>
+  <dt>Counts carefully</dt>
+  <dd>A commit counts as unpushed only if origin doesn't have it in any form,
+  rebased or squash-merged copies included. A workspace git can't answer for
+  shows as unknown, never as clean, so you don't have to check a number
+  yourself.</dd>
 
-  <dt>Makes workspaces in the background</dt>
-  <dd>A worktree, or a clone if the branch already has a worktree. Setup steps
-  can copy <code>.env</code> files, link dependencies or run an install while
-  you carry on.</dd>
-
-  <dt>Cleans up carefully</dt>
-  <dd>Before removing anything it tells you what would be lost: uncommitted
-  changes, commits that aren't on origin in any form, stashes, and the space
-  on disk. It's careful about those numbers so you don't have to go and check
-  them yourself.</dd>
+  <dt>Uses your git</dt>
+  <dd>It runs the <code>git</code> and <code>gh</code> you already have, so
+  your hooks, credential helpers and SSH config work as they do in a
+  terminal.</dd>
 </dl>
-
-<p>It runs the <code>git</code> and <code>gh</code> you already have, so your
-hooks, credential helpers and SSH config work as they do in a terminal.</p>
 
 <h2>Getting it</h2>
 
