@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { open } from '@tauri-apps/plugin-dialog'
 import { api } from '../api'
 import { basename } from '../format'
 import { ref } from 'vue'
 import TerminalMark from './TerminalMark.vue'
 import { popupMenu, type MenuItem } from '../menu'
 import {
+  addProject,
   dropCached,
   loadConfig,
   refresh,
@@ -14,8 +14,6 @@ import {
   settingsOpen,
   state,
 } from '../store'
-
-const emit = defineEmits<{ (e: 'error', message: string): void }>()
 
 const dragging = ref<number | null>(null)
 const dropAt = ref<number | null>(null)
@@ -92,18 +90,6 @@ function onSelect(id: string) {
   void selectProject(id)
 }
 
-async function addProject() {
-  const picked = await open({ directory: true, multiple: false, title: "Choose the project's main workspace" })
-  if (typeof picked !== 'string') return
-  try {
-    const added = await api.addProject(picked)
-    await loadConfig()
-    await selectProject(added.id)
-  } catch (e) {
-    emit('error', String(e))
-  }
-}
-
 async function forget(id: string) {
   await api.removeProject(id)
   dropCached(id)
@@ -161,9 +147,6 @@ async function onMenuSelect(id: string, action: string) {
         <span class="project-sub truncate">{{ basename(project.path) }}</span>
       </button>
 
-      <p v-if="!state.config?.projects.length" class="empty" style="padding: 20px 14px">
-        Add a project's main workspace to get started.
-      </p>
     </div>
 
     <button class="add-strip" @click="addProject">+ Add project</button>

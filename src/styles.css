@@ -300,6 +300,12 @@ code,
   padding-right: calc((var(--titlebar-h) - 1px) / 2 - 13px);
 }
 
+/* With no sidebar (the onboarding screen) the strip runs the width of the
+   window, which puts the gear at the far corner. */
+.titlebar.wide {
+  width: 100%;
+}
+
 /* ---------- attention queue ---------- */
 
 /* Behind the task box: the strip's colour, from transparent at the left

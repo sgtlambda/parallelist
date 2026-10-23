@@ -417,7 +417,7 @@ redundant complexity and are not.
   terminals first. Recency only breaks ties, so it never beats a better
   match. Going to a branch clears a search or switches to All when the
   list would otherwise hide it.
-- **The attention queue** (`src/attention.ts`, `AttentionQueue.vue`) is a
+- **The attention queue** (the AQ; `src/attention.ts`, `AttentionQueue.vue`) is a
   strip under all three columns with one card per terminal waiting for the
   user — blocked, or ready — in the order they started waiting: oldest on
   the left, newcomers on the right. First in, first out and nothing else;
@@ -453,6 +453,16 @@ redundant complexity and are not.
   private layout, so anything missing is just no line. The webview asks
   for it twice per wait (`terminal_question`), since `done` can arrive
   before the transcript has the turn.
+- **With no project, an onboarding screen takes the place of all three
+  columns** (`Onboarding.vue`, chosen in `App.vue` by an empty
+  `config.projects`): a project list with nothing in it, a branch list and a
+  detail pane whose empty states ("Select a project", "Pick a branch") had
+  nothing to say. The AQ goes too, its row with it (`--queue-h` is 0), as do
+  the splitters, and the title bar strip widens (`.titlebar.wide`) so the settings gear sits at the window's corner
+  rather than over where the sidebar was. It carries its own error
+  banner, because a folder git rejects lands in `state.error`, which only the
+  branch list showed. `addProject` is in the store so the sidebar's strip and
+  the screen's button are one path.
 - **The New workspace dialog's branch field is a combobox** (`BranchPicker.vue`,
   logic in `src/branchPicker.ts`) over the project's branches and its open
   issues. Its first entry is always the text as typed — "Create branch …",
@@ -482,11 +492,16 @@ For anything a user reads: the README, the site, and copy in the app.
   copy: `productName` in `tauri.conf.json` (it names `Parallelist.app`, which
   `run.sh` and the build paths refer to) and the `TERM_PROGRAM` the terminals
   set, which programs may match on.
-- **Modest, and a little self-aware.** The app is an attempt at a problem,
-  not its solution: "parallelist is an attempt to keep that attention in one
-  place", not "parallelist keeps your attention in one place". Say what it
-  *tries* to do when describing its purpose; describe concrete behaviour
-  ("the mark goes when you look at it") plainly, without hedging every line.
+- **Modest, and a little self-aware, on the site and in the README.** The
+  app is an attempt at a problem, not its solution: "parallelist is an
+  attempt to keep that attention in one place", not "parallelist keeps your
+  attention in one place". Say what it *tries* to do when describing its
+  purpose; describe concrete behaviour ("the mark goes when you look at it")
+  plainly, without hedging every line.
+- **Formal and to the point in the app.** Copy in the UI states what a thing
+  is and does, without hedging or a voice of its own: the onboarding screen
+  says "parallelist keeps its branches, workspaces and terminals in one
+  window", not that it tries to.
 - **No first person.** No "I", "we" or "my": the app isn't one person's
   story. Addressing the reader as "you" is fine.
 - **No selling.** No superlatives, no exclamation marks. If a sentence would
@@ -608,6 +623,9 @@ access and fails without it. The `.app` is the deliverable.
 
 ## Open items
 
+- The onboarding screen should say that a folder can be dropped onto it to
+  add a project (`TODO` in `Onboarding.vue`). Drag-and-drop is on a branch
+  that is not merged yet; until it is, the line would promise too much.
 - Icons are hand-drawn Lucide-style placeholders. Agreed upgrade path is
   `unplugin-icons` + `@iconify-json/*` (offline, tree-shaken); only `Icon.vue`
   changes. **react-icons is React-only and cannot be used here.**
