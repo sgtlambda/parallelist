@@ -26,6 +26,7 @@ import { atRisk, rowBadges } from '../status'
 import { openIn, targetBusy } from '../openIn'
 import { terminalActive } from '../terminalState'
 import { popupMenu, type MenuItem } from '../menu'
+import { animateReorder } from '../reorder'
 
 const emit = defineEmits<{ (e: 'create'): void }>()
 
@@ -246,6 +247,14 @@ watch(
 )
 watch(visibleRows, () => scrollPending && void nextTick(scrollToSelected))
 
+// Rows that change places slide there, as long as it is the same list: same
+// project, tab and search.
+animateReorder(
+  listEl,
+  () => visibleRows.value.map((r) => r.branch.name),
+  () => [state.overview?.project.id, state.filter, state.search].join('\0'),
+)
+
 /** Where this branch lives on disk, each entry labelled by its own kind. */
 function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[] {
   return row.workspaces.map((c) => ({
@@ -324,6 +333,7 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
       <button
         v-for="row in visibleRows"
         :key="row.branch.name"
+        :data-reorder="row.branch.name"
         class="branch"
         :class="{ selected: row.branch.name === state.selectedBranch }"
         @click="state.selectedBranch = row.branch.name"
