@@ -17,7 +17,8 @@ import { openTaskIn, targetBusy, targetTitle } from '../openIn'
 const emit = defineEmits<{ (e: 'error', message: string): void }>()
 
 /**
- * The bottom-left box: one featured task, and a count of the rest. The featured
+ * The box at the right end of the attention queue's strip: one featured
+ * task, and a count of the rest. The featured
  * task is the first of `boxTasks` — something asking for attention, else the
  * oldest running — so it only changes when that task is dealt with or
  * finishes, never because another one printed a line. Clicking opens the
@@ -27,13 +28,14 @@ const featured = computed(() => boxTasks.value[0] ?? null)
 const others = computed(() => Math.max(0, boxTasks.value.length - 1))
 
 /**
- * Motion, via motion-v. The box rises into the corner and, once nothing is
+ * Motion, via motion-v. The box rises into the strip and, once nothing is
  * left to show, sinks back out of it. `AnimatePresence` is
  * Vue's own `<Transition>` underneath, so the leaving box keeps its last
  * render — the finished task's checkmark — for the whole exit.
  *
  * Inside, a different featured task cross-fades in while `layout` eases the
- * box to its new height (the Ready buttons, a longer title). The fades
+ * lines to their new place (the Ready buttons, centred in the strip, push
+ * them up). The fades
  * overlap: `popLayout` pins the outgoing content where it was so the incoming
  * content takes its place at once. `wait` faded one fully out before the
  * other came in, which read as a blank beat whenever a finished task handed
@@ -65,13 +67,21 @@ async function reveal(task: LiveTask) {
   <!-- "user": macOS's Reduce motion drops the movement and keeps the fades. -->
   <MotionConfig reduced-motion="user">
     <AnimatePresence>
+      <!-- The strip's own colour, faded in from the left: whatever cards
+           run on under the box are covered rather than showing through. -->
+      <motion.div
+        v-if="featured"
+        key="task-backdrop"
+        class="task-backdrop"
+        :initial="{ opacity: 0 }"
+        :animate="{ opacity: 1, transition: { duration: 0.18 } }"
+        :exit="{ opacity: 0, transition: { duration: 0.22 } }"
+      />
       <motion.div
         v-if="featured"
         key="task-box"
         class="task-box"
-        :class="{ failed: featured.status === 'failed', ready: featured.status === 'done' }"
         layout
-        :style="{ borderRadius: '7px' }"
         :initial="tucked"
         :animate="settled"
         :exit="sink"

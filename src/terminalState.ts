@@ -19,8 +19,18 @@ export const projectOf = new Map<string, string>()
 export const active = reactive(new Set<string>())
 
 /** What the program in each terminal reports over OSC 7501, when it does,
- *  and whether a turn ended there unseen (`ready`, kept by the backend). */
-export const statuses = reactive(new Map<string, Pick<TerminalInfo, 'status' | 'ready'>>())
+ *  whether a turn ended there unseen (`ready`, kept by the backend), since
+ *  when either has kept it waiting for the user, and since when it has been
+ *  working (when the status turned `working`, or after a reload, when it
+ *  was last active). */
+export const statuses = reactive(
+  new Map<
+    string,
+    Pick<TerminalInfo, 'status' | 'ready' | 'waitingSince' | 'message'> & {
+      workingSince: number | null
+    }
+  >(),
+)
 
 /**
  * When each terminal was last active, in epoch milliseconds: started, its
@@ -33,7 +43,22 @@ export const activeAt = new Map<string, number>()
 
 export function setStatus(t: TerminalInfo) {
   const key = normalizePath(t.path)
-  if (t.status || t.ready) statuses.set(key, { status: t.status, ready: t.ready })
+  if (t.status || t.ready) {
+    const was = statuses.get(key)
+    const workingSince =
+      t.status !== 'working'
+        ? null
+        : was?.status === 'working'
+          ? was.workingSince
+          : t.activeAt || Date.now()
+    statuses.set(key, {
+      status: t.status,
+      ready: t.ready,
+      waitingSince: t.waitingSince,
+      message: t.message,
+      workingSince,
+    })
+  }
   else statuses.delete(key)
   if (t.activeAt) activeAt.set(key, t.activeAt)
 }

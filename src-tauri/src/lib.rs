@@ -7,6 +7,7 @@ pub mod proc;
 pub mod status;
 pub mod tasks;
 pub mod terminal;
+pub mod transcript;
 
 use workspace::{BranchConflict, CreateRequest, RemovalImpact};
 use config::{AppConfig, ProjectConfig};
@@ -868,6 +869,14 @@ fn terminal_mark(state: State<AppState>, path: String, mark: terminal::Mark) -> 
     state.terminals.mark(&path, mark)
 }
 
+/// What the Claude Code in a workspace's terminal last asked of the user,
+/// from its transcript, or `None` when nothing is running there that keeps
+/// one.
+#[tauri::command]
+fn terminal_question(state: State<AppState>, path: String) -> Option<String> {
+    transcript::question(state.terminals.foreground(&path)?)
+}
+
 /// Running terminals, for a webview that has just (re)loaded to mark.
 #[tauri::command]
 fn terminal_list(state: State<AppState>) -> Vec<terminal::TerminalInfo> {
@@ -1081,6 +1090,7 @@ pub fn run() {
             terminal_list,
             terminal_viewing,
             terminal_mark,
+            terminal_question,
         ])
         .run(tauri::generate_context!())
         .expect("error while running parallelist");
@@ -1137,6 +1147,8 @@ mod tests {
             status: Some("done".into()),
             ready: true,
             active_at: 0,
+            waiting_since: Some(0),
+            message: None,
         }];
         let mut seen = LastSeen::new();
 

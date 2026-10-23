@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { homeDir } from '@tauri-apps/api/path'
 import { onMounted, onUnmounted, ref } from 'vue'
+import AttentionQueue from './components/AttentionQueue.vue'
 import BranchList from './components/BranchList.vue'
 import CleanupDialog from './components/CleanupDialog.vue'
 import CommandPalette from './components/CommandPalette.vue'
@@ -12,6 +13,7 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import TaskBox from './components/TaskBox.vue'
 import TasksDialog from './components/TasksDialog.vue'
 import { onOpenSettings } from './api'
+import { goToNextWaiting } from './attention'
 import { setHomeDirectory } from './format'
 import { runCreateTargets } from './openIn'
 import { paletteOpen } from './palette'
@@ -141,6 +143,15 @@ function onKey(event: KeyboardEvent) {
       event.preventDefault()
       zoomTerminals(event.key === '0' ? 0 : event.key === '-' ? -1 : 1)
       break
+    // ⌘↵: whatever has waited longest for the user, as ⌘P ↵ goes to
+    // whatever needs them. Not over a dialog, where it conventionally
+    // submits. In a terminal xterm lets it through to here rather than
+    // typing it as a plain Return (`term.attachCustomKeyEventHandler`).
+    case 'Enter':
+      if (document.querySelector('.scrim')) break
+      event.preventDefault()
+      goToNextWaiting()
+      break
     case 'f':
       event.preventDefault()
       document.querySelector<HTMLInputElement>('input[type="search"]')?.focus()
@@ -220,6 +231,8 @@ onUnmounted(() => {
       @remove="openCleanup($event, [], 'Remove workspace')"
       @error="state.error = $event"
     />
+
+    <AttentionQueue />
 
     <div
       class="splitter"

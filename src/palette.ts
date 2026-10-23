@@ -3,6 +3,7 @@ import { api, type BranchInfo, type Overview, type Workspace } from './api'
 import { basename } from './format'
 import { fuzzyMatch } from './fuzzy'
 import { groupByBranch, knownOverview, projectId, state } from './store'
+import { normalizePath } from './tasks'
 import { byTerminalRank, terminalRank, TIER, type TerminalRank, type Tier } from './terminalState'
 
 /**
@@ -119,6 +120,15 @@ const entries = computed<Entry[]>(() => {
   }
   return out
 })
+
+/** The branch a workspace's terminal belongs to, from what the palette
+ *  holds, or null if no project known so far lists it. */
+export function entryForPath(path: string): Entry | null {
+  for (const entry of entries.value) {
+    if (entry.workspaces.some((w) => normalizePath(w.path) === path)) return entry
+  }
+  return null
+}
 
 function weighted(score: number): number {
   return score > 0 ? score * SECONDARY_WEIGHT : score
