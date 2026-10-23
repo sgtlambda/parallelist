@@ -1,15 +1,15 @@
 # parallelist
 
-A context switcher for macOS that keeps your attention in one place while you
+A context switcher that keeps your attention in one place while you
 switch between projects, branches and shells all day. Every project, every
 branch on origin, every workspace holding one and every shell running there sit
 in one window, which shows what needs you and gets you there in a keystroke. A
-mark means something needs your attention, and nothing else gets one.
+mark means something needs your attention.
 
 The shells run whatever you like. Coding agents such as Claude Code are the
 obvious case, and the app shows when one is working, waiting on you or done,
 but a dev server or a plain shell is just as at home. Around them is an
-ordinary Mac window, with lists to scan and things to click.
+ordinary window, with lists to scan and things to click.
 
 It also manages the mess this leaves on disk: put a branch into a
 **workspace** (a git worktree or a clone), see what each one holds, and clean
@@ -36,7 +36,6 @@ Built with [Tauri 2](https://tauri.app) and Vue 3.
 
 ## Requirements
 
-- macOS
 - `git`
 - `gh`, authenticated with `gh auth login` (optional, for pull request data)
 - [Rust](https://rustup.rs) and [pnpm](https://pnpm.io) to build
