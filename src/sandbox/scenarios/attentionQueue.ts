@@ -77,7 +77,7 @@ export default defineGroup('Attention queue', [
   {
     id: 'empty-task',
     title: 'Nothing waiting, a task running',
-    note: 'The task box takes the middle of the empty strip, and the "Nothing needs your attention" line gives way to it.',
+    note: 'The task box takes the middle of the empty strip, and its line gives way to it.',
     component: Window,
     props: queue,
     setup: () => withTasks([], [creating()]),
