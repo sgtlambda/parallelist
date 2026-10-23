@@ -451,9 +451,10 @@ For anything a user reads: the README, the site, and copy in the app.
 
 ## Verifying work
 
-**The GUI cannot be screenshotted.** Screen recording permission is not granted
-to the terminal and the user declined to grant it. Do not plan on visual
-inspection of the running app.
+**The running app cannot be screenshotted.** Screen recording permission is not
+granted to the terminal and the user declined to grant it. Do not plan on visual
+inspection of the running app — but its components can be looked at in the
+browser sandbox, described at the end of this section.
 
 Instead:
 
@@ -473,6 +474,53 @@ To check SVG or other rendered output, `qlmanage -t -s 900 -o <dir> file.svg`
 renders through WebKit, the same engine the app uses. ImageMagick's built-in SVG
 renderer is too limited to be a useful check.
 
+### The component sandbox
+
+The running app can't be looked at, but its components can, in a browser:
+`pnpm sandbox` serves `sandbox.html` (port 1430, `PARALLELIST_SANDBOX_PORT`
+to change it; use `pnpm exec vite --mode sandbox` to skip opening a tab).
+Scenarios are named states of one piece of UI, listed in the left column,
+shown in an iframe whose width, colour scheme and reset button are along the
+top, with every backend call and component event logged underneath.
+
+How it works, and what it leaves out:
+
+- **Tauri is stubbed at the module boundary.** In `--mode sandbox` Vite
+  aliases each `@tauri-apps/*` module the app imports to a file in
+  `src/sandbox/tauri/`, all of which land in `src/sandbox/backend.ts`:
+  `invoke` is answered by handlers a scenario registers (`backend.handle`),
+  `listen` by `backend.emit`. A command with no handler **fails loudly**
+  rather than answering with something plausible. A new `@tauri-apps/*`
+  import in the app needs a stub and an entry in `stubs` in `vite.config.ts`.
+  `pnpm build` and `tauri dev` never see any of this.
+- **Components read singletons, so scenarios seed them the way the app
+  does.** `boot()` in `src/sandbox/seed.ts` answers `get_config`, `refresh`
+  and `peek` and then calls the real `loadConfig` and `refresh`;
+  `terminals()` fills `terminalState`; tasks go through the real
+  `startTaskSync` over `list_tasks`, and a scenario can `backend.emit` task
+  events afterwards. Don't assign into the stores when the app's own path
+  can be driven instead.
+- **A scenario is a frame reload.** Each runs in a fresh iframe
+  (`?frame=<group>/<id>`, optionally `&theme=light|dark`), so nothing leaks
+  between them; Reset is a reload. `props: { open: true }` is mounted shut
+  and opened once ready, because dialogs load what they show when `open`
+  turns true. To add one, drop a file in `src/sandbox/scenarios/` that
+  default-exports `defineGroup(...)` (from `define.ts`, not `scenarios.ts`:
+  that one globs these files and importing it back is a cycle). Fixtures
+  are in `fixtures.ts`.
+- **Light and dark** are forced by copying `styles.css`'s `:root` values
+  onto the root element (`theme.ts`), since a page can't flip
+  `prefers-color-scheme`. xterm's theme still follows the OS.
+- **It is Chrome, not WKWebView.** Layout is close, not proof. The native
+  menu is a drawn lookalike, `open`ed dialogs return nothing, and there is
+  no pty, window dragging or menu bar.
+- **Screenshots.** Headless Chrome works without the browser extension:
+  `Google Chrome --headless=new --window-size=W,H --virtual-time-budget=6000
+  --screenshot=out.png 'http://localhost:1430/sandbox.html?frame=…'`. Under
+  virtual time `requestAnimationFrame` doesn't run, so `motion-v` animations
+  (the task box) are caught at their start and look faded; CSS-only ones
+  (dialogs) are fine.
+
 ## Build and run
 
 ```sh
@@ -480,6 +528,7 @@ export PATH="$HOME/.cargo/bin:$PATH"   # rustup ran with --no-modify-path
 pnpm install
 pnpm tauri dev
 pnpm tauri build      # -> src-tauri/target/release/bundle/macos/Parallelist.app
+pnpm sandbox          # component sandbox in a browser, no backend needed
 pnpm typecheck        # vue-tsc
 pnpm test             # cargo test
 pnpm lint             # cargo clippy

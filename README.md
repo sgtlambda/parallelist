@@ -43,6 +43,7 @@ Built with [Tauri 2](https://tauri.app) and Vue 3.
 ```sh
 ./run.sh            # dev build, reloads as you edit
 ./run.sh --build    # release .app, installed to /Applications and launched
+pnpm sandbox        # components in a browser, with made-up data (src/sandbox)
 pnpm typecheck      # vue-tsc
 pnpm test           # cargo test
 pnpm lint           # cargo clippy
