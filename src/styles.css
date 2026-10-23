@@ -384,12 +384,14 @@ code,
   background: transparent;
 }
 
-/* Between the cards that wait for the user and the ones still working. */
+/* Between the cards that wait for the user and the ones still working. The
+   space on either side is the strip's 6px padding, as above and below the
+   cards: the 8px flex gap less 2px. */
 .attention-divider {
   flex: none;
   align-self: stretch;
   width: 1px;
-  margin: 16px 2px;
+  margin: 16px -2px;
   background: var(--border);
 }
 
