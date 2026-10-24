@@ -1,7 +1,7 @@
 import { computed } from 'vue'
 import { entryOf, type Entry } from './palette'
-import { goToBranch, projectId, state } from './store'
-import { showTerminal, terminalFor } from './terminal'
+import { projectId, state } from './store'
+import { enterTerminal, terminalFor } from './terminal'
 import { running, statuses } from './terminalState'
 
 /**
@@ -75,13 +75,7 @@ export const nextWaiting = computed(() => queue.value.find((w) => !w.here) ?? nu
 
 /** Show a terminal on its branch, and give it the keyboard. */
 export function goToItem(item: QueueItem) {
-  const { projectId, branch } = item.entry
-  // Asked for outright, so a search field that had focus lets go of it, or
-  // the terminal would leave the keyboard there (`mayTakeFocus`).
-  const focused = document.activeElement
-  if (focused instanceof HTMLElement && focused.closest('input, textarea')) focused.blur()
-  goToBranch(projectId, branch.name)
-  showTerminal(projectId, branch.name, item.path)
+  enterTerminal(item.entry.projectId, item.entry.branch.name, item.path)
 }
 
 /** ⌘↵. */

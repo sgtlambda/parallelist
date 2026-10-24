@@ -202,7 +202,9 @@ disk.</p>
   objects when a worktree won't do, so even a large one takes seconds), its
   setup steps copy env files, link dependencies or run an install, and
   whatever you ticked to open it in starts when it's ready: an editor, a dev
-  server, a program in its terminal.</li>
+  server, a program in its terminal. Double-clicking a branch with no
+  workspace makes one with those same defaults and opens its terminal once
+  it is set up.</li>
   <li><b>Work.</b> The workspace's terminal runs whatever the work needs, and
   the marks below say when it needs an answer or has finished.</li>
   <li><b>Finish.</b> Once the branch is merged, its row says so, and Cleanup
@@ -243,8 +245,10 @@ goes to the next one.</p>
   <dt>Keeps every terminal running</dt>
   <dd>Each workspace has its own, and it carries on while you look at
   something else. Switching back finds it where you left it, scrollback and
-  all, and it takes the keyboard straight away. <kbd>⌘P</kbd> reaches any
-  branch of any project, with whatever is waiting listed first.</dd>
+  all, and it takes the keyboard straight away. Double-clicking a branch
+  goes into its shell, the one already running there or a new one.
+  <kbd>⌘P</kbd> reaches any branch of any project, with whatever is waiting
+  listed first.</dd>
 
   <dt>Counts carefully</dt>
   <dd>A commit counts as unpushed only if origin doesn't have it in any form,

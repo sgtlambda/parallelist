@@ -11,6 +11,7 @@ import {
   dismissTask,
   elapsed,
   hasCard,
+  isActive,
   normalizePath,
   openTasks,
   removalOf,
@@ -126,14 +127,19 @@ const hiddenCount = computed(() => {
  *  holding its card: during a load, or once it has been removed, the overview
  *  shows — but the branch keeps asking for the terminal, so it comes back
  *  when the workspace does. Without the create, a terminal target ticked in
- *  the New workspace dialog sat unstarted until the refresh listed it. */
+ *  the New workspace dialog sat unstarted until the refresh listed it.
+ *  Not while a create is still setting the workspace up, though a refresh
+ *  can list it by then: a double-click asks for its shell straight away,
+ *  and it would start before the setup steps had run. */
 const terminal = computed((): Pick<Workspace, 'path' | 'kind'> | null => {
   const path = terminalFor(projectId.value, state.selectedBranch)
   if (!path) return null
+  const creates = createTasksFor(projectId.value, state.selectedBranch)
+  if (creates.some((t) => isActive(t) && normalizePath(t.path ?? '') === path)) return null
   const listed = [...(row.value?.workspaces ?? []), ...(row.value?.unlisted ?? [])]
   const workspace = listed.find((w) => normalizePath(w.path) === path)
   if (workspace) return workspace
-  const created = createTasksFor(projectId.value, state.selectedBranch).find(
+  const created = creates.find(
     (t) => t.status === 'done' && hasCard(t) && normalizePath(t.path ?? '') === path,
   )
   return created ? { path: created.path ?? path, kind: created.mode ?? 'worktree' } : null

@@ -3,7 +3,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { computed, reactive, watch } from 'vue'
+import { computed, nextTick, reactive, watch } from 'vue'
 import { api, onTerminalExit, onTerminalStatus, type TerminalMessage } from './api'
 import { goToBranch, projectId as currentProject, saveConfig, state } from './store'
 import { normalizePath } from './tasks'
@@ -355,6 +355,23 @@ export function runInTerminal(
     goToBranch(projectId, branch)
   }
   showTerminal(projectId, branch, path)
+}
+
+/**
+ * Show a workspace's terminal on its branch and give it the keyboard, as
+ * asked for outright: ⌘↵, or double-clicking a branch. Even one already on
+ * screen takes it back, and a search field that had it lets go. A terminal
+ * whose workspace isn't ready yet takes it once the pane shows it (`attach`).
+ */
+export function enterTerminal(projectId: string, branch: string, path: string) {
+  const focused = document.activeElement
+  if (focused instanceof HTMLElement && focused.closest('input, textarea')) focused.blur()
+  goToBranch(projectId, branch)
+  showTerminal(projectId, branch, path)
+  void nextTick(() => {
+    const s = sessions.get(normalizePath(path))
+    if (s?.el.isConnected && mayTakeFocus()) s.term.focus()
+  })
 }
 
 /** Take a workspace's terminal out of the document, keeping it for later. */
