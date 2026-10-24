@@ -69,7 +69,7 @@ export default defineGroup('Attention queue', [
   {
     id: 'empty',
     title: 'Nothing waiting',
-    note: 'The strip is there anyway, so the panes above never change height.',
+    note: 'The strip is there anyway, so the panes above never change height. The logo sits in the middle, its frames lighting up back to front.',
     component: Window,
     props: queue,
     setup: () => withQueue([]),
@@ -77,7 +77,7 @@ export default defineGroup('Attention queue', [
   {
     id: 'empty-task',
     title: 'Nothing waiting, a task running',
-    note: 'The task box takes the middle of the empty strip, and the "Anything that needs your attention shows up here" line gives way to it.',
+    note: 'The task box takes the middle of the empty strip, and the logo gives way to it.',
     component: Window,
     props: queue,
     setup: () => withTasks([], [creating()]),
