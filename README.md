@@ -47,7 +47,9 @@ disk.
    already has a worktree, so even a large one takes seconds), its setup
    steps copy env files, link dependencies or run an install, and whatever
    you ticked to open it in starts when it's ready: an editor, a dev server,
-   a program in its terminal.
+   a program in its terminal. Double-clicking a branch with no workspace
+   makes one as the dialog would with nothing changed, and opens its
+   terminal once it is set up.
 2. **Work.** The workspace's terminal runs whatever the work needs, and the
    marks and the attention queue say when it needs an answer or has finished.
 3. **Finish.** Once the branch is merged or its pull request closed, its row
@@ -60,7 +62,8 @@ disk.
 
 - **A terminal per workspace**, built in, that keeps running while you look
   elsewhere. Claude Code running in one reports whether it is working, blocked
-  or finished, and the app marks it.
+  or finished, and the app marks it. Double-clicking a branch goes into its
+  shell: the one already running there, or a new one.
 - **`⌘P` jumps to any branch of any project**, with what's waiting first.
 - **An attention queue** along the bottom: every terminal waiting for you,
   oldest on the left, with what Claude asked; then the ones still working.

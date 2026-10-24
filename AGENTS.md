@@ -51,7 +51,8 @@ the sibling directories piled up.
 
 1. **Start.** New workspace (⌘N, or ⌘⇧N for the selected branch), from a
    typed name or one of the project's open issues (`BranchPicker`), which
-   names the branch and the directory. The dialog closes at once: the
+   names the branch and the directory. Double-clicking a branch with no
+   workspace skips the dialog and makes one with its defaults. The dialog closes at once: the
    worktree or clone (`git clone --local` hardlinks the object store, so a
    clone of a monolith is seconds), its setup steps (env files, linked
    dependencies, an install) and the "Open in" targets ticked in the dialog
@@ -576,6 +577,22 @@ redundant complexity and are not.
   `App.vue` handles the same keys, because WKWebView offers a key to the
   page before the menu, and the demo has no menu at all. Both land in
   `newFromShortcut`, so whichever gets the key, the result is the same.
+- **Double-clicking a branch goes into its shell** (`enterShell` in
+  `src/enterShell.ts`): a terminal already running on the branch, shown or
+  not, takes the keyboard; else a workspace of it gets its shell; else one
+  is made as the New workspace dialog would make it if opened on the branch
+  and submitted at once, and its shell opens when the create is done. How
+  the dialog's defaults are derived (setup steps, ticked targets, the plan,
+  the request) lives in `src/newWorkspace.ts`, which the dialog and the
+  double-click both use, so the two can't drift; don't derive a default
+  in `CreateDialog.vue` itself. A built-in terminal target ticked by default
+  runs as after any create; otherwise the shell is a plain one. The shell
+  is only asked for (`showTerminal`), so it starts when the pane shows it:
+  a branch left meanwhile gets no shell until it is back on screen, and the
+  pane holds the terminal back while a create is still setting its
+  workspace up, even if a refresh has listed the directory by then.
+  `enterTerminal` refocuses a terminal that is already on screen; ⌘↵ goes
+  through it too.
 - **The New workspace dialog's branch field is a combobox** (`BranchPicker.vue`,
   logic in `src/branchPicker.ts`) over the project's branches and its open
   issues. Its first entry is always the text as typed — "Create branch …",

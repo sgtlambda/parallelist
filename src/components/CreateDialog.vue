@@ -1,11 +1,23 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import BranchPicker from './BranchPicker.vue'
-import { api, type CreateRequest, type Issue, type OpenTarget } from '../api'
+import type { Issue, OpenTarget } from '../api'
 import { branchName, loadIssues } from '../branchPicker'
 import { shortPath } from '../format'
+import {
+  baseBranch,
+  createRequest,
+  defaultSteps,
+  defaultTargets,
+  isNewBranch as isNew,
+  offeredTargets,
+  planWorkspace,
+  rowFor,
+  startCreate,
+  targetsClash,
+} from '../newWorkspace'
 import { isActive, normalizePath, tasks } from '../tasks'
-import { openTargetsFor, project, projectId, rows, state } from '../store'
+import { project, projectId } from '../store'
 import { useEscape } from '../useEscape'
 
 /** `initialBranch` fills the branch field: the selected branch from its
@@ -32,24 +44,15 @@ useEscape(
 
 /** The row for the branch as typed, not the selected one: the field can name
  *  any branch, or one that doesn't exist yet and so has no PR. */
-const row = computed(() => rows.value.find((r) => r.branch.name === name.value) ?? null)
+const row = computed(() => rowFor(name.value))
 
 const setupSteps = computed(() => project.value?.setupSteps ?? [])
 
-/** "Open in" targets to run once the workspace is set up. One that needs a PR
- *  only when the branch as typed has one. */
-const targets = computed(() =>
-  openTargetsFor(projectId.value).filter((t) => !t.requiresPr || row.value?.pr),
-)
-const base = computed(() => state.overview?.baseBranch ?? 'main')
+/** "Open in" targets to run once the workspace is set up. */
+const targets = computed(() => offeredTargets(projectId.value, row.value))
+const base = computed(() => baseBranch())
 
-/** A branch we've never seen has to be created, not just placed in a
- *  workspace. */
-const isNewBranch = computed(
-  () =>
-    name.value.length > 0 &&
-    !(state.overview?.branches ?? []).some((b) => b.name === name.value),
-)
+const isNewBranch = computed(() => isNew(name.value))
 
 /** A task already creating this exact directory. The backend refuses the
  *  second one too; this says so before the button is pressed. */
@@ -78,13 +81,9 @@ watch(
     path.value = ''
     conflict.value = null
     mode.value = 'worktree'
-    steps.value = setupSteps.value.filter((s) => s.defaultEnabled).map((s) => s.id)
-    runTargets.value = []
-    for (const t of openTargetsFor(projectId.value)) {
-      if (t.runOnCreate && !runTargets.value.some((id) => clashes(t, id))) {
-        runTargets.value.push(t.id)
-      }
-    }
+    // What a double-click on a branch with no workspace makes, unchanged.
+    steps.value = defaultSteps(projectId.value)
+    runTargets.value = defaultTargets(projectId.value)
     // Focus is what lets Enter submit; prefilled or not, the branch field
     // is where it belongs.
     void nextTick(() => picker.value?.focus())
@@ -121,11 +120,11 @@ async function fetchPlan() {
   try {
     // A PR's number over the issue's: the PR is the branch's own.
     const number = row.value?.pr?.number ?? issue.value?.number ?? null
-    const plan = await api.planWorkspace(id, wanted, number)
+    const plan = await planWorkspace(id, wanted, number)
     if (ticket !== planTicket) return
-    path.value = plan.suggestedPath
+    path.value = plan.path
     conflict.value = plan.conflict
-    mode.value = plan.conflict ? 'clone' : 'worktree'
+    mode.value = plan.mode
   } catch {
     /* a bad branch name simply leaves the previous suggestion in place */
   } finally {
@@ -139,19 +138,10 @@ function toggleStep(id: string) {
     : [...steps.value, id]
 }
 
-/** At most one built-in terminal target is ticked: a second would be typed
- *  into whatever the first started. */
-function clashes(target: OpenTarget, id: string): boolean {
-  return (
-    target.kind === 'terminal' &&
-    openTargetsFor(projectId.value).find((t) => t.id === id)?.kind === 'terminal'
-  )
-}
-
 function toggleTarget(target: OpenTarget) {
   runTargets.value = runTargets.value.includes(target.id)
     ? runTargets.value.filter((id) => id !== target.id)
-    : [...runTargets.value.filter((id) => !clashes(target, id)), target.id]
+    : [...runTargets.value.filter((id) => !targetsClash(projectId.value, target, id)), target.id]
 }
 
 /** Start the task and get out of the way. Its progress shows in the task box
@@ -174,26 +164,15 @@ async function start() {
   const id = projectId.value
   if (!id || !canSubmit.value) return
 
-  const request: CreateRequest = {
+  const request = createRequest({
     projectId: id,
     branch: name.value,
-    path: path.value.trim(),
+    path: path.value,
     mode: mode.value,
-    newBranch: isNewBranch.value,
-    from: isNewBranch.value ? `origin/${base.value}` : null,
     steps: steps.value,
-    // In the order they are listed, and only those still on offer.
-    openTargets: targets.value.filter((t) => runTargets.value.includes(t.id)).map((t) => t.id),
-  }
-
-  try {
-    await api.createWorkspace(request, row.value?.pr?.url ?? null)
-  } catch (e) {
-    state.error = String(e)
-    return
-  }
-  state.selectedBranch = request.branch
-  emit('close')
+    targets: runTargets.value,
+  })
+  if (await startCreate(request)) emit('close')
 }
 </script>
 

@@ -23,6 +23,7 @@ import {
 } from '../store'
 import { relativeTime } from '../format'
 import { atRisk, rowBadges } from '../status'
+import { enterShell } from '../enterShell'
 import { openIn, targetBusy } from '../openIn'
 import { terminalActive } from '../terminalState'
 import { popupMenu, type MenuItem } from '../menu'
@@ -337,6 +338,7 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
         class="branch"
         :class="{ selected: row.branch.name === state.selectedBranch }"
         @click="state.selectedBranch = row.branch.name"
+        @dblclick="enterShell(row)"
         @contextmenu.prevent="openMenu(row)"
       >
         <div class="row">
