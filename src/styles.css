@@ -424,6 +424,26 @@ code,
   font-weight: 600;
 }
 
+/* `<project>-<branch>` as the branch, then the project in a lighter weight.
+   The project shrinks long before the branch does. */
+.attention-workspace.split {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-weight: normal;
+}
+
+.attention-branch {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.attention-project {
+  flex: 0 1000 auto;
+  min-width: 0;
+}
+
 /* What it asked, or what it is doing: one line, the rest in the tooltip.
    Its row is kept a line tall when it is empty, so every card is the same
    height. */

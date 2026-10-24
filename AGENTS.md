@@ -543,7 +543,11 @@ redundant complexity and are not.
   of the working line to the back of the queue instead of replacing it.
   A card is two lines: its workspace's directory name — what the user knows
   the terminal by, and it usually names the project too — with how long it
-  has waited, and a line that says what is going on. A working one shows the
+  has waited, and a line that says what is going on. A name of the form
+  `<project>-<rest>`, where the rest shares a word with the branch, shows
+  the rest in bold and the project after it in normal weight, truncated
+  first (`splitWorkspaceName` in `src/format.ts`); a clone suffix like
+  `app-b` shares none and shows as it is. A working one shows the
   `msg` Claude Code sends with `working` (base64 in the payload; what it is
   doing, e.g. a Bash command's description). A waiting one shows what the
   turn ended on, which the status can't say: `done` carries no `msg`, even

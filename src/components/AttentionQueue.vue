@@ -5,7 +5,7 @@ import Icon from './Icon.vue'
 import TerminalMark from './TerminalMark.vue'
 import { goToItem, nextWaiting, queue, working, type QueueItem } from '../attention'
 import { api } from '../api'
-import { basename } from '../format'
+import { basename, splitWorkspaceName } from '../format'
 import { state } from '../store'
 import { boxTasks } from '../tasks'
 
@@ -90,6 +90,12 @@ function elapsed(item: QueueItem): string {
   return `${Math.floor(hours / 24)}d`
 }
 
+/** The directory name as branch and project, when it is named that way. */
+function named(item: QueueItem) {
+  const project = state.config?.projects.find((p) => p.id === item.entry.projectId)
+  return project ? splitWorkspaceName(item.path, project.path, item.entry.branch.name) : null
+}
+
 function title(item: QueueItem): string {
   const where = `${item.entry.projectName} · ${item.entry.branch.name}\n${item.path}`
   const text = said(item)
@@ -139,11 +145,16 @@ const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0
           >
             <!-- The workspace's directory name, not its branch: it is what the
                  user knows the terminal by, and the project is usually in it
-                 (`app-1234-fix-header`). Project, branch and path are in the
-                 tooltip. -->
+                 (`app-1234-fix-header`). Named `<project>-<branch>`, the
+                 branch part leads and the project follows it, the first to
+                 give way. Project, branch and path are in the tooltip. -->
             <span class="row">
               <TerminalMark :paths="[item.path]" />
-              <span class="truncate attention-workspace">
+              <span v-if="named(item)" class="attention-workspace split">
+                <span class="truncate attention-branch">{{ named(item)!.branch }}</span>
+                <span class="truncate attention-project">{{ named(item)!.project }}</span>
+              </span>
+              <span v-else class="truncate attention-workspace">
                 {{ basename(item.path) }}
               </span>
               <span class="spacer" />
