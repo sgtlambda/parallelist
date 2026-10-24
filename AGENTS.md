@@ -339,8 +339,8 @@ redundant complexity and are not.
   the attention queue's strip, without a card of its own, over a backdrop
   of the strip's colour that fades in from the left (so cards running on
   under it are covered, not shown through). With no cards in the strip it
-  moves to the middle of it instead, with no backdrop, and "Anything that
-  needs your attention shows up here" gives way to it. It features one task
+  moves to the middle of it instead, with no backdrop, in place of the
+  logo that otherwise sits there, its frames lighting up one after another. It features one task
   (anything asking for attention, else the oldest running) with a `+N`
   count; clicking it opens `TasksDialog`. The box animates with `motion-v` (enter,
   sinking exit, its lines via `layout`), chosen over hand-rolled CSS. That

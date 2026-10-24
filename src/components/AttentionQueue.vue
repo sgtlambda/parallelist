@@ -163,10 +163,9 @@ const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0
         </template>
       </AnimatePresence>
     </MotionConfig>
-    <!-- The task box takes the middle of an empty strip, so the line gives way. -->
-    <p v-if="!cards.length && !boxTasks.length" class="attention-empty faint">
-      <Icon name="logo" :size="18" />
-      Anything that needs your attention shows up here
-    </p>
+    <!-- The task box takes the middle of an empty strip, so the logo gives way. -->
+    <span v-if="!cards.length && !boxTasks.length" class="attention-empty faint">
+      <Icon name="logo" :size="18" class="logo-glow" />
+    </span>
   </div>
 </template>
