@@ -928,19 +928,64 @@ fn badge_waiting(app: &tauri::AppHandle) {
 }
 
 const SETTINGS_MENU_ID: &str = "settings";
+const ADD_BRANCH_MENU_ID: &str = "add-branch";
+const NEW_WORKSPACE_MENU_ID: &str = "new-workspace";
+
+/// The File menu's two ways into the New workspace dialog, kept so the
+/// webview can enable them as the selection changes.
+struct CreateMenu {
+    add_branch: MenuItem<tauri::Wry>,
+    new_workspace: MenuItem<tauri::Wry>,
+}
 
 /// Tauri's stock menu with "Settings…" (⌘,) added to the application menu,
 /// where macOS puts it: right under "About", between separators. "Settings"
-/// rather than "Preferences" since macOS 13 renamed its own.
+/// rather than "Preferences" since macOS 13 renamed its own. The File menu
+/// gets "Add Branch…" (⌘N) and "New Workspace…" (⌘⇧N) above "Close Window",
+/// the same pair as the branch list's "+ Add branch" and a branch's
+/// "+ New workspace"; both start disabled until the webview says otherwise.
 fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::default(app)?;
-    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.first() {
+    let items = menu.items()?;
+    if let Some(MenuItemKind::Submenu(app_menu)) = items.first() {
         let settings =
             MenuItem::with_id(app, SETTINGS_MENU_ID, "Settings…", true, Some("CmdOrCtrl+,"))?;
         // After "About" and the separator under it.
         app_menu.insert_items(&[&settings, &PredefinedMenuItem::separator(app)?], 2)?;
     }
+    let file_menu = items.iter().find_map(|item| match item {
+        MenuItemKind::Submenu(submenu) if submenu.text().ok().as_deref() == Some("File") => {
+            Some(submenu)
+        }
+        _ => None,
+    });
+    if let Some(file_menu) = file_menu {
+        let add_branch =
+            MenuItem::with_id(app, ADD_BRANCH_MENU_ID, "Add Branch…", false, Some("CmdOrCtrl+N"))?;
+        let new_workspace = MenuItem::with_id(
+            app,
+            NEW_WORKSPACE_MENU_ID,
+            "New Workspace…",
+            false,
+            Some("CmdOrCtrl+Shift+N"),
+        )?;
+        file_menu.insert_items(
+            &[&add_branch, &new_workspace, &PredefinedMenuItem::separator(app)?],
+            0,
+        )?;
+        app.manage(CreateMenu { add_branch, new_workspace });
+    }
     Ok(menu)
+}
+
+/// Enable the File menu's "Add Branch…" (a project is selected) and
+/// "New Workspace…" (a branch is).
+#[tauri::command]
+fn set_create_menu(app: tauri::AppHandle, add_branch: bool, new_workspace: bool) {
+    if let Some(menu) = app.try_state::<CreateMenu>() {
+        let _ = menu.add_branch.set_enabled(add_branch);
+        let _ = menu.new_workspace.set_enabled(new_workspace);
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -952,6 +997,10 @@ pub fn run() {
         .on_menu_event(|app, event| {
             if event.id() == SETTINGS_MENU_ID {
                 let _ = app.emit("open-settings", ());
+            } else if event.id() == ADD_BRANCH_MENU_ID {
+                let _ = app.emit("open-create", false);
+            } else if event.id() == NEW_WORKSPACE_MENU_ID {
+                let _ = app.emit("open-create", true);
             }
         })
         .setup(|app| {
@@ -1015,6 +1064,7 @@ pub fn run() {
             list_tasks,
             get_task,
             set_task_attention,
+            set_create_menu,
             terminal_open,
             terminal_write,
             terminal_resize,

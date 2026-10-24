@@ -233,6 +233,9 @@ export const api = {
   getTask: (id: string) => invoke<Task | null>('get_task', { id }),
   setTaskAttention: (id: string, attention: boolean) =>
     invoke<void>('set_task_attention', { id, attention }),
+  /** Enable the File menu's "Add Branch…" and "New Workspace…". */
+  setCreateMenu: (addBranch: boolean, newWorkspace: boolean) =>
+    invoke<void>('set_create_menu', { addBranch, newWorkspace }),
   /** Attach to the workspace's terminal, starting a shell if it has none,
    *  at home on `branch`. An existing one keeps its own home, and replays
    *  its recent output into the channel first. */
@@ -310,6 +313,12 @@ export function onTerminalStatus(handler: (info: TerminalInfo) => void) {
 /** The application menu's "Settings…" was chosen (or ⌘, pressed). */
 export function onOpenSettings(handler: () => void) {
   return listen('open-settings', () => handler())
+}
+
+/** The File menu's "Add Branch…" (⌘N) or, with `forSelected`,
+ *  "New Workspace…" (⌘⇧N) was chosen. */
+export function onOpenCreate(handler: (forSelected: boolean) => void) {
+  return listen<boolean>('open-create', (e) => handler(e.payload))
 }
 
 export type TaskKind = 'refresh' | 'create' | 'remove' | 'deleteBranch'

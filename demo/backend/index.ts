@@ -187,6 +187,8 @@ const handlers: Record<string, Handler> = {
   get_task: ({ id }: { id: string }) => copy(tasks.get(id)),
   set_task_attention: ({ id, attention }: { id: string; attention: boolean }) =>
     tasks.setAttention(id, attention),
+  // A page has no menu bar to enable anything in.
+  set_create_menu: () => {},
 
   terminal_open: ({ projectId, branch, path, cols, rows, channel }: any) =>
     terminals.open(projectId, branch, path, cols, rows, channel),
