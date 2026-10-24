@@ -49,9 +49,9 @@ user skips it and does the work in a directory that is already open, on top
 of something else. If removing one is risky, it stays on disk, which is how
 the sibling directories piled up.
 
-1. **Start.** New workspace, from a typed name or one of the project's open
-   issues (`BranchPicker`), which names the branch and the directory. The
-   dialog closes at once: the worktree or clone (`git clone --local`
+1. **Start.** New workspace (⌘N, or ⌘⇧N for the selected branch), from a
+   typed name or one of the project's open issues (`BranchPicker`), which
+   names the branch and the directory. The dialog closes at once: the worktree or clone (`git clone --local`
    hardlinks the object store, so a clone of a monolith is seconds), its
    setup steps (env files, linked dependencies, an install) and the
    "Open in" targets ticked in the dialog (an editor, a dev server or a
@@ -562,6 +562,14 @@ redundant complexity and are not.
   banner, because a folder git rejects lands in `state.error`, which only the
   branch list showed. `addProject` is in the store so the sidebar's strip and
   the screen's button are one path.
+- **⌘N and ⌘⇧N are in two places on purpose.** The File menu's
+  "Add Branch…" (⌘N, the field empty, as "+ Add branch") and
+  "New Workspace…" (⌘⇧N, the selected branch, as a card's "+ New
+  workspace") show the keys where macOS users look for them, and
+  `set_create_menu` greys each out while it would do nothing. `onKey` in
+  `App.vue` handles the same keys, because WKWebView offers a key to the
+  page before the menu, and the demo has no menu at all. Both land in
+  `newFromShortcut`, so whichever gets the key, the result is the same.
 - **The New workspace dialog's branch field is a combobox** (`BranchPicker.vue`,
   logic in `src/branchPicker.ts`) over the project's branches and its open
   issues. Its first entry is always the text as typed — "Create branch …",

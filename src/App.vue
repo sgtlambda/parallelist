@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { homeDir } from '@tauri-apps/api/path'
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watchEffect } from 'vue'
 import AttentionQueue from './components/AttentionQueue.vue'
 import BranchList from './components/BranchList.vue'
 import CleanupDialog from './components/CleanupDialog.vue'
@@ -13,7 +13,7 @@ import ProjectSidebar from './components/ProjectSidebar.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import TaskBox from './components/TaskBox.vue'
 import TasksDialog from './components/TasksDialog.vue'
-import { onOpenSettings } from './api'
+import { api, onOpenCreate, onOpenSettings } from './api'
 import { goToNextWaiting } from './attention'
 import { setHomeDirectory } from './format'
 import { runCreateTargets } from './openIn'
@@ -34,6 +34,7 @@ import {
   sidebarWidth,
   loadConfig,
   openCleanup,
+  projectId,
   refresh,
   settingsOpen,
   startBackgroundSync,
@@ -52,6 +53,23 @@ function openCreate(branch: string) {
   createBranch.value = branch
   createOpen.value = true
 }
+
+/** ⌘N is "+ Add branch", with the field empty; ⌘⇧N is the selected branch's
+ *  "+ New workspace". Both come from the File menu, which shows the keys, and
+ *  from `onKey` too, for when the webview gets the key first. Not over a
+ *  dialog, which owns the keyboard while it is up. */
+function newFromShortcut(forSelected: boolean) {
+  if (!projectId.value || document.querySelector('.scrim')) return
+  if (!forSelected) openCreate('')
+  else if (state.selectedBranch) openCreate(state.selectedBranch)
+}
+
+// The menu greys out what the shortcuts would do nothing for.
+watchEffect(() => {
+  void api
+    .setCreateMenu(!onboarding.value && !!projectId.value, !onboarding.value && !!state.selectedBranch)
+    .catch(() => {})
+})
 
 /** Suppress WebKit's page context menu, which is pure web-app tell — except
  *  over editable or selectable text, where Cut/Copy/Paste is the right menu. */
@@ -166,10 +184,9 @@ function onKey(event: KeyboardEvent) {
       void refresh({ fetch: true })
       break
     case 'n':
-      if (state.selectedBranch) {
-        event.preventDefault()
-        openCreate(state.selectedBranch)
-      }
+    case 'N':
+      event.preventDefault()
+      newFromShortcut(event.shiftKey)
       break
   }
 }
@@ -177,6 +194,7 @@ function onKey(event: KeyboardEvent) {
 let stopTaskSync: (() => void) | null = null
 let stopTerminalSync: (() => void) | null = null
 let stopSettingsMenu: (() => void) | null = null
+let stopCreateMenu: (() => void) | null = null
 
 onMounted(async () => {
   // Purely cosmetic: without it paths render absolute rather than under `~`.
@@ -192,6 +210,7 @@ onMounted(async () => {
   stopSettingsMenu = await onOpenSettings(() => {
     settingsOpen.value = true
   })
+  stopCreateMenu = await onOpenCreate(newFromShortcut)
   await loadConfig()
   await refresh({ fetch: true })
   startBackgroundSync()
@@ -203,6 +222,7 @@ onUnmounted(() => {
   stopTaskSync?.()
   stopTerminalSync?.()
   stopSettingsMenu?.()
+  stopCreateMenu?.()
   stopBackgroundSync()
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('contextmenu', onContextMenu)

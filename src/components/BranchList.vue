@@ -384,6 +384,7 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
          "Add project". -->
     <button v-if="projectId" class="add-strip" @click="emit('create')">
       + Add branch
+      <span class="shortcut">⌘N</span>
     </button>
   </section>
 </template>

@@ -580,7 +580,9 @@ async function openPullRequest() {
             </template>
           </div>
 
-          <button class="new-workspace" @click="emit('create')">+ New workspace</button>
+          <button class="new-workspace" title="New workspace (⌘⇧N)" @click="emit('create')">
+            + New workspace
+          </button>
         </div>
       </div>
     </div>

@@ -35,8 +35,8 @@ running in it takes seconds to set up and seconds to remove. If setting one
 up is slow you skip it and work in a directory that is already open; if
 removing one feels risky it stays on disk.
 
-1. **Start.** In **New workspace**, type a branch name or pick one of the
-   project's open issues, which names the branch and the directory. The
+1. **Start.** In **New workspace** (`⌘N`), type a branch name or pick one of
+   the project's open issues, which names the branch and the directory. The
    workspace is made in the background (a
    worktree, or a clone sharing the main workspace's objects when the branch
    already has a worktree, so even a large one takes seconds), its setup

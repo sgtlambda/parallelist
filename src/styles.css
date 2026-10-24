@@ -265,6 +265,11 @@ code,
   background: var(--bg-hover);
 }
 
+.add-strip .shortcut {
+  margin-left: auto;
+  color: var(--text-dim);
+}
+
 .sidebar {
   background: var(--bg-sidebar);
   padding-top: var(--titlebar-h);
