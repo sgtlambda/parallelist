@@ -125,10 +125,15 @@ async function onMenuSelect(id: string, action: string) {
   <aside class="pane sidebar" data-tauri-drag-region="deep">
     <div class="pane-body">
       <div class="section-title">Projects</div>
-      <button
+      <!-- A div, not a <button>, for the reason the queue's cards are: WebKit
+           sizes a button's children to fit their text, so a name with a mark
+           beside it pushed the mark out past the row's background. -->
+      <div
         v-for="(project, index) in state.config?.projects ?? []"
         :key="project.id"
         class="project-item"
+        role="button"
+        tabindex="0"
         :class="{
           selected: project.id === state.config?.selectedProjectId,
           dragging: dragging === index,
@@ -136,6 +141,8 @@ async function onMenuSelect(id: string, action: string) {
           'drop-after': dropAt === index + 1 && index === (state.config?.projects.length ?? 0) - 1,
         }"
         @click="onSelect(project.id)"
+        @keydown.enter.prevent="onSelect(project.id)"
+        @keydown.space.prevent="onSelect(project.id)"
         @contextmenu.prevent="openMenu(project.id)"
         @pointerdown="onPointerDown(index, $event)"
       >
@@ -145,7 +152,7 @@ async function onMenuSelect(id: string, action: string) {
           <TerminalMark :project-id="project.id" />
         </span>
         <span class="project-sub truncate">{{ basename(project.path) }}</span>
-      </button>
+      </div>
 
     </div>
 

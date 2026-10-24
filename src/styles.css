@@ -406,6 +406,13 @@ code,
   height: 17px;
 }
 
+/* Centred, the prompt's cursor floats a pixel above the name's baseline,
+   which reads as the mark sitting high next to the text it leads. */
+.attention-card .terminal-mark {
+  position: relative;
+  top: 1px;
+}
+
 /* Allowed below their text's width, or a long name pushes the age and the
    ⌘↵ hint out past the card's edge instead of being truncated. */
 .attention-workspace,
@@ -706,6 +713,12 @@ code,
   background: none;
   border-radius: 6px;
   text-align: left;
+  cursor: pointer;
+}
+
+.project-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .project-item.dragging {
