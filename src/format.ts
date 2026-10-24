@@ -51,6 +51,32 @@ export function basename(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
 }
 
+function words(text: string): Set<string> {
+  return new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1))
+}
+
+/**
+ * A workspace directory named `<project>-<branch>`, as the default path
+ * template names them, split into those two parts: `app-1234-fix-header`
+ * on `fix/1234-header` is `1234-fix-header` in project `app`. The part
+ * after the project only has to share a word with the branch, since an
+ * issue number, a `/` prefix or a renamed branch keeps it from matching
+ * exactly. A clone suffix like `app-b` shares none, so it is not split.
+ */
+export function splitWorkspaceName(
+  path: string,
+  projectPath: string,
+  branch: string,
+): { branch: string; project: string } | null {
+  const name = basename(path)
+  const project = basename(projectPath)
+  if (!project || !name.startsWith(`${project}-`)) return null
+  const rest = name.slice(project.length + 1)
+  const branchWords = words(branch)
+  if (![...words(rest)].some((w) => branchWords.has(w))) return null
+  return { branch: rest, project }
+}
+
 /** What each kind of workspace actually is, spelled out. Used as tooltips,
  *  where there is room to say more than the one-word name. */
 export const WORKSPACE_LABELS: Record<string, string> = {
