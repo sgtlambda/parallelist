@@ -108,90 +108,82 @@ const INFRA = `${CODE}/infra`
 export const world: Record<string, ProjectData> = {
   shop: {
     slug: 'acme/shop',
-    files: ['README.md', 'composer.json', 'package.json', 'public', 'src', 'tests', 'vendor'],
+    files: ['README.md', 'composer.json', 'package.json', 'playwright.config.ts', 'public', 'src', 'tests', 'vendor'],
     branches: [
-      branch('main', 3 * HOUR, 'Merge pull request #1249 from acme/fix/checkout-tax', 'dana', {
+      branch('main', 3 * HOUR, 'Merge pull request #1249 from acme/opcache-preload', 'dana', {
         hasLocal: true,
       }),
-      branch('1234-fix-header', 1 * HOUR, 'Stop the sticky header covering the cart drawer', 'you', {
-        hasLocal: true,
-      }),
-      branch('feature/sso-login', 5 * HOUR, 'Add the SAML callback handler', 'you', {
-        hasLocal: true,
-      }),
-      branch('fix/invoice-rounding', 2 * HOUR, 'Round invoice totals half-even', 'you', {
-        hasLocal: true,
-      }),
-      branch('maintenance/php-8.4', 3 * DAY, 'Bump the runtime to PHP 8.4', 'sam', {
-        hasLocal: true,
-        hasRemote: false,
-        merged: true,
-      }),
-      branch('feature/gift-cards', 2 * DAY, 'Gift card balance on the order summary', 'dana'),
-      branch('feature/wishlist', 6 * DAY, 'Move the wishlist behind its own route', 'sam'),
-      branch('fix/cart-total', 9 * DAY, 'Cart total ignores the free-shipping threshold', 'sam'),
-      branch('chore/bump-deps', 12 * DAY, 'Bump the front-end dependencies', 'dana'),
-      branch('feature/returns-portal', 21 * DAY, 'First pass at self-service returns', 'you'),
-      branch('legacy/checkout-v1', 160 * DAY, 'Remove the v1 checkout', 'dana', { merged: true }),
+      branch('1234-e2e-flake', 1 * HOUR, 'wait for iframe ready before pay', 'you', { hasLocal: true }),
+      branch('idem-keys', 5 * HOUR, 'idempotency key middleware', 'you', { hasLocal: true }),
+      branch('reserve-lock', 2 * HOUR, 'lock skus in id order', 'you', { hasLocal: true }),
+      branch('php84', 3 * DAY, 'php 8.4', 'sam', { hasLocal: true, hasRemote: false, merged: true }),
+      branch('csp-nonce', 2 * DAY, 'nonce inline scripts', 'dana'),
+      branch('cron-tz', 4 * DAY, 'digest at 08:00 local', 'sam'),
+      branch('rm-moment', 6 * DAY, 'moment -> Intl', 'sam'),
+      branch('sessions-db2', 9 * DAY, 'move sessions to redis db 2', 'sam'),
+      branch('eslint9', 12 * DAY, 'flat config', 'dana'),
+      branch('sam/tmp-debug', 15 * DAY, 'debug logging, do not merge', 'sam'),
+      branch('logical-repl-spike', 21 * DAY, 'wip', 'you'),
+      branch('no-webpack', 160 * DAY, 'rm webpack', 'dana', { merged: true }),
     ],
     workspaces: [
       workspace('primary', SHOP, 'main', null),
-      workspace('worktree', `${CODE}/shop-1234-fix-header`, '1234-fix-header', SHOP, {
+      workspace('worktree', `${CODE}/shop-1234-e2e-flake`, '1234-e2e-flake', SHOP, {
         modified: 2,
         untracked: 1,
       }),
-      workspace('worktree', `${CODE}/shop-sso-login`, 'feature/sso-login', SHOP, { unpushed: 2 }),
-      workspace('worktree', `${CODE}/shop-1251-invoice-rounding`, 'fix/invoice-rounding', SHOP),
-      workspace('clone', `${CODE}/shop-b`, 'maintenance/php-8.4', null),
+      workspace('worktree', `${CODE}/shop-idem-keys`, 'idem-keys', SHOP, { unpushed: 2 }),
+      workspace('worktree', `${CODE}/shop-reserve-lock`, 'reserve-lock', SHOP),
+      workspace('clone', `${CODE}/shop-b`, 'php84', null),
     ],
     prs: {
-      '1234-fix-header': pr(1234, 'Stop the sticky header covering the cart drawer', '1234-fix-header', 'acme/shop', {
+      '1234-e2e-flake': pr(1258, 'Wait for the payment iframe before clicking Pay', '1234-e2e-flake', 'acme/shop', {
         reviewDecision: 'REVIEW_REQUIRED',
       }),
-      'fix/invoice-rounding': pr(1251, 'Round invoice totals half-even', 'fix/invoice-rounding', 'acme/shop', {
+      'reserve-lock': pr(1251, 'Lock SKUs in id order', 'reserve-lock', 'acme/shop', {
         checks: 'pending',
       }),
-      'fix/cart-total': pr(1244, 'Cart total ignores the free-shipping threshold', 'fix/cart-total', 'acme/shop', {
+      'sessions-db2': pr(1244, 'Move sessions to redis db 2', 'sessions-db2', 'acme/shop', {
         author: 'sam',
         isDraft: true,
         assignees: ['sam'],
         checks: 'failing',
       }),
-      'maintenance/php-8.4': pr(1198, 'Bump the runtime to PHP 8.4', 'maintenance/php-8.4', 'acme/shop', {
+      php84: pr(1198, 'PHP 8.4', 'php84', 'acme/shop', {
         state: 'merged',
         author: 'sam',
         assignees: [],
       }),
     },
     issues: [
-      issue(1262, 'Checkout total is wrong when a gift card covers the full amount', 'Bug', 1),
-      issue(1259, 'Order confirmation email shows the wrong delivery estimate', 'Bug', 3),
-      issue(1255, 'Let customers change the delivery address after ordering', 'Feature', 6),
-      issue(1241, 'Product images load at full size on mobile', 'Task', 20),
-      issue(1230, 'Add a SSO login for the staff dashboard', 'Feature', 30),
+      issue(1262, 'OPcache stale for ~1 min after deploy', 'Bug', 1),
+      issue(1259, 'Webhook signature check fails on a BOM', 'Bug', 3),
+      issue(1255, 'Soft delete customers', 'Feature', 6),
+      issue(1241, 'srcset on product images', 'Task', 20),
+      issue(1230, 'SAML for the staff dashboard', 'Feature', 30),
     ],
   },
   api: {
     slug: 'acme/api',
     files: ['Dockerfile', 'README.md', 'package.json', 'src', 'test', 'openapi.yaml'],
     branches: [
-      branch('main', 5 * HOUR, 'Merge pull request #809 from acme/fix/pagination', 'sam', {
+      branch('main', 5 * HOUR, 'Merge pull request #809 from acme/cursor-off-by-one', 'sam', {
         hasLocal: true,
       }),
-      branch('feature/webhooks-retry', 3 * HOUR, 'Retry failed webhooks with backoff and jitter', 'you', {
-        hasLocal: true,
-      }),
-      branch('fix/n-plus-one-orders', 1 * DAY, 'Load order lines in one query', 'sam'),
-      branch('feature/rate-limits', 4 * DAY, 'Per-key rate limits', 'dana'),
-      branch('chore/openapi-3.1', 8 * DAY, 'Move the spec to OpenAPI 3.1', 'you'),
+      branch('retry-backoff', 3 * HOUR, 'retry with backoff', 'you', { hasLocal: true }),
+      branch('n+1-orders', 1 * DAY, 'one query for order lines', 'sam'),
+      branch('econnreset', 2 * DAY, 'retry idempotent reqs on ECONNRESET', 'sam'),
+      branch('ratelimit-tb', 4 * DAY, 'token bucket', 'dana'),
+      branch('node22', 6 * DAY, 'node:22-alpine', 'you'),
+      branch('oas31', 8 * DAY, 'openapi 3.1', 'you'),
     ],
     workspaces: [
       workspace('primary', API, 'main', null),
-      workspace('worktree', `${CODE}/api-webhooks-retry`, 'feature/webhooks-retry', API),
+      workspace('worktree', `${CODE}/api-retry-backoff`, 'retry-backoff', API),
     ],
     prs: {
-      'feature/webhooks-retry': pr(812, 'Retry failed webhooks with backoff and jitter', 'feature/webhooks-retry', 'acme/api'),
-      'fix/n-plus-one-orders': pr(820, 'Load order lines in one query', 'fix/n-plus-one-orders', 'acme/api', {
+      'retry-backoff': pr(812, 'Webhook retries', 'retry-backoff', 'acme/api'),
+      'n+1-orders': pr(820, 'Order lines in one query', 'n+1-orders', 'acme/api', {
         author: 'sam',
         assignees: ['sam'],
       }),
@@ -202,21 +194,20 @@ export const world: Record<string, ProjectData> = {
     slug: 'acme/design-system',
     files: ['README.md', 'package.json', 'packages', 'stories', 'tokens'],
     branches: [
-      branch('main', 1 * DAY, 'Release 4.2.0', 'dana', { hasLocal: true }),
-      branch('feature/button-variants', 2 * HOUR, 'Add ghost and link button variants', 'you', {
-        hasLocal: true,
-      }),
-      branch('fix/focus-ring', 2 * DAY, 'Focus ring clipped inside overflow containers', 'sam'),
-      branch('chore/tokens-v2', 7 * DAY, 'Rename the spacing tokens', 'dana'),
+      branch('main', 1 * DAY, 'v4.2.0', 'dana', { hasLocal: true }),
+      branch('css-layers', 2 * HOUR, '@layer components', 'you', { hasLocal: true }),
+      branch('focus-ring-clip', 2 * DAY, 'focus ring clipped in overflow', 'sam'),
+      branch('popover-toplayer', 3 * DAY, 'dialog + popover in top layer', 'you'),
+      branch('oklch', 7 * DAY, 'tokens in oklch', 'dana'),
     ],
     workspaces: [
       workspace('primary', DS, 'main', null),
-      workspace('worktree', `${CODE}/design-system-button-variants`, 'feature/button-variants', DS, {
+      workspace('worktree', `${CODE}/design-system-css-layers`, 'css-layers', DS, {
         modified: 4,
       }),
     ],
     prs: {
-      'fix/focus-ring': pr(377, 'Focus ring clipped inside overflow containers', 'fix/focus-ring', 'acme/design-system', {
+      'focus-ring-clip': pr(377, 'Focus ring clipped in overflow containers', 'focus-ring-clip', 'acme/design-system', {
         author: 'sam',
         assignees: [],
         reviewDecision: 'APPROVED',
@@ -228,15 +219,17 @@ export const world: Record<string, ProjectData> = {
     slug: 'acme/infra',
     files: ['README.md', 'modules', 'envs', 'Makefile'],
     branches: [
-      branch('main', 2 * DAY, 'Merge pull request #204 from acme/chore/cert-rotation', 'dana', {
+      branch('main', 2 * DAY, 'Merge pull request #204 from acme/cert-rotation', 'dana', {
         hasLocal: true,
       }),
-      branch('chore/upgrade-eks', 5 * DAY, 'Upgrade the cluster to 1.32', 'you'),
-      branch('fix/alb-timeouts', 11 * DAY, 'Raise the load balancer idle timeout', 'sam'),
+      branch('spot-drain', 1 * DAY, 'drain on interruption notice', 'you'),
+      branch('tf-ephemeral', 4 * DAY, 'ephemeral db password', 'dana'),
+      branch('eks-1.32', 5 * DAY, '1.32', 'you'),
+      branch('alb-timeout', 11 * DAY, 'idle timeout 120s', 'sam'),
     ],
     workspaces: [workspace('primary', INFRA, 'main', null)],
     prs: {
-      'chore/upgrade-eks': pr(211, 'Upgrade the cluster to 1.32', 'chore/upgrade-eks', 'acme/infra', {
+      'eks-1.32': pr(211, 'EKS 1.32', 'eks-1.32', 'acme/infra', {
         checks: 'pending',
         isDraft: true,
       }),

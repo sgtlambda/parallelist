@@ -31,7 +31,7 @@ HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOption
 createApp(App).mount('#app')
 
 // Open on the branch whose terminal is blocked on a question.
-const BRANCH = '1234-fix-header'
+const BRANCH = '1234-e2e-flake'
 const stop = watch(
   () => state.overview,
   (overview) => {
