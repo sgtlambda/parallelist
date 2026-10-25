@@ -796,7 +796,7 @@ fn terminal_close(state: State<AppState>, path: String) {
     state.terminals.close(&path);
 }
 
-/// Mark a terminal unseen or blocked by hand, from its branch's menu.
+/// Mark a terminal unread or blocked by hand, from its branch's menu.
 #[tauri::command]
 fn terminal_mark(state: State<AppState>, path: String, mark: terminal::Mark) -> Result<(), String> {
     state.terminals.mark(&path, mark)
@@ -816,10 +816,10 @@ fn terminal_list(state: State<AppState>) -> Vec<terminal::TerminalInfo> {
     state.terminals.list()
 }
 
-/// The terminal on screen, if any, and whether its window has focus.
+/// The terminal on screen, if any.
 #[tauri::command]
-fn terminal_viewing(state: State<AppState>, path: Option<String>, focused: bool) {
-    state.terminals.view(path.as_deref(), focused);
+fn terminal_viewing(state: State<AppState>, path: Option<String>) {
+    state.terminals.view(path.as_deref());
 }
 
 #[derive(Clone, Serialize)]

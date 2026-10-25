@@ -197,14 +197,15 @@ const handlers: Record<string, Handler> = {
     terminals.resize(path, cols),
   terminal_close: ({ path }: { path: string }) => terminals.close(path),
   terminal_list: () => terminals.list(),
-  terminal_viewing: ({ path, focused }: { path: string | null; focused: boolean }) =>
-    terminals.view(path, focused),
+  // Only reaping a removed workspace's terminal follows from it, and the
+  // made-up machine removes none.
+  terminal_viewing: () => {},
   terminal_question: async ({ path }: { path: string }) => {
     // The real one reads Claude Code's transcript, which takes a moment.
     await delay(80)
     return terminals.question(path)
   },
-  terminal_mark: ({ path, mark }: { path: string; mark: 'unseen' | 'blocked' }) =>
+  terminal_mark: ({ path, mark }: { path: string; mark: 'unread' | 'blocked' }) =>
     terminals.mark(path, mark),
 }
 

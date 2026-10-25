@@ -262,13 +262,12 @@ export const api = {
   terminalClose: (path: string) => invoke<void>('terminal_close', { path }),
   terminalList: () => invoke<TerminalInfo[]>('terminal_list'),
   /** The terminal on screen in the focused window, or null. */
-  terminalViewing: (path: string | null, focused: boolean) =>
-    invoke<void>('terminal_viewing', { path, focused }),
+  terminalViewing: (path: string | null) => invoke<void>('terminal_viewing', { path }),
   /** What the Claude Code in a workspace's terminal last asked, read from
    *  its transcript, or null. */
   terminalQuestion: (path: string) => invoke<string | null>('terminal_question', { path }),
   /** Mark a terminal by hand, as if its program had reported it. */
-  terminalMark: (path: string, mark: 'unseen' | 'blocked') =>
+  terminalMark: (path: string, mark: 'unread' | 'blocked') =>
     invoke<void>('terminal_mark', { path, mark }),
 }
 
@@ -286,7 +285,7 @@ export interface TerminalInfo {
   /** What the program in it last reported over OSC 7501 — Claude Code's
    *  `idle`, `working`, `done`, `blocked` — or null. */
   status: string | null
-  /** A turn ended while it wasn't being viewed, and it hasn't been since. */
+  /** A turn ended, and nothing has been typed into it since. */
   ready: boolean
   /** When it was last active — started, its status changed, typed into —
    *  in epoch milliseconds. */

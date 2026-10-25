@@ -75,7 +75,7 @@ function said(item: QueueItem): string | null {
 
 const TITLES = {
   blocked: 'Blocked — waiting for your answer',
-  ready: 'Ready — finished while you were away',
+  ready: 'Ready — finished, waiting for your reply',
   working: 'Working',
 }
 

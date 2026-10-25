@@ -113,7 +113,7 @@ export function seedTerminals() {
   }
   flaky.backlog += heading(flaky.question!) + renderOptions(flaky.ask)
 
-  // Ready: finished while nobody was looking, ending on a question.
+  // Ready: finished, nothing typed there since, ending on a question.
   claude('shop', 'idem-keys', {
     backlog:
       you('make POST /orders idempotent. Idempotency-Key header, replay the stored response for 24h') +

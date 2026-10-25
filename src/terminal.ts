@@ -299,19 +299,18 @@ export function attach(path: string, host: HTMLElement) {
   reportViewing()
 }
 
-let viewingSent: string | undefined
+let viewingSent: string | null | undefined
 
-/** Tell the backend which terminal is on screen, and whether the window has
- *  focus: together, whether the user is looking at it. A turn that ends
- *  there isn't `ready`, and looking at a ready one is what clears it.
- *  Leaving one whose workspace was removed lets it close. */
-function reportViewing(focused = document.hasFocus()) {
+/** Tell the backend which terminal is on screen. Nothing about its status
+ *  follows from that — a turn that ended there stays `ready` until typed
+ *  into, looked at or not — but leaving one whose workspace was removed
+ *  lets it close. */
+function reportViewing() {
   let shown: string | null = null
   for (const s of sessions.values()) if (s.el.isConnected) shown = s.path
-  const sent = `${shown}\0${focused}`
-  if (sent === viewingSent) return
-  viewingSent = sent
-  void api.terminalViewing(shown, focused).catch(() => {})
+  if (shown === viewingSent) return
+  viewingSent = shown
+  void api.terminalViewing(shown).catch(() => {})
 }
 
 /**
@@ -414,10 +413,6 @@ export async function syncTerminals(): Promise<() => void> {
   // What a previous webview reported viewing is gone with it.
   viewingSent = undefined
   reportViewing()
-  const onFocus = () => reportViewing(true)
-  const onBlur = () => reportViewing(false)
-  window.addEventListener('focus', onFocus)
-  window.addEventListener('blur', onBlur)
   try {
     for (const t of await api.terminalList()) {
       running.set(normalizePath(t.path), homeOf(t))
@@ -426,9 +421,5 @@ export async function syncTerminals(): Promise<() => void> {
   } catch {
     /* nothing to mark */
   }
-  return () => {
-    unlisteners.forEach((u) => u())
-    window.removeEventListener('focus', onFocus)
-    window.removeEventListener('blur', onBlur)
-  }
+  return () => unlisteners.forEach((u) => u())
 }

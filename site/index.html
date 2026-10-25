@@ -209,7 +209,7 @@ disk.</p>
   offers up the workspace and then the branch, showing first what removing
   them would lose, so you can decide from the dialog. A program that
   removes its own workspace after merging leaves its terminal open until
-  you've seen how it ended.</li>
+  you've replied to how it ended.</li>
 </ol>
 
 <h2>What needs you</h2>
@@ -218,11 +218,13 @@ disk.</p>
 
 <table>
   <tr><td><span class="mark blocked"><svg><use href="#i-term"/></svg></span></td><td><b>Orange.</b> Something in that terminal is waiting for an answer.</td></tr>
-  <tr><td><span class="mark ready"><svg><use href="#i-term"/></svg></span></td><td><b>Blue.</b> A program finished while you were looking elsewhere. Look at it and the mark goes.</td></tr>
+  <tr><td><span class="mark ready"><svg><use href="#i-term"/></svg></span></td><td><b>Blue.</b> A program finished its turn and nothing has been typed there since. The mark goes when you reply.</td></tr>
   <tr><td><span class="mark working"><svg><use href="#i-term"/></svg></span></td><td><b>Blinking.</b> Still working. Nothing to decide there yet.</td></tr>
 </table>
 
-<p>Anything you're already looking at isn't marked, and output alone never
+<p>A mark stays until you type into its terminal, however long you've had it
+on screen. A turn you glanced at on the way to something else still waits
+for a reply, and the queue keeps it until it has one. Output alone never
 counts, or a chatty dev server would sit at the top for good. Work you start
 in the background finishes in the background: it waits for you to come to it
 rather than jumping in front of whatever you're doing. The queue along the
