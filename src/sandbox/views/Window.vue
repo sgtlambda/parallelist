@@ -12,12 +12,18 @@ import { DETAIL_MIN, LIST_MIN, listWidth, sidebarWidth } from '../../store'
  * The task box sits over its right end, or its middle when no cards are there.
  * The onboarding takes the whole grid, with the title bar's gear and no queue.
  */
-defineProps<{ show: 'onboarding' | 'queue' }>()
+defineProps<{
+  show: 'onboarding' | 'queue'
+  /** A design variant of the attention queue to try, from `aqDesigns.css`:
+   *  a class on the grid that its rules key on. Sandbox-only. */
+  design?: string
+}>()
 </script>
 
 <template>
   <div
     class="app"
+    :class="design && `aq-${design}`"
     :style="{
       '--sidebar-w': `${sidebarWidth}px`,
       '--list-w': `${listWidth}px`,
