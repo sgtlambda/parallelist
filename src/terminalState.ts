@@ -27,7 +27,8 @@ export function homeOf(t: TerminalInfo): Home {
 }
 
 /** What the program in each terminal reports over OSC 7501, when it does,
- *  whether a turn ended there unseen (`ready`, kept by the backend), since
+ *  whether a turn ended there and got no reply yet (`ready`, kept by the
+ *  backend), since
  *  when either has kept it waiting for the user, and since when it has been
  *  working (when the status turned `working`, or after a reload, when it
  *  was last active). */
@@ -79,7 +80,7 @@ export interface TerminalMark {
   /** Blinking while Claude Code, or anything speaking OSC 7501, works. */
   icon: 'terminal' | 'terminal-working'
   /** Something waits for the user: `blocked` on an answer (orange), or
-   *  `ready`, a turn finished out of sight (blue). */
+   *  `ready`, a turn finished and not replied to (blue). */
   box: 'blocked' | 'ready' | null
   title: string
 }
@@ -100,7 +101,7 @@ export function terminalMark(paths: string[]): TerminalMark | null {
   const ready = reported.some((r) => r?.ready)
   const title = [
     blocked && 'Blocked — waiting for your answer',
-    ready && 'Ready — finished while you were away',
+    ready && 'Ready — finished, waiting for your reply',
     working && 'Working',
   ].filter((t) => !!t)
   return {

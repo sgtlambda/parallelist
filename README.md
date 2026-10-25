@@ -56,7 +56,7 @@ disk.
    is marked stale, and Cleanup offers up the workspace and then the branch,
    showing first what removing them would lose, so you can decide from the
    dialog. When a program removes its own workspace after merging, as Claude
-   Code does, its terminal stays until you've seen how it ended.
+   Code does, its terminal stays until you've replied to how it ended.
 
 ## Features
 

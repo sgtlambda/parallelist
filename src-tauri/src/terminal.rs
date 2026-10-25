@@ -16,10 +16,12 @@
 //! Observed from Claude Code: `idle` once it is ready, `working` the moment
 //! a prompt is sent, `done` when the turn ends, `clear` when it exits.
 //!
-//! A turn that ends out of the user's sight leaves the terminal **ready**: a
-//! flag, kept here so a webview reload doesn't forget it, set when `done`
-//! arrives while the terminal isn't the one being viewed and cleared once it
-//! is. The frontend says which one that is (`Terminals::view`).
+//! A turn that ends leaves the terminal **ready**: a flag, kept here so a
+//! webview reload doesn't forget it, set when `done` arrives and cleared by
+//! the user typing into the terminal (`Terminals::write`). Not by looking at
+//! it: a turn glanced at on the way elsewhere still waits for its reply, and
+//! only the reply says the user has dealt with it. Whether the terminal is
+//! on screen or its window focused never enters into it.
 //!
 //! Each terminal also keeps when it was last **active**, which is what
 //! orders the palette and the branch list among running terminals: when it
@@ -37,7 +39,8 @@
 //! Removing a workspace through the app closes its terminal first; one
 //! removed from inside is closed **once nothing in it needs the user** —
 //! not while its program works or is blocked on an answer, not while a turn
-//! that ended there is unseen, and not while it is on screen (`reap`). Until
+//! that ended there awaits a reply, and not while it is on screen (`reap`).
+//! Until
 //! then it stays reachable through its `Home`: the project and branch it was
 //! opened on, which is where the frontend lists any terminal whose workspace
 //! the overview doesn't put on a branch.
@@ -99,8 +102,7 @@ pub struct TerminalInfo {
     /// `idle`, `done`, `blocked`…), or `None` when nothing has, or it cleared
     /// its status, or it is gone.
     pub status: Option<String>,
-    /// A turn ended while the terminal wasn't being viewed, and it hasn't
-    /// been since.
+    /// A turn ended, and nothing has been typed into the terminal since.
     pub ready: bool,
     /// When it was last active, in epoch milliseconds.
     pub active_at: u64,
@@ -127,8 +129,8 @@ pub struct Opened {
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Mark {
-    /// A turn ended out of sight: `ready`, until the terminal is viewed.
-    Unseen,
+    /// A turn ended: `ready`, until the terminal is typed into.
+    Unread,
     /// Waiting for an answer, until the program reports something else.
     Blocked,
 }
@@ -195,10 +197,9 @@ impl Terminal {
         }
     }
 
-    /// Act on the OSC 7501 sequences in a chunk of output. `viewed` says
-    /// whether the user is looking at this terminal. Returns whether the
-    /// status changed.
-    fn follow_status(&self, payloads: Vec<String>, viewed: bool) -> bool {
+    /// Act on the OSC 7501 sequences in a chunk of output. Returns whether
+    /// the status changed.
+    fn follow_status(&self, payloads: Vec<String>) -> bool {
         let mut changed = false;
         for payload in payloads {
             if payload.starts_with('?') {
@@ -207,7 +208,7 @@ impl Terminal {
                 let _ = writer.write_all(b"\x1b]7501;?\x07");
                 let _ = writer.flush();
             } else if let Some(report) = parse_status(&payload) {
-                changed |= self.set_status(report, viewed);
+                changed |= self.set_status(report);
             }
         }
         // A program killed outright never sends `clear`. Its shell is back in
@@ -215,13 +216,13 @@ impl Terminal {
         if self.status.lock().unwrap().state.is_some() && self.shell_pid.is_some() {
             let leader = self.master.lock().unwrap().process_group_leader();
             if leader == self.shell_pid {
-                changed |= self.set_status(Report::default(), viewed);
+                changed |= self.set_status(Report::default());
             }
         }
         changed
     }
 
-    fn set_status(&self, Report { state, message }: Report, viewed: bool) -> bool {
+    fn set_status(&self, Report { state, message }: Report) -> bool {
         let mut status = self.status.lock().unwrap();
         if status.state == state {
             // Saying what it does now is news, but not activity.
@@ -232,23 +233,24 @@ impl Terminal {
             return true;
         }
         status.message = message;
-        // A turn that ends out of sight waits to be seen. Anything else that
-        // happens next — a new prompt, quitting — the user did themselves.
-        status.ready = state.as_deref() == Some("done") && !viewed;
+        // A turn that ends waits for a reply, whether or not the user is
+        // looking. Anything else that happens next — a new prompt, quitting
+        // — the user did themselves.
+        status.ready = state.as_deref() == Some("done");
         status.state = state;
         status.active_at = now_ms();
         status.settle();
         true
     }
 
-    /// `Unseen` sets only the flag, leaving what the program reported alone,
+    /// `Unread` sets only the flag, leaving what the program reported alone,
     /// so a terminal that is working still blinks. `Blocked` is the status
     /// itself, and goes like one: at the program's next report, or, in a
     /// plain shell, at its next output.
     fn mark(&self, mark: Mark) {
         let mut status = self.status.lock().unwrap();
         match mark {
-            Mark::Unseen => status.ready = true,
+            Mark::Unread => status.ready = true,
             Mark::Blocked => {
                 status.state = Some("blocked".into());
                 status.message = None;
@@ -258,9 +260,11 @@ impl Terminal {
         status.settle();
     }
 
-    /// The user is looking at it: whatever was waiting to be seen has been.
-    fn seen(&self) -> bool {
+    /// The user typed into it: whatever waited for a reply has had one.
+    /// Returns whether anything was waiting.
+    fn typed(&self) -> bool {
         let mut status = self.status.lock().unwrap();
+        status.active_at = now_ms();
         let was = std::mem::take(&mut status.ready);
         status.settle();
         was
@@ -268,7 +272,7 @@ impl Terminal {
 
     /// Its workspace is gone and nothing in it needs the user any more: the
     /// program in it is neither working nor blocked on an answer, no turn
-    /// ended there unseen, and it isn't on screen. `shown` is the terminal
+    /// ended there without a reply, and it isn't on screen. `shown` is the terminal
     /// that is. A directory that is still there but no longer holds a
     /// workspace counts as gone: a dev server left running in a removed
     /// worktree recreates its cache folder there.
@@ -313,10 +317,9 @@ pub struct Terminals {
     /// any of them, and a shell that exits meanwhile has no sink to report
     /// through.
     hook: Option<Hook>,
-    /// The terminal the user is looking at: on screen, in the focused window.
-    viewing: Arc<Mutex<Option<String>>>,
     /// The terminal on screen, focused window or not. Switching to another
-    /// app is not leaving it.
+    /// app is not leaving it. Only `reap` cares; nothing about a terminal's
+    /// status follows from being looked at.
     shown: Arc<Mutex<Option<String>>>,
 }
 
@@ -340,7 +343,6 @@ impl Terminals {
         Self {
             by_path: Arc::default(),
             hook: Some(hook),
-            viewing: Arc::default(),
             shown: Arc::default(),
         }
     }
@@ -471,7 +473,6 @@ impl Terminals {
         let (drained_tx, drained_rx) = mpsc::channel::<()>();
         let reading = Arc::clone(&term);
         let status_hook = self.hook.clone();
-        let viewing = Arc::clone(&self.viewing);
         let shown = Arc::clone(&self.shown);
         std::thread::spawn(move || {
             let mut buf = vec![0u8; 64 * 1024];
@@ -484,9 +485,7 @@ impl Terminals {
                         append_backlog(&mut output.backlog, &buf[..n]);
                         Terminal::deliver(&mut output, Chunk::Data(buf[..n].to_vec()));
                         drop(output);
-                        let viewed =
-                            viewing.lock().unwrap().as_deref() == Some(&reading.info.path);
-                        if reading.follow_status(scanner.feed(&buf[..n]), viewed) {
+                        if reading.follow_status(scanner.feed(&buf[..n])) {
                             if let Some(hook) = &status_hook {
                                 hook(TerminalEvent::Status(&reading.info()));
                             }
@@ -541,20 +540,27 @@ impl Terminals {
     }
 
     /// Type `data` into the terminal. Returns when it was last active,
-    /// which this makes now unless `data` is only a focus report: xterm sends
-    /// one on its own whenever the terminal is clicked into or left, if the
-    /// program asked for them, as Claude Code does. Looking isn't activity.
+    /// which this makes now, and a turn that ended there has had its reply,
+    /// reported like any status change — unless `data` is only a focus
+    /// report: xterm sends one on its own whenever the terminal is clicked
+    /// into or left, if the program asked for them, as Claude Code does.
+    /// Looking isn't activity, and isn't a reply.
     pub fn write(&self, path: &str, data: &[u8]) -> Result<u64, String> {
         let term = self.get(path)?;
         let mut writer = term.writer.lock().unwrap();
         writer.write_all(data).map_err(|e| e.to_string())?;
         writer.flush().map_err(|e| e.to_string())?;
         drop(writer);
-        let mut status = term.status.lock().unwrap();
-        if !matches!(data, b"\x1b[I" | b"\x1b[O") {
-            status.active_at = now_ms();
+        if matches!(data, b"\x1b[I" | b"\x1b[O") {
+            return Ok(term.status.lock().unwrap().active_at);
         }
-        Ok(status.active_at)
+        if term.typed() {
+            if let Some(hook) = &self.hook {
+                hook(TerminalEvent::Status(&term.info()));
+            }
+        }
+        let active_at = term.status.lock().unwrap().active_at;
+        Ok(active_at)
     }
 
     pub fn resize(&self, path: &str, size: PtySize) -> Result<(), String> {
@@ -592,23 +598,12 @@ impl Terminals {
             .collect()
     }
 
-    /// Which terminal is on screen, if any, and whether its window has
-    /// focus — together, whether the user is looking at it. Looking at one
-    /// clears its ready flag, which is reported like any status change.
-    /// Leaving one may be the last thing a removed workspace's terminal was
+    /// Which terminal is on screen, if any. It changes nothing about that
+    /// terminal — looking at a finished turn isn't replying to it — but
+    /// leaving one may be the last thing a removed workspace's terminal was
     /// waiting for.
-    pub fn view(&self, path: Option<&str>, focused: bool) {
-        let path = path.map(key);
-        *self.shown.lock().unwrap() = path.clone();
-        let viewing = path.filter(|_| focused);
-        *self.viewing.lock().unwrap() = viewing.clone();
-        if let Some(term) = viewing.and_then(|p| self.get(&p).ok()) {
-            if term.seen() {
-                if let Some(hook) = &self.hook {
-                    hook(TerminalEvent::Status(&term.info()));
-                }
-            }
-        }
+    pub fn view(&self, path: Option<&str>) {
+        *self.shown.lock().unwrap() = path.map(key);
         self.reap();
     }
 
@@ -640,7 +635,8 @@ impl Terminals {
     }
 
     /// How many terminals wait for the user: blocked on an answer, or with a
-    /// turn that ended unseen. The ones `terminalMark` draws a box around.
+    /// turn that ended and got no reply. The ones `terminalMark` draws a box
+    /// around.
     pub fn waiting(&self) -> usize {
         self.list()
             .iter()
@@ -1003,48 +999,71 @@ mod tests {
         (hook, rx)
     }
 
-    /// Make the reporter `ready` starts report `state`.
-    fn report(terminals: &Terminals, path: &str, state: &str) {
-        terminals.write(path, format!("{state}\n").as_bytes()).unwrap();
+    /// A program in the terminal's foreground that reports each state it
+    /// is told, as Claude Code stays in the foreground between turns. It is
+    /// told through a pipe rather than typed at, because typing is the
+    /// reply a finished turn waits for, and these tests tell the two apart.
+    struct Reporter(std::fs::File);
+
+    impl Reporter {
+        fn start(terminals: &Terminals, path: &str, name: &str) -> Self {
+            let fifo = std::env::temp_dir()
+                .join(format!("parallelist-term-{name}-{}.fifo", std::process::id()));
+            let _ = std::fs::remove_file(&fifo);
+            let made = std::process::Command::new("mkfifo").arg(&fifo).status().unwrap();
+            assert!(made.success());
+            let script = "while read s; do printf \"\\033]7501;state=%s\\007\" \"$s\"; done";
+            terminals
+                .write(path, format!("sh -c '{script}' < {}\n", fifo.display()).as_bytes())
+                .unwrap();
+            // Opening to write waits until the loop has it open to read.
+            Reporter(std::fs::OpenOptions::new().write(true).open(&fifo).unwrap())
+        }
+
+        fn report(&mut self, state: &str) {
+            writeln!(self.0, "{state}").unwrap();
+        }
     }
 
     #[test]
-    fn a_turn_that_ends_out_of_sight_is_ready_until_seen() {
+    fn a_finished_turn_is_ready_until_typed_into() {
         let dir = temp_dir("ready");
         let path = dir.to_string_lossy().to_string();
         let (hook, statuses) = status_hook();
         let terminals = Terminals::new(hook);
         let (tx, _rx) = sink();
         terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
-        // A program in the foreground reporting each state it reads, as
-        // Claude Code stays in the foreground between turns.
-        terminals
-            .write(
-                &path,
-                b"sh -c 'while read s; do printf \"\\033]7501;state=%s\\007\" \"$s\"; done'\n",
-            )
-            .unwrap();
+        let mut program = Reporter::start(&terminals, &path, "ready");
         let next = || statuses.recv_timeout(Duration::from_secs(5)).expect("a status");
 
-        report(&terminals, &path, "working");
+        program.report("working");
         assert_eq!(next(), (Some("working".into()), false));
         assert_eq!(terminals.list()[0].waiting_since, None);
-        report(&terminals, &path, "done");
-        assert_eq!(next(), (Some("done".into()), true), "ended while nobody looked");
+        program.report("done");
+        assert_eq!(next(), (Some("done".into()), true), "ended, no reply yet");
         assert!(terminals.list()[0].ready);
         assert_eq!(terminals.waiting(), 1);
         let since = terminals.list()[0].waiting_since.expect("waiting");
 
-        terminals.view(Some(&path), true);
-        assert_eq!(next(), (Some("done".into()), false), "seen");
+        // Looking isn't replying, and neither is the focus report xterm
+        // sends on clicking in.
+        terminals.view(Some(&path));
+        terminals.write(&path, b"\x1b[I").unwrap();
+        assert!(statuses.try_recv().is_err(), "nothing changed");
+        assert!(terminals.list()[0].ready, "still waiting for a reply");
+        assert_eq!(terminals.waiting(), 1);
+
+        // A keystroke is.
+        terminals.write(&path, b"y").unwrap();
+        assert_eq!(next(), (Some("done".into()), false), "replied to");
         assert_eq!(terminals.waiting(), 0);
         assert_eq!(terminals.list()[0].waiting_since, None);
 
-        report(&terminals, &path, "working");
+        program.report("working");
         assert_eq!(next(), (Some("working".into()), false));
-        report(&terminals, &path, "done");
-        assert_eq!(next(), (Some("done".into()), false), "ended in plain sight");
-        report(&terminals, &path, "blocked");
+        program.report("done");
+        assert_eq!(next(), (Some("done".into()), true), "ended on screen: still a reply owed");
+        program.report("blocked");
         assert_eq!(next(), (Some("blocked".into()), false));
         assert_eq!(terminals.waiting(), 1, "blocked waits, seen or not");
         let again = terminals.list()[0].waiting_since.expect("waiting");
@@ -1060,29 +1079,24 @@ mod tests {
         let terminals = Terminals::new(hook);
         let (tx, _rx) = sink();
         terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
-        terminals
-            .write(
-                &path,
-                b"sh -c 'while read s; do printf \"\\033]7501;state=%s\\007\" \"$s\"; done'\n",
-            )
-            .unwrap();
+        let mut program = Reporter::start(&terminals, &path, "marked");
         let next = || statuses.recv_timeout(Duration::from_secs(5)).expect("a status");
 
-        report(&terminals, &path, "working");
+        program.report("working");
         assert_eq!(next(), (Some("working".into()), false));
-        terminals.mark(&path, Mark::Unseen).unwrap();
+        terminals.mark(&path, Mark::Unread).unwrap();
         assert_eq!(next(), (Some("working".into()), true), "still working");
-        terminals.view(Some(&path), true);
-        assert_eq!(next(), (Some("working".into()), false), "seen");
+        terminals.write(&path, b"y").unwrap();
+        assert_eq!(next(), (Some("working".into()), false), "replied to");
 
         terminals.mark(&path, Mark::Blocked).unwrap();
         assert_eq!(next(), (Some("blocked".into()), false));
         assert_eq!(terminals.waiting(), 1);
         let since = terminals.list()[0].waiting_since.expect("waiting");
-        terminals.mark(&path, Mark::Unseen).unwrap();
+        terminals.mark(&path, Mark::Unread).unwrap();
         assert_eq!(next(), (Some("blocked".into()), true));
         assert_eq!(terminals.list()[0].waiting_since, Some(since), "still the same wait");
-        report(&terminals, &path, "working");
+        program.report("working");
         assert_eq!(next(), (Some("working".into()), false), "the program's word wins");
         assert_eq!(terminals.list()[0].waiting_since, None);
 
@@ -1091,8 +1105,8 @@ mod tests {
     }
 
     /// Claude Code removing its own worktree: the terminal stays while the
-    /// turn runs, while its end is unseen and while it is on screen, and
-    /// closes once the user has seen it and left.
+    /// turn runs, while its end awaits a reply and while it is on screen,
+    /// and closes once the user has replied and left.
     #[test]
     fn a_removed_workspace_keeps_its_terminal_until_nothing_needs_the_user() {
         let dir = temp_dir("removed");
@@ -1101,29 +1115,25 @@ mod tests {
         let terminals = Terminals::new(hook);
         let (tx, rx) = sink();
         terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
-        terminals
-            .write(
-                &path,
-                b"sh -c 'while read s; do printf \"\\033]7501;state=%s\\007\" \"$s\"; done'\n",
-            )
-            .unwrap();
+        let mut program = Reporter::start(&terminals, &path, "removed");
         let next = || statuses.recv_timeout(Duration::from_secs(5)).expect("a status");
 
-        report(&terminals, &path, "working");
+        program.report("working");
         assert_eq!(next(), (Some("working".into()), false));
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(terminals.reap().is_empty(), "still working");
 
-        report(&terminals, &path, "done");
+        program.report("done");
         assert_eq!(next(), (Some("done".into()), true));
-        assert!(terminals.reap().is_empty(), "its last turn is unseen");
+        assert!(terminals.reap().is_empty(), "its last turn awaits a reply");
 
-        terminals.view(Some(&path), true);
-        assert_eq!(next(), (Some("done".into()), false), "seen");
-        terminals.view(Some(&path), false);
-        assert_eq!(terminals.list().len(), 1, "on screen in another app's shadow");
+        terminals.view(Some(&path));
+        assert!(terminals.reap().is_empty(), "looking isn't replying");
+        terminals.write(&path, b"y").unwrap();
+        assert_eq!(next(), (Some("done".into()), false), "replied to");
+        assert_eq!(terminals.list().len(), 1, "still on screen");
 
-        terminals.view(None, true);
+        terminals.view(None);
         read_until(&rx, "<exit");
         assert!(terminals.list().is_empty());
     }
@@ -1158,16 +1168,11 @@ mod tests {
         assert!(terminals.reap().is_empty(), "the directory is still there");
 
         // Quiet the moment it reports so, without waiting for a refresh.
-        terminals
-            .write(
-                &path,
-                b"sh -c 'while read s; do printf \"\\033]7501;state=%s\\007\" \"$s\"; done'\n",
-            )
-            .unwrap();
-        report(&terminals, &path, "working");
+        let mut program = Reporter::start(&terminals, &path, "removed-idle");
+        program.report("working");
         std::thread::sleep(Duration::from_millis(200));
         std::fs::remove_dir_all(&dir).unwrap();
-        report(&terminals, &path, "idle");
+        program.report("idle");
         read_until(&rx, "<exit");
 
         let dir = temp_dir("removed-plain");

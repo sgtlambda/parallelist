@@ -6,8 +6,8 @@ import { running, statuses } from './terminalState'
 
 /**
  * The attention queue: every terminal waiting for the user, blocked on an
- * answer or ready with a turn that ended unseen, in the order they started
- * waiting. The oldest is first, and is where ⌘↵ goes.
+ * answer or ready with a turn that ended and got no reply yet, in the order
+ * they started waiting. The oldest is first, and is where ⌘↵ goes.
  *
  * First in, first out, and by nothing else: unlike the palette, being
  * blocked doesn't jump the queue. A card stays where it is for as long as
@@ -17,8 +17,8 @@ import { running, statuses } from './terminalState'
  *
  * Behind the queue, the terminals that are working: not waiting for the
  * user, so never where ⌘↵ goes, but what will join the queue next. They
- * are in the order they started working, so one finishing unseen moves
- * from the head of that line to the back of the queue, right beside it.
+ * are in the order they started working, so one finishing moves from the
+ * head of that line to the back of the queue, right beside it.
  *
  * Each card is on the branch the list has it on, found through the same
  * placement (`branchesOf`), so there is always a row to go to. A terminal
@@ -34,8 +34,8 @@ export interface QueueItem {
   message: string | null
   /** Its branch, as the branch list has it. */
   entry: Entry
-  /** The terminal on screen. Still listed (one blocked waits there until
-   *  answered), but already where ⌘↵ would go, so ⌘↵ goes past it. */
+  /** The terminal on screen. Still listed (it waits there until typed
+   *  into), but already where ⌘↵ would go, so ⌘↵ goes past it. */
   here: boolean
 }
 

@@ -157,7 +157,7 @@ function menuItems(row: Row): MenuItem[] {
   // them; shown but disabled when it has none, so they can be found.
   const terminals = menuTerminals(row)
   const marks = [
-    { mark: 'unseen', label: 'Mark unseen' },
+    { mark: 'unread', label: 'Mark unread' },
     { mark: 'blocked', label: 'Mark blocked' },
   ] as const
   const slots = terminals.length ? terminals : [null]
@@ -209,7 +209,7 @@ async function onMenuSelect(row: Row, id: string) {
   } else if (id.startsWith('mark:')) {
     const [, mark, index] = id.split(':')
     const path = menuTerminals(row)[Number(index)]
-    if (path && (mark === 'unseen' || mark === 'blocked')) {
+    if (path && (mark === 'unread' || mark === 'blocked')) {
       await api.terminalMark(path, mark).catch(() => {})
     }
   } else if (id.startsWith('open:')) {

@@ -88,9 +88,6 @@ export interface Session {
 const sessions = new Map<string, Session>()
 const encoder = new TextEncoder()
 
-/** The terminal on screen in the focused window, as `terminal_viewing` says. */
-let viewing: string | null = null
-
 export const get = (path: string) => sessions.get(path)
 
 // ---------------------------------------------------------------- output
@@ -191,9 +188,9 @@ function info(s: Session): TerminalInfo {
 const publish = (s: Session) => emit('terminal-status', info(s))
 
 /**
- * What the backend does with each status the program reports. `done` while
- * nobody is looking leaves the terminal `ready`; blocked waits whether seen
- * or not; looking at a ready one clears it (`view`).
+ * What the backend does with each status the program reports. `done` leaves
+ * the terminal `ready` until something is typed into it (`write`), looked at
+ * or not; blocked waits until the program says otherwise.
  */
 export function setStatus(s: Session, status: string | null, message: string | null = null) {
   const now = Date.now()
@@ -203,10 +200,9 @@ export function setStatus(s: Session, status: string | null, message: string | n
     s.status = 'blocked'
     s.waitingSince ??= now
   } else if (status === 'done') {
-    const seen = viewing === s.path
-    s.status = seen ? 'idle' : 'done'
-    s.ready = !seen
-    s.waitingSince = seen ? null : (s.waitingSince ?? now)
+    s.status = 'done'
+    s.ready = true
+    s.waitingSince ??= now
   } else {
     s.status = status
     s.ready = false
@@ -214,17 +210,6 @@ export function setStatus(s: Session, status: string | null, message: string | n
     s.question = null
   }
   publish(s)
-}
-
-export function view(path: string | null, focused: boolean) {
-  viewing = focused ? path : null
-  const s = viewing ? sessions.get(viewing) : null
-  if (s?.ready) {
-    s.ready = false
-    s.status = 'idle'
-    s.waitingSince = null
-    publish(s)
-  }
 }
 
 // ---------------------------------------------------------------- sessions
@@ -310,7 +295,6 @@ export function close(path: string) {
   stopTurn(s)
   window.clearInterval(s.devTimer)
   sessions.delete(path)
-  if (viewing === path) viewing = null
 }
 
 /** The program ends the shell, as `exit` does. */
@@ -326,9 +310,9 @@ export function list(): TerminalInfo[] {
 
 export const question = (path: string) => sessions.get(path)?.question ?? null
 
-/** "Mark unseen" and "Mark blocked" in a row's menu, as if the program had
+/** "Mark unread" and "Mark blocked" in a row's menu, as if the program had
  *  reported them. */
-export function mark(path: string, what: 'unseen' | 'blocked') {
+export function mark(path: string, what: 'unread' | 'blocked') {
   const s = sessions.get(path)
   if (!s) return
   if (what === 'blocked') setStatus(s, 'blocked', s.message)
@@ -343,10 +327,18 @@ export function mark(path: string, what: 'unseen' | 'blocked') {
 
 const KEYS = /\x1b\[[0-9;?]*[A-Za-z~]|\x1b[\s\S]?|[\s\S]/gu
 
+/** Typed into, which is also the reply a finished turn waits for. A focus
+ *  report isn't typing, as in the backend. */
 export function write(path: string, data: string): number {
   const s = sessions.get(path)
   if (!s) return Date.now()
+  if (data === '\x1b[I' || data === '\x1b[O') return s.activeAt
   s.activeAt = Date.now()
+  if (s.ready) {
+    s.ready = false
+    s.waitingSince = null
+    publish(s)
+  }
   for (const key of data.match(KEYS) ?? []) {
     if (!sessions.has(path)) break
     if (s.ask) askKey(s, key)

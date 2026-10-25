@@ -114,10 +114,13 @@ against them before anything else:
   something a row can show.
 - **Say what is waiting, and nothing else.** A mark means "this needs you":
   orange while a program is blocked, blue while a finished turn hasn't been
-  seen, a task box that a failure or an unseen finished create takes over
-  until it is dealt with. Things the user is already looking at don't get
-  marked. Noise is a cost: output alone never counts as activity, and a
-  stray `.DS_Store` is not uncommitted work.
+  replied to, a task box that a failure or an unseen finished create takes
+  over until it is dealt with. Looking at a terminal clears nothing; typing
+  into it does. A glance is not a decision: a turn read on the way to
+  something else still waits for its reply, and dropping it from the queue
+  because it was on screen for a moment is how work got lost. Noise is a
+  cost: output alone never counts as activity, and a stray `.DS_Store` is
+  not uncommitted work.
 - **Getting there is one keystroke.** ⌘P reaches any branch of any project
   with what's waiting ranked first, and ⌘↵ goes straight to whatever has
   waited longest. A shown terminal takes the keyboard without needing a
@@ -423,8 +426,9 @@ redundant complexity and are not.
   - **A workspace removed from inside its own terminal** — Claude Code
     does this routinely once it has merged its branch — keeps the
     terminal until nothing in it needs the user: not while its program
-    works or is blocked, not while a turn that ended there is unseen, not
-    while it is on screen (`Terminals::reap`, asked on refresh, on leaving
+    works or is blocked, not while a turn that ended there awaits a reply
+    (so a keystroke is what lets one go), not while it is on screen
+    (`Terminals::reap`, asked on refresh, on leaving
     a terminal and when its program goes quiet). Until then it is listed
     by its home (below), and its card shows greyed as "removed". Before
     this the shell lived on unreachable: the project lit up with a
@@ -464,10 +468,16 @@ redundant complexity and are not.
     `working` is what the blinking terminal glyph means. A box around it
     says something waits for the user: orange while `blocked` (on an answer,
     seen or not, since it stays stuck until answered), blue while **ready**.
-    Ready is a backend flag, set when `done` arrives while the terminal
-    isn't the one being viewed — on screen, in the focused window, which the
-    frontend reports through `terminal_viewing` — and cleared by viewing
-    it. A project or row with several terminals combines them part by part:
+    Ready is a backend flag, set whenever `done` arrives, on screen or not,
+    and cleared by typing into the terminal (`Terminals::write`; a focus
+    report xterm sends on its own doesn't count, as it doesn't for
+    activity). Not by looking at it: it used to be, and a turn glanced at
+    while on the way elsewhere fell out of the queue without a reply. The
+    frontend still reports which terminal is on screen
+    (`terminal_viewing`), but only so a removed workspace's terminal can be
+    reaped on leaving it; window focus is no longer reported at all. The
+    row menu's "Mark unread" sets the flag by hand.
+    A project or row with several terminals combines them part by part:
     blinks if any works, orange if any is blocked, else blue if any is
     ready (`terminalMark`, the one place that is decided, drawn by
     `TerminalMark.vue`).
@@ -529,8 +539,9 @@ redundant complexity and are not.
   keeps when each wait began (`waitingSince`, set by `Status::settle`) so
   a reload keeps the order; blocked turning into ready is the same wait,
   and a terminal that starts waiting again joins at the back. The terminal
-  on screen keeps its card (a blocked one waits there until answered),
-  marked "here", and ⌘↵ goes to the first card past it. The strip is there
+  on screen keeps its card (a blocked one waits there until answered, a
+  ready one until typed into), marked "here", and ⌘↵ goes to the first
+  card past it. The strip is there
   even when empty, so the panes above never change height and the terminal
   in them never reflows as cards come and go. Its cards find their branch
   through the palette's entries, placed as the list places them (above).
@@ -653,7 +664,7 @@ For anything a user reads: the README, the site, and copy in the app.
   app is an attempt at a problem, not its solution: "parallelist is an
   attempt to keep that attention in one place", not "parallelist keeps your
   attention in one place". Say what it *tries* to do when describing its
-  purpose; describe concrete behaviour ("the mark goes when you look at it")
+  purpose; describe concrete behaviour ("the mark goes when you reply")
   plainly, without hedging every line.
 - **Formal and to the point in the app.** Copy in the UI states what a thing
   is and does, without hedging or a voice of its own: the onboarding screen
