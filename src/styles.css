@@ -354,13 +354,13 @@ code,
 }
 
 .attention-card {
+  position: relative;
   flex: none;
   display: flex;
   flex-direction: column;
   gap: 3px;
   width: 260px;
   min-width: 0;
-  overflow: hidden;
   padding: 7px 10px 8px;
   border-radius: 9px;
   text-align: left;
@@ -404,6 +404,22 @@ code,
 .attention-card.here:hover,
 .attention-card.working:hover {
   background: var(--bg-hover);
+}
+
+/* Two bare cards in a row would run together, so a short rule parts them:
+   1px, centred in the gap, drawn by the second card outside its own box
+   (which is why the card doesn't clip its overflow; its lines truncate on
+   their own). A washed card has an edge of its own, so next to one the gap
+   is left alone. Shorter and lighter than the divider, which stays the
+   stronger rule between waiting and working. */
+.attention-card:is(.working, .here) + .attention-card:is(.working, .here)::before {
+  content: '';
+  position: absolute;
+  left: -4.5px;
+  top: 14px;
+  bottom: 14px;
+  width: 1px;
+  background: var(--border);
 }
 
 /* Between the cards that wait for the user and the ones still working. The

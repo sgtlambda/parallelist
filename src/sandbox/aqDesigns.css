@@ -1,7 +1,9 @@
 /*
  * Design ideas for the attention queue, to look at in the sandbox. The
- * tinted one was chosen and is the app's own style now; these are the
- * others, kept for comparison. Each is a
+ * tinted one was chosen, with a hairline between bare cards, and is the
+ * app's own style now; the ones at the end are other ways of parting its
+ * cards, and the ones before them the looks it was chosen over, kept for
+ * comparison. Each is a
  * class on the window's grid (`aq-<name>`, set by `Window.vue`'s `design`
  * prop) and restyles the cards `AttentionQueue.vue` already renders; none of
  * them touches the component. Only the sandbox loads this file.
@@ -239,4 +241,52 @@
 .aq-segment .attention-kbd {
   border-color: transparent;
   background: var(--bg-active);
+}
+
+/* The app's hairline between two bare cards, dropped where a design gives
+   every card an edge of its own. The plain look keeps it. */
+.aq-tile .attention-card::before,
+.aq-hollow .attention-card::before,
+.aq-edge .attention-card::before,
+.aq-line .attention-card::before,
+.aq-segment .attention-card::before {
+  display: none;
+}
+
+/* ---------- Separation, on the chosen look ----------
+   The wash marks out the cards that need the user, and nothing marks out
+   the rest: two working cards side by side, or the one on screen next to
+   a working one, ran together into one block of text. The app parts them
+   with a hairline in the gap now; these are the two other ways tried,
+   each over the app's own style, without its hairline. */
+
+/* ---------- 5. tile: a fill for every card ----------
+   Working ones and the one on screen get a tile in a neutral tint, a step
+   off the strip, so every card is a block and the gap between any two is
+   the strip showing through. The wash still says which ones need the user;
+   the tiles only say where one card ends. */
+.aq-tile .attention-card.working,
+.aq-tile .attention-card.here {
+  background: color-mix(in srgb, var(--text) 4.5%, var(--bg-sidebar));
+}
+
+.aq-tile .attention-card.working:hover,
+.aq-tile .attention-card.here:hover {
+  background: color-mix(in srgb, var(--text) 8%, var(--bg-sidebar));
+}
+
+/* ---------- 6. hollow: an outline for the bare cards ----------
+   Working ones and the one on screen are outlined by a hairline and left
+   unfilled; the waiting ones keep their wash and no outline. Filled is
+   waiting, hollow is not, and both kinds have an edge for the gap to show
+   against. */
+.aq-hollow .attention-card.working,
+.aq-hollow .attention-card.here {
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+
+.aq-hollow .attention-card.working:hover,
+.aq-hollow .attention-card.here:hover {
+  box-shadow: inset 0 0 0 1px var(--border);
+  background: var(--bg-hover);
 }

@@ -10,9 +10,11 @@ import '../aqDesigns.css'
 
 /**
  * Other looks for the attention queue, each a class on the window's grid
- * that `aqDesigns.css` keys on, after the chosen one, over the same strip: two ready, one blocked,
- * one of them on screen, then two working past the divider. The component
- * is the one the app runs; only the stylesheet differs.
+ * that `aqDesigns.css` keys on, after the chosen one, over the same strip:
+ * two ready, one blocked, one of them on screen, then two working past the
+ * divider. First two other ways of parting neighbours on the chosen look,
+ * then the looks it was chosen over. The component is the one the app runs;
+ * only the stylesheet differs.
  */
 
 const WS = '/Users/sandbox/Code'
@@ -56,14 +58,30 @@ export default defineGroup('Attention queue designs', [
   {
     id: 'current',
     title: '0. Current: a wash of the state colour',
-    note: 'The chosen look. Borderless tiles: blocked sits in a wash of orange, ready in blue; working and the one on screen have no fill, so only what needs you has colour behind it.',
+    note: 'The chosen look. Borderless tiles: blocked sits in a wash of orange, ready in blue; working and the one on screen have no fill, so only what needs you has colour behind it. Two bare cards in a row are parted by a hairline in the gap.',
     component: Window,
     props: { show: 'queue' },
     setup: sameQueue,
   },
   {
+    id: 'tile',
+    title: '1. Tile: a fill for every card',
+    note: 'On the chosen look, in place of its hairline. Working ones and the one on screen get a neutral tile, a step off the strip, so every card is a block and the gap is the strip showing through. The wash still says which need you.',
+    component: Window,
+    props: design('tile'),
+    setup: sameQueue,
+  },
+  {
+    id: 'hollow',
+    title: '2. Hollow: an outline for the bare cards',
+    note: 'On the chosen look, in place of its hairline. Working ones and the one on screen are outlined by a hairline and left unfilled; waiting ones keep their wash and no outline. Filled is waiting, hollow is not.',
+    component: Window,
+    props: design('hollow'),
+    setup: sameQueue,
+  },
+  {
     id: 'plain',
-    title: '1. Plain: text on the strip',
+    title: '3. Plain: text on the strip',
     note: 'No border and no fill. Each card is its two lines set apart by spacing, the mark alone saying its state. Hover lifts it on the hover colour.',
     component: Window,
     props: design('plain'),
@@ -71,7 +89,7 @@ export default defineGroup('Attention queue designs', [
   },
   {
     id: 'edge',
-    title: '2. Edge: a bar down the left',
+    title: '4. Edge: a bar down the left',
     note: 'Flat, square, led by a 3px bar in the state colour (grey for working, dotted where you already are). Reads like a list of messages.',
     component: Window,
     props: design('edge'),
@@ -79,7 +97,7 @@ export default defineGroup('Attention queue designs', [
   },
   {
     id: 'line',
-    title: '3. Line: one line per terminal',
+    title: '5. Line: one line per terminal',
     note: 'Mark, directory, what it said, age, ⌘↵ on one 28px chip, so twice as many fit. Filled, no border; working ones are bare. The strip could be made shorter for this one.',
     component: Window,
     props: design('line'),
@@ -87,7 +105,7 @@ export default defineGroup('Attention queue designs', [
   },
   {
     id: 'segment',
-    title: '4. Segment: one shape around the queue',
+    title: '6. Segment: one shape around the queue',
     note: 'The waiting cards are one raised segment with hairlines where they meet, like a segmented control: one border for the queue, not one per card. Working ones past the divider are plain text.',
     component: Window,
     props: design('segment'),
