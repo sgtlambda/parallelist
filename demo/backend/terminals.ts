@@ -424,10 +424,10 @@ function submit(s: Session) {
 // ---------------------------------------------------------------- the shell
 
 const STATUS_FILES = [
-  'src/components/AppHeader.vue',
-  'src/components/CartDrawer.vue',
+  'tests/e2e/checkout.spec.ts',
+  'playwright.config.ts',
   'src/routes.ts',
-  'tests/header.spec.ts',
+  'src/Inventory/Reservation.php',
 ]
 
 function shellCommand(s: Session, text: string) {
@@ -495,7 +495,7 @@ function git(s: Session, args: string[], reply: (body: string) => void) {
       return reply(
         `${C.orange}${found?.data.branches.find((b) => b.name === s.branch)?.sha.slice(0, 7) ?? 'a1b2c3d'}${C.r} ${
           found?.data.branches.find((b) => b.name === s.branch)?.subject ?? 'Initial commit'
-        }\n${C.orange}9f3e2a1${C.r} Merge pull request #1249 from acme/fix/checkout-tax`,
+        }\n${C.orange}9f3e2a1${C.r} Merge pull request #1249 from acme/opcache-preload`,
       )
     default:
       return reply(`${C.d}Only status, branch and log are scripted here.${C.r}`)
@@ -504,7 +504,7 @@ function git(s: Session, args: string[], reply: (body: string) => void) {
 
 // ----------------------------------------------------------- a dev server
 
-const HMR = ['src/main.ts', 'src/components/CartDrawer.vue', 'src/styles/app.css', 'src/routes.ts']
+const HMR = ['src/main.ts', 'src/components/PaymentFrame.vue', 'src/styles/app.css', 'src/routes.ts']
 
 export function startDev(s: Session, quiet = false) {
   s.mode = 'dev'
