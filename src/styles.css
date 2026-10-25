@@ -341,11 +341,11 @@ code,
   display: flex;
   align-items: center;
   /* Cards are 51px tall in the strip's 63px (--queue-h less its top rule),
-     which leaves 6px above and below; the sides, and the space between
-     cards, match it. */
-  gap: 6px;
+     which leaves 6px above and below; the sides and the space between
+     cards get a little more, since nothing outlines a card. */
+  gap: 8px;
   min-width: 0;
-  padding: 0 6px;
+  padding: 0 8px;
   border-top: 1px solid var(--border);
   background: var(--bg-sidebar);
   overflow-x: auto;
@@ -361,16 +361,31 @@ code,
   width: 260px;
   min-width: 0;
   overflow: hidden;
-  padding: 6px 9px 7px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
+  padding: 7px 10px 8px;
+  border-radius: 9px;
   text-align: left;
   cursor: pointer;
 }
 
-.attention-card:hover {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+/* No border: a wash of the state's colour is all that marks a card out,
+   so the ones that need the user are the only ones with colour behind
+   them. Blocked is the mark's orange, ready the accent's blue, mixed over
+   the strip's own colour so a card is opaque where the task box's backdrop
+   fades over it. */
+.attention-card.ready {
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-sidebar));
+}
+
+.attention-card.ready:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-sidebar));
+}
+
+.attention-card.blocked {
+  background: color-mix(in srgb, var(--orange) 14%, var(--bg-sidebar));
+}
+
+.attention-card.blocked:hover {
+  background: color-mix(in srgb, var(--orange) 20%, var(--bg-sidebar));
 }
 
 .attention-card:focus-visible {
@@ -378,16 +393,17 @@ code,
   outline-offset: 1px;
 }
 
-.attention-card.blocked {
-  border-color: color-mix(in srgb, var(--orange) 45%, var(--border));
-}
-
 /* Where the user already is: listed, since a blocked one waits there until
    answered, but nothing to go to. Working ones aren't waiting for anything,
-   and recede the same way. */
+   and recede the same way: no wash, only the hover. */
 .attention-card.here,
 .attention-card.working {
   background: transparent;
+}
+
+.attention-card.here:hover,
+.attention-card.working:hover {
+  background: var(--bg-hover);
 }
 
 /* Between the cards that wait for the user and the ones still working. The
@@ -465,9 +481,9 @@ code,
   font-size: 10.5px;
   line-height: 14px;
   padding: 0 4px;
-  border: 1px solid var(--border);
   border-radius: 4px;
-  color: var(--text-dim);
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text);
 }
 
 .attention-empty {

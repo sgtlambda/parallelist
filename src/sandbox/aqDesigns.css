@@ -1,0 +1,242 @@
+/*
+ * Design ideas for the attention queue, to look at in the sandbox. The
+ * tinted one was chosen and is the app's own style now; these are the
+ * others, kept for comparison. Each is a
+ * class on the window's grid (`aq-<name>`, set by `Window.vue`'s `design`
+ * prop) and restyles the cards `AttentionQueue.vue` already renders; none of
+ * them touches the component. Only the sandbox loads this file.
+ *
+ * The strip is 63px tall under its top rule and the cards 51px, so each
+ * design keeps to that unless it says otherwise.
+ */
+
+/* ---------- 1. plain: text on the strip, nothing around it ----------
+   No border and no fill. Each card is just its two lines, set apart by
+   spacing, with the mark saying what state it is in. Hovering lifts it on
+   the strip's hover colour, so there is still something to click. The rule
+   between waiting and working stays, since it is the one thing the eye
+   needs to find. */
+.aq-plain .attention-queue {
+  gap: 14px;
+  padding: 0 10px;
+}
+
+.aq-plain .attention-card {
+  border-color: transparent;
+  background: transparent;
+  padding: 6px 8px 7px;
+  width: 248px;
+}
+
+.aq-plain .attention-card:hover {
+  border-color: transparent;
+  background: var(--bg-hover);
+}
+
+.aq-plain .attention-divider {
+  margin: 14px 2px;
+}
+
+.aq-plain .attention-kbd {
+  border-color: transparent;
+  background: var(--bg-active);
+}
+
+/* ---------- 2. edge: a bar of colour down the left ----------
+   Flat on the strip, each card led by a 3px bar in the state's colour:
+   orange for blocked, blue for ready, the strip's rule colour for working.
+   Like a list of messages. Square corners, since a bar with rounded ends
+   on a rounded card reads as a tab. */
+.aq-edge .attention-queue {
+  gap: 12px;
+  padding: 0 10px;
+}
+
+.aq-edge .attention-card {
+  border: 0;
+  border-left: 3px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  padding: 5px 8px 5px 10px;
+  height: 43px;
+  width: 250px;
+}
+
+.aq-edge .attention-card:hover {
+  background: var(--bg-hover);
+}
+
+.aq-edge .attention-card.ready {
+  border-left-color: var(--accent);
+}
+
+.aq-edge .attention-card.blocked {
+  border-left-color: var(--orange);
+}
+
+/* Where the user already is, the bar is hollow: the colour is in the
+   terminal above it. */
+.aq-edge .attention-card.here {
+  border-left-style: dotted;
+}
+
+.aq-edge .attention-divider {
+  margin: 14px 0;
+}
+
+.aq-edge .attention-kbd {
+  border-color: transparent;
+  background: var(--bg-active);
+}
+
+/* ---------- 3. line: one line per terminal ----------
+   Both lines folded into one, so twice as many fit: the mark, the
+   directory, what it said in dim text, then the age and ⌘↵. The chips are
+   filled but have no border, and sit centred in the strip at 28px, which
+   leaves the strip room to be made shorter if this is the one. The two
+   `.row`s become `display: contents` and their children take an `order`,
+   so the component's markup serves as it is. */
+.aq-line .attention-queue {
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.aq-line .attention-card {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  max-width: 440px;
+  height: 28px;
+  padding: 0 10px 0 9px;
+  border-color: transparent;
+  border-radius: 14px;
+  background: var(--bg-raised);
+}
+
+.aq-line .attention-card:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--bg-raised) 70%, var(--bg-hover));
+}
+
+.aq-line .attention-card.working,
+.aq-line .attention-card.here {
+  background: transparent;
+}
+
+.aq-line .attention-card.working:hover,
+.aq-line .attention-card.here:hover {
+  background: var(--bg-hover);
+}
+
+.aq-line .attention-card .row {
+  display: contents;
+}
+
+.aq-line .attention-card .terminal-mark {
+  order: 0;
+  top: 0;
+}
+
+.aq-line .attention-workspace {
+  order: 1;
+  flex: 0 0 auto;
+  max-width: 190px;
+}
+
+.aq-line .attention-said {
+  order: 2;
+  flex: 0 1 auto;
+  font-size: 12px;
+}
+
+/* The first row's spacer is the one kept; the second's would double it. */
+.aq-line .attention-card .row:first-child .spacer {
+  order: 3;
+  min-width: 6px;
+}
+
+.aq-line .attention-card .row:last-child .spacer {
+  display: none;
+}
+
+.aq-line .attention-age {
+  order: 4;
+}
+
+.aq-line .attention-kbd,
+.aq-line .attention-here {
+  order: 5;
+}
+
+.aq-line .attention-kbd {
+  border-color: transparent;
+  background: var(--bg-active);
+}
+
+.aq-line .attention-divider {
+  margin: 20px 2px;
+}
+
+/* ---------- 4. segment: one shape around the queue ----------
+   The waiting cards are one raised segment, like a segmented control:
+   no gap between them, a hairline where they meet, rounded only at the
+   ends. One border for the whole queue instead of one per card. The
+   working ones past the divider are plain text, with nothing around them.
+   The hairlines are each card's 1px shadow, which the neighbour overlaps,
+   so cards can still join and leave one at a time. */
+.aq-segment .attention-queue {
+  gap: 0;
+  padding: 0 8px;
+}
+
+.aq-segment .attention-card {
+  border: 0;
+  border-radius: 0;
+  background: var(--bg-raised);
+  box-shadow: 0 0 0 1px var(--border);
+  padding: 6px 10px 7px;
+  width: 250px;
+}
+
+.aq-segment .attention-card:hover {
+  background: color-mix(in srgb, var(--bg-raised) 70%, var(--bg-hover));
+}
+
+.aq-segment .attention-card:first-child {
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.aq-segment .attention-card:last-child,
+.aq-segment .attention-card:has(+ .attention-divider) {
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.aq-segment .attention-card:first-child:last-child,
+.aq-segment .attention-card:first-child:has(+ .attention-divider) {
+  border-radius: var(--radius);
+}
+
+.aq-segment .attention-card.here {
+  background: var(--bg-sidebar);
+}
+
+.aq-segment .attention-card.working {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.aq-segment .attention-card.working:hover {
+  background: var(--bg-hover);
+  border-radius: var(--radius);
+}
+
+.aq-segment .attention-divider {
+  margin: 16px 10px;
+}
+
+.aq-segment .attention-kbd {
+  border-color: transparent;
+  background: var(--bg-active);
+}
