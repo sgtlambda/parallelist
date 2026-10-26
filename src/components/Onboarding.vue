@@ -67,7 +67,7 @@ import { addProject, state } from '../store'
 <style scoped>
 .onboarding {
   /* Past the overlay title bar; the rest is centred. */
-  padding-top: var(--titlebar-h);
+  padding-top: calc(var(--titlebar-h) + var(--build-h));
   align-items: center;
   justify-content: center;
   grid-column: 1 / -1;

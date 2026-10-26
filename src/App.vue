@@ -46,6 +46,9 @@ import {
  *  the attention queue under them. */
 const onboarding = computed(() => !!state.config && state.config.projects.length === 0)
 
+/** The branch `run.sh` built this from, when that wasn't main. */
+const buildBranch = import.meta.env.VITE_PARALLELIST_BRANCH
+
 const createOpen = ref(false)
 const createBranch = ref('')
 
@@ -239,13 +242,19 @@ onUnmounted(() => {
       '--detail-min': `${DETAIL_MIN}px`,
       // Nothing to queue, and the strip would only say so.
       ...(onboarding ? { '--queue-h': '0px' } : {}),
+      ...(buildBranch ? { '--build-h': '22px' } : {}),
     }"
   >
     <!-- The sidebar's strip under the overlay title bar: clears the traffic
          lights and gives the window somewhere to be dragged from. The gear
          sits at its far end, level with the lights; being a button, it never
-         starts a drag. -->
+         starts a drag. A build from a branch other than main names it under
+         them, in a panel that is a drag region of its own, since the strip's
+         isn't deep. -->
     <div class="titlebar" :class="{ wide: onboarding }" data-tauri-drag-region>
+      <div v-if="buildBranch" class="build-branch" :title="buildBranch" data-tauri-drag-region>
+        <span data-tauri-drag-region>{{ buildBranch }}</span>
+      </div>
       <button class="btn ghost small icon" title="Settings (⌘,)" @click="settingsOpen = true">
         <Icon name="settings" />
       </button>
