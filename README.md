@@ -95,6 +95,9 @@ pnpm lint           # cargo clippy
 pnpm dev:demo       # the landing page's demo: this frontend, in a browser
 ```
 
+Run from any branch but `main`, `run.sh` puts the branch name in the top-left
+of the window, so a build from a worktree can't be mistaken for the real one.
+
 The landing page (`site/`) embeds that demo: the app's own components with
 made-up projects and scripted terminals behind them (`demo/`), built into
 `site/demo` by `pnpm build:demo`. A command added to `src/api.ts` needs an

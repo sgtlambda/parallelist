@@ -27,6 +27,15 @@ command -v gh >/dev/null 2>&1 ||
 
 [ -d node_modules ] || pnpm install
 
+# A build from anything but main says which branch it is, in the title bar, so
+# it can't be mistaken for the real thing. Vite hands VITE_* to the frontend.
+branch=""
+if [ -e .git ]; then
+  branch=$(git symbolic-ref --short -q HEAD || git rev-parse --short HEAD || true)
+  [ "$branch" = main ] && branch=""
+fi
+export VITE_PARALLELIST_BRANCH="$branch"
+
 if [ "${1:-}" = "--build" ]; then
   pnpm tauri build
   app="src-tauri/target/release/bundle/macos/Parallelist.app"

@@ -792,6 +792,13 @@ pnpm test             # cargo test
 pnpm lint             # cargo clippy
 ```
 
+`run.sh` run from a branch other than `main` (a worktree, usually) passes
+the branch name as `VITE_PARALLELIST_BRANCH`, and `App.vue` shows it in a
+panel at the top of the sidebar, behind the traffic lights and the gear, on
+a line under them (`--build-h` makes the room). `pnpm tauri dev` run by hand, the
+demo and the sandbox don't set it, so they show nothing. A `--build` from a
+branch keeps the badge in the installed `.app`.
+
 `bundle.targets` is `["app"]` on purpose: DMG bundling needs Finder scripting
 access and fails without it. The `.app` is the deliverable.
 
