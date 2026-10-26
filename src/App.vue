@@ -200,6 +200,11 @@ let stopSettingsMenu: (() => void) | null = null
 let stopCreateMenu: (() => void) | null = null
 
 onMounted(async () => {
+  // Before anything awaited: the first refresh waits on a fetch, and the
+  // keyboard shouldn't wait with it, or stay dead if a step throws.
+  window.addEventListener('keydown', onKey)
+  window.addEventListener('contextmenu', onContextMenu)
+
   // Purely cosmetic: without it paths render absolute rather than under `~`.
   try {
     setHomeDirectory(await homeDir())
@@ -217,8 +222,6 @@ onMounted(async () => {
   await loadConfig()
   await refresh({ fetch: true })
   startBackgroundSync()
-  window.addEventListener('keydown', onKey)
-  window.addEventListener('contextmenu', onContextMenu)
 })
 
 onUnmounted(() => {
