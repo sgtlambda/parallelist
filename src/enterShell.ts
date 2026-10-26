@@ -1,5 +1,6 @@
-import { createWithDefaults } from './newWorkspace'
-import { projectId, type Row } from './store'
+import { createWithDefaults, defaultTargets, offeredTargets } from './newWorkspace'
+import { openIn } from './openIn'
+import { project, projectId, state, type Row } from './store'
 import { createTasksFor, isActive, normalizePath, removalOf } from './tasks'
 import { enterTerminal, terminalFor } from './terminal'
 import { byTerminalRank, terminalActive, terminalRank } from './terminalState'
@@ -11,7 +12,8 @@ import { byTerminalRank, terminalActive, terminalRank } from './terminalState'
  *   the one the branch shows, else the one that asks most of the user, else
  *   the one active most recently.
  * - Otherwise a workspace of the branch gets its shell started: the one the
- *   branch showed last, else the first listed.
+ *   branch showed last, else the first listed. The built-in terminal target
+ *   a create would run (ticked by default) runs in it, if there is one.
  * - With no workspace, one is made as the New workspace dialog would make it
  *   with nothing changed (`createWithDefaults`), and its shell opens once it
  *   is set up. A built-in terminal target ticked by default runs in it then,
@@ -38,7 +40,22 @@ export async function enterShell(row: Row) {
   })
   if (usable.length) {
     const workspace = usable.find((w) => normalizePath(w.path) === shown) ?? usable[0]
-    return enterTerminal(id, branch, workspace.path)
+    enterTerminal(id, branch, workspace.path)
+    const target = offeredTargets(id, row).find(
+      (t) => t.kind === 'terminal' && defaultTargets(id).includes(t.id),
+    )
+    if (!target) return
+    try {
+      await openIn(id, target.id, {
+        path: workspace.path,
+        branch: workspace.branch ?? branch,
+        primary: project.value?.path ?? '',
+        prUrl: row.pr?.url ?? '',
+      })
+    } catch (e) {
+      state.error = `${target.label}: ${String(e)}`
+    }
+    return
   }
   if (row.workspaces.length) return
 

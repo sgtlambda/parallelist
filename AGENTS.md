@@ -601,7 +601,8 @@ redundant complexity and are not.
   the request) lives in `src/newWorkspace.ts`, which the dialog and the
   double-click both use, so the two can't drift; don't derive a default
   in `CreateDialog.vue` itself. A built-in terminal target ticked by default
-  runs as after any create; otherwise the shell is a plain one. The shell
+  runs in the new shell, in an existing workspace as after any create;
+  otherwise the shell is a plain one. The shell
   is only asked for (`showTerminal`), so it starts when the pane shows it:
   a branch left meanwhile gets no shell until it is back on screen, and the
   pane holds the terminal back while a create is still setting its
