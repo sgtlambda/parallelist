@@ -72,6 +72,33 @@ pub fn is_git_repo(path: &Path) -> bool {
     path.join(".git").exists()
 }
 
+/// The workspace a path sits in, and the clone that owns it: for a linked
+/// worktree the clone it is registered against, else the workspace itself.
+/// `None` outside any git repository. Both come back resolved, as git
+/// reports paths.
+pub fn workspace_root(path: &Path) -> Option<(PathBuf, PathBuf)> {
+    let out = git(
+        &["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"],
+        path,
+    )
+    .ok()?
+    .text()
+    .ok()?;
+    let mut lines = out.lines();
+    let root = PathBuf::from(lines.next()?);
+    // "/Code/repo/.git" -> /Code/repo
+    let clone = Path::new(lines.next()?).parent()?.to_path_buf();
+    Some((root, clone))
+}
+
+/// The branch a workspace has checked out; `None` when detached.
+pub fn current_branch(path: &Path) -> Option<String> {
+    git(&["branch", "--show-current"], path)
+        .ok()
+        .and_then(|o| o.text().ok())
+        .filter(|s| !s.is_empty())
+}
+
 pub fn origin_url(repo: &Path) -> Result<String, String> {
     git(&["remote", "get-url", "origin"], repo)?.text()
 }

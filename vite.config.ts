@@ -18,6 +18,7 @@ const stubs: Record<string, string> = {
   "@tauri-apps/api/menu": "menu.ts",
   "@tauri-apps/api/dpi": "dpi.ts",
   "@tauri-apps/api/path": "path.ts",
+  "@tauri-apps/api/webview": "webview.ts",
   "@tauri-apps/plugin-dialog": "dialog.ts",
   "@tauri-apps/plugin-opener": "opener.ts",
 };

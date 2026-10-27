@@ -18,6 +18,7 @@ export default defineConfig({
       '@tauri-apps/api/path': here('./shims/path.ts'),
       '@tauri-apps/api/dpi': here('./shims/dpi.ts'),
       '@tauri-apps/api/menu': here('./shims/menu.ts'),
+      '@tauri-apps/api/webview': here('./shims/webview.ts'),
       '@tauri-apps/plugin-dialog': here('./shims/dialog.ts'),
       '@tauri-apps/plugin-opener': here('./shims/opener.ts'),
     },

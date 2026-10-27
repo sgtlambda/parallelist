@@ -26,10 +26,10 @@ import { addProject, state } from '../store'
 
       <div v-if="state.error" class="banner error">{{ state.error }}</div>
 
-      <!-- TODO: say here that a folder can be dropped onto this screen to add it
-           as a project. Not yet: drag-and-drop support is on a branch that is
-           not merged, and the line would promise something the app doesn't do. -->
-      <button class="btn primary add" @click="addProject">Add project…</button>
+      <div class="add-row">
+        <button class="btn primary add" @click="addProject">Add project…</button>
+        <span class="faint">or drop its folder on this window</span>
+      </div>
 
       <ul class="then">
         <li>
@@ -110,6 +110,13 @@ h1 {
 .banner {
   align-self: stretch;
   margin: 0 0 14px;
+}
+
+.add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
 }
 
 .add {
