@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AttentionQueue from '../../components/AttentionQueue.vue'
+import DropTargets from '../../components/DropTargets.vue'
 import Onboarding from '../../components/Onboarding.vue'
 import Icon from '../../components/Icon.vue'
 import TaskBox from '../../components/TaskBox.vue'
@@ -41,6 +42,7 @@ defineProps<{
     <p v-else class="above faint">The sidebar, branch list and detail pane are above.</p>
     <AttentionQueue v-if="show === 'queue'" />
     <TaskBox v-if="show === 'queue'" />
+    <DropTargets />
   </div>
 </template>
 

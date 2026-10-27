@@ -49,7 +49,8 @@ const handlers: Record<string, Handler> = {
   save_config: ({ config: next }: { config: AppConfig }) => {
     Object.assign(config, copy(next))
   },
-  add_project: () => {
+  are_folders: ({ paths }: { paths: string[] }) => paths.map(() => false),
+  open_folder: () => {
     throw new Error('Choosing a folder is not possible in a web page')
   },
   remove_project: ({ id }: { id: string }) => {

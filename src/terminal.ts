@@ -373,6 +373,32 @@ export function enterTerminal(projectId: string, branch: string, path: string) {
   })
 }
 
+/** The terminal on screen, if any, and the pane it is shown in: what a
+ *  path dragged over the window can be pasted into. */
+export function shownTerminal(): { path: string; pane: DOMRect } | null {
+  for (const s of sessions.values()) {
+    if (!s.el.isConnected) continue
+    const pane = s.el.closest('.pane') ?? s.el
+    return { path: s.path, pane: pane.getBoundingClientRect() }
+  }
+  return null
+}
+
+/**
+ * Paste paths dropped on a terminal, as Terminal.app types them: each
+ * backslash-escaped for the shell, separated by spaces, with one after the
+ * last. A paste rather than keystrokes, so a program that asked for bracketed
+ * paste — Claude Code turns a pasted image path into an attachment — sees it
+ * as one. It counts as typing, so a turn waiting there is answered.
+ */
+export function pastePaths(path: string, paths: string[]) {
+  const s = sessions.get(normalizePath(path))
+  if (!s?.el.isConnected) return
+  const escape = (p: string) => p.replace(/[^\w\-./:@%+,=\u0080-￿]/g, '\\$&')
+  s.term.paste(paths.map(escape).join(' ') + ' ')
+  s.term.focus()
+}
+
 /** Take a workspace's terminal out of the document, keeping it for later. */
 export function detach(path: string) {
   sessions.get(normalizePath(path))?.el.remove()

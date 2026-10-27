@@ -1,5 +1,6 @@
 import { invoke, type Channel } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { getCurrentWebview, type DragDropEvent } from '@tauri-apps/api/webview'
 
 export type WorkspaceKind = 'primary' | 'worktree' | 'clone' | 'orphan'
 export type CheckState = 'pending' | 'passing' | 'failing' | 'none'
@@ -183,6 +184,14 @@ export interface BranchImpact {
   commitCount: number
 }
 
+/** Where a folder leads (`open_folder`). */
+export interface Landing {
+  projectId: string
+  /** Absent for a main workspace: the project keeps whatever was selected. */
+  branch: string | null
+  added: boolean
+}
+
 export interface OpenContext {
   path: string
   branch: string
@@ -193,7 +202,10 @@ export interface OpenContext {
 export const api = {
   getConfig: () => invoke<AppConfig>('get_config'),
   saveConfig: (config: AppConfig) => invoke<void>('save_config', { config }),
-  addProject: (path: string) => invoke<ProjectConfig>('add_project', { path }),
+  /** The project or workspace a folder is, added as a project if neither. */
+  openFolder: (path: string) => invoke<Landing>('open_folder', { path }),
+  /** Which of the paths dragged onto the window are folders. */
+  areFolders: (paths: string[]) => invoke<boolean[]>('are_folders', { paths }),
   removeProject: (id: string) => invoke<void>('remove_project', { id }),
   selectProject: (id: string | null) => invoke<void>('select_project', { id }),
   refresh: (id: string, fetch: boolean) => invoke<Overview>('refresh', { id, fetch }),
@@ -318,6 +330,13 @@ export function onOpenSettings(handler: () => void) {
  *  "New Workspace…" (⌘⇧N) was chosen. */
 export function onOpenCreate(handler: (forSelected: boolean) => void) {
   return listen<boolean>('open-create', (e) => handler(e.payload))
+}
+
+/** Something is dragged from Finder over the window, or dropped on it.
+ *  Tauri's native handler takes the drop, so the page never sees `dragover`
+ *  or `drop`. */
+export function onDragDrop(handler: (event: DragDropEvent) => void) {
+  return getCurrentWebview().onDragDropEvent((e) => handler(e.payload))
 }
 
 export type TaskKind = 'refresh' | 'create' | 'remove' | 'deleteBranch'

@@ -584,6 +584,33 @@ redundant complexity and are not.
   banner, because a folder git rejects lands in `state.error`, which only the
   branch list showed. `addProject` is in the store so the sidebar's strip and
   the screen's button are one path.
+- **A folder dropped on the window goes where it belongs** (`open_folder`):
+  the project it is the main workspace of, else the branch of the workspace
+  it is, else it is added as a project. A subfolder counts as its workspace,
+  and a worktree of a clone nobody added brings in the clone. "Add project"
+  goes through the same command, so picking a worktree there works too.
+  Only projects sharing the folder's origin are listed (`workspace::locate`):
+  asking all thirteen of the user's made a miss take ~0.9s. Tauri's native
+  drop handler takes the drop, so the page never sees `dragover`/`drop`;
+  `onDragDropEvent` (`onDragDrop` in `api.ts`, used by `DropTargets.vue`) is
+  the only way in, and where the pointer is comes from its positions. On
+  macOS those are CSS pixels although Tauri types them as physical (wry
+  passes AppKit's points on unscaled), so they are not divided by the
+  device pixel ratio.
+- **A drag shows where it can go** (`DropTargets.vue`). Its `enter` carries
+  the paths, and `are_folders` says what they are. Folders get two areas,
+  each from the top of the window down to the attention queue: one over
+  the sidebar and branch list that goes to the folder or adds it, and one
+  over the detail pane while it shows a terminal, which pastes the path.
+  With no terminal on screen the first takes the whole width. Anything with
+  a file in it gets only the terminal's area, and dropped elsewhere does
+  nothing. The paste (`pastePaths` in `terminal.ts`) is backslash-escaped
+  and space-separated as Terminal.app types it, and a paste rather than
+  keystrokes, so a program in bracketed-paste mode sees one: Claude Code
+  turns a pasted image path into an attachment. It counts as typing, so it
+  answers a ready turn. The areas are measured on every drag event (the
+  terminal's `.pane`, the `.attention-queue`'s top), not laid out in CSS,
+  so what is drawn is what the pointer is tested against.
 - **⌘N and ⌘⇧N are in two places on purpose.** The File menu's
   "Add Branch…" (⌘N, the field empty, as "+ Add branch") and
   "New Workspace…" (⌘⇧N, the selected branch, as a card's "+ New
@@ -833,9 +860,6 @@ access and fails without it. The `.app` is the deliverable.
   workspace dialog's picker, and become a row once a workspace is made for
   one. Whether they should be listed before that, so the to-do list also
   shows work not yet started, is undecided.
-- The onboarding screen should say that a folder can be dropped onto it to
-  add a project (`TODO` in `Onboarding.vue`). Drag-and-drop is on a branch
-  that is not merged yet; until it is, the line would promise too much.
 - Icons are hand-drawn Lucide-style placeholders. Agreed upgrade path is
   `unplugin-icons` + `@iconify-json/*` (offline, tree-shaken); only `Icon.vue`
   changes. **react-icons is React-only and cannot be used here.**

@@ -20,6 +20,8 @@
   --purple: #7b47c4;
   --skeleton: rgba(0, 0, 0, 0.07);
   --skeleton-hi: rgba(0, 0, 0, 0.13);
+  /* Behind a label laid over other content: away from the text colour. */
+  --label-scrim: rgba(255, 255, 255, 0.6);
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
   --radius: 7px;
   --titlebar-h: 44px;
@@ -53,6 +55,7 @@
     --purple: #b585f5;
     --skeleton: rgba(255, 255, 255, 0.07);
     --skeleton-hi: rgba(255, 255, 255, 0.15);
+    --label-scrim: rgba(0, 0, 0, 0.2);
     --shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
     color-scheme: dark;
   }

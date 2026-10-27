@@ -88,34 +88,101 @@ fn save_config(state: State<AppState>, config: AppConfig) -> Result<(), String> 
     state.persist(config)
 }
 
+/// Which of the paths dragged onto the window are folders. Asked as the drag
+/// enters, since the event says nothing more than the paths: folders can be
+/// dropped anywhere, anything else only on a terminal.
 #[tauri::command]
-fn add_project(state: State<AppState>, path: String) -> Result<ProjectConfig, String> {
+fn are_folders(paths: Vec<String>) -> Vec<bool> {
+    paths.iter().map(|p| Path::new(p).is_dir()).collect()
+}
+
+/// Where a folder dropped on the window, or picked to add, leads.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Landing {
+    project_id: String,
+    /// The branch to select: the one the folder has checked out, unless it is
+    /// a main workspace, where the project is left on whatever was selected.
+    branch: Option<String>,
+    /// Added as a project just now.
+    added: bool,
+}
+
+/// What a folder is to the app, before anything is added.
+enum Folder {
+    Known(Landing),
+    /// Belongs to no project: this clone is the one to add.
+    New { clone: PathBuf, branch: Option<String> },
+}
+
+fn locate_folder(projects: &[ProjectConfig], path: &Path) -> Result<Folder, String> {
+    if !path.is_dir() {
+        return Err(format!("{} is not a folder", path.display()));
+    }
+    let known = |(project_id, entry): (String, workspace::Entry)| {
+        Folder::Known(Landing {
+            project_id,
+            branch: if entry.kind == WorkspaceKind::Primary { None } else { entry.branch },
+            added: false,
+        })
+    };
+    let repo = git::workspace_root(path);
+    let origin = repo.as_ref().and_then(|(_, clone)| git::origin_url_from_config(clone));
+    // A folder inside a workspace stands for that workspace. One git knows
+    // nothing about may still be an orphan.
+    let dir = repo.as_ref().map_or(path, |(root, _)| root.as_path());
+    if let Some(hit) = workspace::locate(projects, dir, origin.as_deref()) {
+        return Ok(known(hit));
+    }
+    let (root, clone) = repo.ok_or_else(|| format!("{} is not a git repository", path.display()))?;
+    if clone == root {
+        // As typed rather than as git resolved it, when it is the root.
+        let clone = if workspace::resolve(path) == root { path.to_path_buf() } else { root };
+        return Ok(Folder::New { clone, branch: None });
+    }
+    // A worktree no project lists: its clone may still be known, else the
+    // clone is what gets added, as the picker asks for a main workspace.
+    let branch = git::current_branch(&root);
+    if let Some((project_id, _)) = workspace::locate(projects, &clone, origin.as_deref()) {
+        return Ok(Folder::Known(Landing { project_id, branch, added: false }));
+    }
+    Ok(Folder::New { clone, branch })
+}
+
+/// Go to the project or workspace a folder is, adding it as a project when it
+/// is neither. A folder inside a workspace counts as that workspace, and a
+/// worktree of a clone nobody added brings in the clone.
+#[tauri::command]
+async fn open_folder(state: State<'_, AppState>, path: String) -> Result<Landing, String> {
     let path = PathBuf::from(shellexpand_home(&path));
-    if !git::is_git_repo(&path) {
-        return Err(format!("{} is not a git repository", path.display()));
-    }
-    if path.join(".git").is_file() {
-        return Err("that is a worktree; add the main clone instead".into());
-    }
-    let name = path
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "repo".into());
+    let projects = state.config().projects;
+    let folder = tauri::async_runtime::spawn_blocking(move || locate_folder(&projects, &path))
+        .await
+        .map_err(|e| e.to_string())??;
+    let (clone, branch) = match folder {
+        Folder::Known(landing) => return Ok(landing),
+        Folder::New { clone, branch } => (clone, branch),
+    };
 
     let mut cfg = state.config();
+    // Added by another drop while git was being asked.
+    let resolved = workspace::resolve(&clone);
     if let Some(existing) = cfg
         .projects
         .iter()
-        .find(|r| Path::new(&r.path) == path)
-        .cloned()
+        .find(|p| workspace::resolve(Path::new(&p.path)) == resolved)
     {
-        return Ok(existing);
+        return Ok(Landing { project_id: existing.id.clone(), branch, added: false });
     }
-    let repo = ProjectConfig::new(path, name);
-    cfg.projects.push(repo.clone());
-    cfg.selected_project_id = Some(repo.id.clone());
+    let name = clone
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "repo".into());
+    let project = ProjectConfig::new(clone, name);
+    let project_id = project.id.clone();
+    cfg.projects.push(project);
     state.persist(cfg)?;
-    Ok(repo)
+    Ok(Landing { project_id, branch, added: true })
 }
 
 #[tauri::command]
@@ -1044,7 +1111,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_config,
             save_config,
-            add_project,
+            open_folder,
+            are_folders,
             remove_project,
             select_project,
             refresh,

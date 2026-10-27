@@ -7,6 +7,7 @@ import CleanupDialog from './components/CleanupDialog.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import CreateDialog from './components/CreateDialog.vue'
 import DetailPane from './components/DetailPane.vue'
+import DropTargets from './components/DropTargets.vue'
 import Icon from './components/Icon.vue'
 import Onboarding from './components/Onboarding.vue'
 import ProjectSidebar from './components/ProjectSidebar.vue'
@@ -306,5 +307,6 @@ onUnmounted(() => {
     <TaskBox @error="state.error = $event" />
 
     <div v-if="state.toast" class="toast">{{ state.toast }}</div>
+    <DropTargets />
   </div>
 </template>

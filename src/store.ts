@@ -486,15 +486,26 @@ export async function selectProject(id: string | null, branch?: string) {
   await refresh({ fetch: true })
 }
 
-/** Ask for a project's main workspace and open it. A folder git rejects is
- *  reported in `state.error`, as every other failure is. */
+/** Ask for a project's main workspace and open it. */
 export async function addProject() {
   const picked = await open({ directory: true, multiple: false, title: "Choose the project's main workspace" })
-  if (typeof picked !== 'string') return
+  if (typeof picked === 'string') await openFolder(picked)
+}
+
+/** Go to the project or workspace a folder is, dropped on the window or
+ *  picked with "Add project", adding it as a project if it is neither. A
+ *  folder git rejects is reported in `state.error`, as every other failure
+ *  is. */
+export async function openFolder(path: string) {
   try {
-    const added = await api.addProject(picked)
-    await loadConfig()
-    await selectProject(added.id)
+    const landing = await api.openFolder(path)
+    if (landing.added) await loadConfig()
+    if (landing.branch) goToBranch(landing.projectId, landing.branch)
+    else if (landing.projectId !== projectId.value) await selectProject(landing.projectId)
+    if (landing.added) {
+      const name = state.config?.projects.find((p) => p.id === landing.projectId)?.name
+      showToast(`Added ${name ?? 'project'}`)
+    }
   } catch (e) {
     state.error = String(e)
   }

@@ -2,6 +2,7 @@ import Window from '../views/Window.vue'
 import { boot } from '../seed'
 import { defineGroup } from '../define'
 import { config } from '../fixtures'
+import { backend } from '../backend'
 import { state } from '../../store'
 
 /** The app with no project added, as on a first launch. */
@@ -25,6 +26,21 @@ export default defineGroup('Onboarding', [
     async setup() {
       await firstLaunch()
       state.error = 'fatal: not a git repository (or any of the parent directories): .git'
+    },
+  },
+  {
+    id: 'folder-over',
+    title: 'A folder dragged over',
+    note: 'A drag from Finder is over the window. The drop goes to Tauri, never the page, so the overlay takes no pointer events.',
+    component: Window,
+    props: { show: 'onboarding' },
+    async setup() {
+      await firstLaunch()
+      backend.handle({ are_folders: ({ paths }: { paths: string[] }) => paths.map(() => true) })
+      // Setup runs before the mount, and the overlay listens once mounted.
+      setTimeout(() => {
+        backend.emit('drag-drop', { type: 'enter', paths: ['/Users/sandbox/Code/app'], position: { x: 0, y: 0 } })
+      }, 100)
     },
   },
 ])

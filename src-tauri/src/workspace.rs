@@ -73,7 +73,7 @@ pub fn secondary_clones(project: &ProjectConfig) -> Vec<PathBuf> {
 /// the two raw is a false mismatch, which here would mean deciding a worktree is
 /// still registered when it is not. The leaf is kept as written so a directory
 /// that has already been deleted still resolves.
-fn resolve(path: &Path) -> PathBuf {
+pub fn resolve(path: &Path) -> PathBuf {
     if let Ok(real) = std::fs::canonicalize(path) {
         return real;
     }
@@ -187,6 +187,46 @@ pub fn list(project: &ProjectConfig) -> Result<Vec<Entry>, String> {
         });
     }
     Ok(entries)
+}
+
+/// The project a directory is a workspace of, and its entry. `origin` is the
+/// directory's own origin URL, `None` when git doesn't know it.
+///
+/// Main workspaces are compared first, which spawns nothing. Past that, a
+/// project's `list` costs a `git worktree list` per clone, so only projects
+/// the directory could belong to are asked: those sharing its origin — every
+/// clone `siblings` accepts does, and each of their worktrees with it — or,
+/// for a directory with no origin, those it sits beside, the only place
+/// `siblings` looks for orphans. Asking every project made a miss take ~0.9s
+/// across thirteen of them.
+pub fn locate(projects: &[ProjectConfig], path: &Path, origin: Option<&str>) -> Option<(String, Entry)> {
+    let wanted = resolve(path);
+    if let Some(project) = projects.iter().find(|p| resolve(Path::new(&p.path)) == wanted) {
+        let entry = Entry {
+            path: PathBuf::from(&project.path),
+            branch: None,
+            kind: WorkspaceKind::Primary,
+            owner: None,
+        };
+        return Some((project.id.clone(), entry));
+    }
+    projects
+        .iter()
+        .filter(|project| {
+            let primary = Path::new(&project.path);
+            match origin {
+                Some(url) => git::origin_url_from_config(primary)
+                    .is_some_and(|own| git::same_remote(&own, url)),
+                None => resolve(primary).parent() == wanted.parent(),
+            }
+        })
+        .find_map(|project| {
+            list(project)
+                .ok()?
+                .into_iter()
+                .find(|entry| resolve(&entry.path) == wanted)
+                .map(|entry| (project.id.clone(), entry))
+        })
 }
 
 /// What kind of workspace `path` is, from what is on disk alone: the
@@ -976,6 +1016,83 @@ mod tests {
             !git::worktrees(&clone).unwrap().iter().any(|(p, _, _)| resolve(p) == resolve(&stale)),
             "stale registration survived"
         );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// A folder dropped on the window lands on the workspace it is, whichever
+    /// clone it hangs off, and a subfolder knows its workspace and clone.
+    #[test]
+    fn locates_every_kind_of_workspace() {
+        let root = std::env::temp_dir().join(format!("parallelist-locate-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::create_dir_all(&root).unwrap();
+
+        let g = |args: &[&str], cwd: &Path| {
+            let out = run("git", args, Some(cwd)).expect("git ran");
+            assert!(out.ok(), "git {args:?} failed: {}", out.stderr);
+        };
+
+        let remote = root.join("origin.git");
+        std::fs::create_dir_all(&remote).unwrap();
+        g(&["init", "--quiet", "--bare", "-b", "main", "."], &remote);
+        let url = remote.to_string_lossy().to_string();
+
+        let primary = root.join("repo");
+        std::fs::create_dir_all(&primary).unwrap();
+        repo_with_branch(&primary, "feature");
+        g(&["remote", "add", "origin", &url], &primary);
+
+        let clone = root.join("repo-clone");
+        g(
+            &["clone", "--quiet", "--local", &primary.to_string_lossy(), &clone.to_string_lossy()],
+            &root,
+        );
+        g(&["remote", "set-url", "origin", &url], &clone);
+        let worktree = root.join("repo-feature");
+        g(
+            &["worktree", "add", "--quiet", &worktree.to_string_lossy(), "feature"],
+            &clone,
+        );
+
+        let elsewhere = root.join("unrelated");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        repo_with_branch(&elsewhere, "other");
+        let orphan = root.join("repo-old");
+        std::fs::create_dir_all(&orphan).unwrap();
+
+        let project = ProjectConfig {
+            id: "t".into(),
+            name: "t".into(),
+            path: primary.to_string_lossy().to_string(),
+            base_branch: Some("main".into()),
+            path_template: "{parent}/{project}-{slug}".into(),
+            setup_steps: Vec::new(),
+            open_targets: Vec::new(),
+        };
+        let projects = [project];
+
+        let origin = Some(url.as_str());
+        let (id, entry) = locate(&projects, &primary, origin).expect("finds the main workspace");
+        assert_eq!((id.as_str(), entry.kind), ("t", WorkspaceKind::Primary));
+        let (_, entry) = locate(&projects, &clone, origin).expect("finds the clone");
+        assert_eq!(entry.kind, WorkspaceKind::Clone);
+        let (_, entry) = locate(&projects, &worktree, origin).expect("finds the clone's worktree");
+        assert_eq!(entry.kind, WorkspaceKind::Worktree);
+        assert_eq!(entry.branch.as_deref(), Some("feature"));
+        // No origin: only an orphan beside the project can match.
+        let (_, entry) = locate(&projects, &orphan, None).expect("finds the orphan");
+        assert_eq!(entry.kind, WorkspaceKind::Orphan);
+        assert!(locate(&projects, &elsewhere, None).is_none());
+        // Another origin isn't even listed.
+        assert!(locate(&projects, &worktree, Some("git@github.com:acme/other.git")).is_none());
+
+        let sub = worktree.join("nested");
+        std::fs::create_dir_all(&sub).unwrap();
+        let (top, owner) = git::workspace_root(&sub).expect("inside a repo");
+        assert_eq!((top, owner), (resolve(&worktree), resolve(&clone)));
+        assert_eq!(git::current_branch(&worktree).as_deref(), Some("feature"));
+        assert!(git::workspace_root(&root).is_none());
 
         std::fs::remove_dir_all(&root).ok();
     }
