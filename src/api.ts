@@ -240,6 +240,8 @@ export const api = {
   /** Quick Look for a `file:` link, the default browser or mail client for
    *  `http(s):` and `mailto:`; anything else is refused. */
   openLink: (url: string) => invoke<void>('open_link', { url }),
+  /** Quit, shells and all, once the user has confirmed. */
+  quit: () => invoke<void>('quit_app'),
   copyText: (text: string) => invoke<void>('copy_text', { text }),
   listTasks: () => invoke<Task[]>('list_tasks'),
   getTask: (id: string) => invoke<Task | null>('get_task', { id }),
@@ -337,6 +339,13 @@ export function onOpenCreate(handler: (forSelected: boolean) => void) {
  *  or `drop`. */
 export function onDragDrop(handler: (event: DragDropEvent) => void) {
   return getCurrentWebview().onDragDropEvent((e) => handler(e.payload))
+}
+
+/** The app was asked to quit while terminals are running: how many, and how
+ *  many of those wait for the user. The backend holds the quit until
+ *  `api.quit`. */
+export function onConfirmQuit(handler: (running: number, waiting: number) => void) {
+  return listen<[number, number]>('confirm-quit', (e) => handler(e.payload[0], e.payload[1]))
 }
 
 export type TaskKind = 'refresh' | 'create' | 'remove' | 'deleteBranch'
