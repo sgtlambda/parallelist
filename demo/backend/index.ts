@@ -189,6 +189,8 @@ const handlers: Record<string, Handler> = {
     tasks.setAttention(id, attention),
   // A page has no menu bar to enable anything in.
   set_create_menu: () => {},
+  // A page has no app to quit.
+  quit_app: () => {},
 
   terminal_open: ({ projectId, branch, path, cols, rows, channel }: any) =>
     terminals.open(projectId, branch, path, cols, rows, channel),

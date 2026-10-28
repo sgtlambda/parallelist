@@ -15,6 +15,7 @@ use git::{AheadBehind, BranchInfo, Workspace, WorkspaceKind};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use proc::parallel_map;
@@ -31,6 +32,8 @@ struct AppState {
     /// One per project, so overlapping refreshes of it share runs.
     refreshes: Mutex<HashMap<String, Arc<RefreshSlot>>>,
     terminals: Arc<terminal::Terminals>,
+    /// Set once the user has confirmed quitting with terminals running.
+    quit_confirmed: AtomicBool,
 }
 
 impl AppState {
@@ -988,6 +991,13 @@ fn set_create_menu(app: tauri::AppHandle, add_branch: bool, new_workspace: bool)
     }
 }
 
+/// Quit after the confirmation dialog was accepted.
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle, state: State<AppState>) {
+    state.quit_confirmed.store(true, Ordering::SeqCst);
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1027,6 +1037,7 @@ pub fn run() {
                 dir,
                 tasks,
                 refreshes: Mutex::default(),
+                quit_confirmed: AtomicBool::new(false),
                 terminals: Arc::new(terminal::Terminals::new(Arc::new(move |event| {
                     let _ = match event {
                         terminal::TerminalEvent::Exit(info) => {
@@ -1073,9 +1084,27 @@ pub fn run() {
             terminal_viewing,
             terminal_mark,
             terminal_question,
+            quit_app,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running parallelist");
+        .build(tauri::generate_context!())
+        .expect("error while building parallelist")
+        .run(|app, event| {
+            // ⌘Q and closing the last window both land here. With shells
+            // running, the webview is asked to confirm first, since quitting
+            // hangs up on every one of them.
+            if let tauri::RunEvent::ExitRequested { api, code: None, .. } = event {
+                let state = app.state::<AppState>();
+                if state.quit_confirmed.load(Ordering::SeqCst) {
+                    return;
+                }
+                let terminals = state.terminals.list();
+                if !terminals.is_empty() {
+                    api.prevent_exit();
+                    let waiting = terminals.iter().filter(|t| t.waiting_since.is_some()).count();
+                    let _ = app.emit("confirm-quit", (terminals.len(), waiting));
+                }
+            }
+        });
 }
 
 #[cfg(test)]

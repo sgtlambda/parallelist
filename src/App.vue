@@ -5,6 +5,7 @@ import AttentionQueue from './components/AttentionQueue.vue'
 import BranchList from './components/BranchList.vue'
 import CleanupDialog from './components/CleanupDialog.vue'
 import CommandPalette from './components/CommandPalette.vue'
+import ConfirmQuitDialog from './components/ConfirmQuitDialog.vue'
 import CreateDialog from './components/CreateDialog.vue'
 import DetailPane from './components/DetailPane.vue'
 import Icon from './components/Icon.vue'
@@ -13,7 +14,7 @@ import ProjectSidebar from './components/ProjectSidebar.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import TaskBox from './components/TaskBox.vue'
 import TasksDialog from './components/TasksDialog.vue'
-import { api, onOpenCreate, onOpenSettings } from './api'
+import { api, onConfirmQuit, onOpenCreate, onOpenSettings } from './api'
 import { goToNextWaiting } from './attention'
 import { setHomeDirectory } from './format'
 import { runCreateTargets } from './openIn'
@@ -198,6 +199,8 @@ let stopTaskSync: (() => void) | null = null
 let stopTerminalSync: (() => void) | null = null
 let stopSettingsMenu: (() => void) | null = null
 let stopCreateMenu: (() => void) | null = null
+let stopConfirmQuit: (() => void) | null = null
+const quitAsk = ref<{ running: number; waiting: number } | null>(null)
 
 onMounted(async () => {
   // Before anything awaited: the first refresh waits on a fetch, and the
@@ -219,6 +222,9 @@ onMounted(async () => {
     settingsOpen.value = true
   })
   stopCreateMenu = await onOpenCreate(newFromShortcut)
+  stopConfirmQuit = await onConfirmQuit((running, waiting) => {
+    quitAsk.value = { running, waiting }
+  })
   await loadConfig()
   await refresh({ fetch: true })
   startBackgroundSync()
@@ -229,6 +235,7 @@ onUnmounted(() => {
   stopTerminalSync?.()
   stopSettingsMenu?.()
   stopCreateMenu?.()
+  stopConfirmQuit?.()
   stopBackgroundSync()
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('contextmenu', onContextMenu)
@@ -300,6 +307,7 @@ onUnmounted(() => {
       @close="cleanupOpen = false"
     />
     <SettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
+    <ConfirmQuitDialog :ask="quitAsk" @close="quitAsk = null" />
     <TasksDialog @error="state.error = $event" />
     <CommandPalette />
 
