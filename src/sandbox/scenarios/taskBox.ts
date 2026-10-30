@@ -38,6 +38,25 @@ export default defineGroup('Task box', [
     setup: () => withTasks(creating()),
   },
   {
+    id: 'short',
+    title: 'Short title and line: the box fits them',
+    component: TaskBox,
+    setup: () => withTasks(creating({ title: 'Remove app-b', log: [line(0, 'Removing')] })),
+  },
+  {
+    id: 'long',
+    title: 'Long title and line: truncated at the maximum width',
+    component: TaskBox,
+    setup: () =>
+      withTasks(
+        creating({
+          title: 'Create feature/1234-a-branch-name-that-is-much-too-long-to-fit-in-the-box',
+          log: [line(0, 'Installing dependencies for every package in a very large monolith, slowly')],
+        }),
+        task({ kind: 'remove', title: 'Remove app-search', status: 'queued' }),
+      ),
+  },
+  {
     id: 'queued',
     title: 'Running, with others queued (+N)',
     note: 'The oldest running task is featured; the rest are only counted.',

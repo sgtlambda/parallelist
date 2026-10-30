@@ -354,21 +354,20 @@ code,
 /* ---------- attention queue ---------- */
 
 /* Behind the task box: the strip's colour, from transparent at the left
-   edge, so the cards it covers fade out under it. Above the cards, below
-   the box. Not the strip's top rule, which runs on over it. */
+   edge, so the cards it covers fade out under it. Runs 56px past the box's
+   left side, whatever the box's width. Not the strip's top rule, which runs
+   on over it. */
 .task-backdrop {
-  position: fixed;
+  position: absolute;
+  top: 0;
   right: 0;
   bottom: 0;
-  z-index: 34;
-  width: calc(320px + 56px);
-  max-width: 100vw;
-  height: calc(var(--queue-h) - 1px);
+  left: -56px;
   background: linear-gradient(to right, transparent, var(--bg-sidebar) 56px);
 }
 
 /* Nothing in the strip to cover. */
-.task-backdrop.centered {
+.task-dock.centered .task-backdrop {
   display: none;
 }
 
@@ -1332,27 +1331,34 @@ code,
    the attention queue's strip, the strip's height, its lines centred in it
    (a Ready task's buttons included), on `.task-backdrop`. Under the modal
    scrim: a dialog in front of it is the thing being worked on. A failure
-   shows in its red ✕ and line, a success in the green check. */
-.task-box {
+   shows in its red ✕ and line, a success in the green check.
+
+   The dock holds the box and its backdrop, and is as wide as the box's
+   contents need, up to the maximum; past that the title and line truncate. */
+.task-dock {
   position: fixed;
   bottom: 0;
   right: 0;
   z-index: 35;
+  width: fit-content;
+  max-width: min(320px, 100vw);
+  height: calc(var(--queue-h) - 1px);
+}
+
+/* Alone in the strip: the middle of it, not the right end. */
+.task-dock.centered {
+  left: 0;
+  margin: 0 auto;
+}
+
+.task-box {
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  width: 320px;
-  max-width: 100vw;
-  height: calc(var(--queue-h) - 1px);
+  height: 100%;
   padding: 0 16px;
   cursor: pointer;
-}
-
-/* Alone in the strip: the middle of it, not the right end. Margins rather
-   than a transform, which the box's motion owns. */
-.task-box.centered {
-  left: 0;
-  margin: 0 auto;
 }
 
 /* Its rows follow it, to the right end or the middle: the title (spinner
@@ -1366,12 +1372,12 @@ code,
   text-align: right;
 }
 
-.task-box.centered .row,
-.task-box.centered .actions {
+.task-dock.centered .row,
+.task-dock.centered .actions {
   justify-content: center;
 }
 
-.task-box.centered .task-line {
+.task-dock.centered .task-line {
   text-align: center;
 }
 

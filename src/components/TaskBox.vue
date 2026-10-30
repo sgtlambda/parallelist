@@ -70,14 +70,13 @@ async function reveal(task: LiveTask) {
 <template>
   <!-- "user": macOS's Reduce motion drops the movement and keeps the fades. -->
   <MotionConfig reduced-motion="user">
-    <AnimatePresence>
+    <AnimatePresence as="div" class="task-dock" :class="{ centered }">
       <!-- The strip's own colour, faded in from the left: whatever cards
            run on under the box are covered rather than showing through. -->
       <motion.div
         v-if="featured"
         key="task-backdrop"
         class="task-backdrop"
-        :class="{ centered }"
         :initial="{ opacity: 0 }"
         :animate="{ opacity: 1, transition: { duration: 0.18 } }"
         :exit="{ opacity: 0, transition: { duration: 0.22 } }"
@@ -86,7 +85,6 @@ async function reveal(task: LiveTask) {
         v-if="featured"
         key="task-box"
         class="task-box"
-        :class="{ centered }"
         layout
         :initial="tucked"
         :animate="settled"
@@ -98,7 +96,7 @@ async function reveal(task: LiveTask) {
         @click="openTasks(featured.id)"
         @keydown.enter="openTasks(featured.id)"
       >
-        <AnimatePresence mode="popLayout" :initial="false">
+        <AnimatePresence mode="popLayout" anchor-x="right" :initial="false">
           <motion.div
             :key="featured.id"
             class="task-box-body"

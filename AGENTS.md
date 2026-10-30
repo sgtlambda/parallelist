@@ -340,7 +340,8 @@ redundant complexity and are not.
   `src/tasks.ts` mirrors it from `list_tasks` plus the `task` / `task-line` /
   `task-removed` events (header revisions and line numbers make the events
   that race the listing harmless). The `TaskBox` sits in the right end of
-  the attention queue's strip, without a card of its own, over a backdrop
+  the attention queue's strip, as wide as its contents need up to 320px
+  (its title and line truncate past that), without a card of its own, over a backdrop
   of the strip's colour that fades in from the left (so cards running on
   under it are covered, not shown through). With no cards in the strip it
   moves to the middle of it instead, with no backdrop, in place of the
