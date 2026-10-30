@@ -852,8 +852,12 @@ fn terminal_open(
 }
 
 #[tauri::command]
-fn terminal_write(state: State<AppState>, path: String, data: String) -> Result<u64, String> {
-    state.terminals.write(&path, data.as_bytes())
+fn terminal_write(state: State<AppState>, path: String, data: String, typed: bool) -> Result<u64, String> {
+    if typed {
+        state.terminals.write(&path, data.as_bytes())
+    } else {
+        state.terminals.write_untyped(&path, data.as_bytes())
+    }
 }
 
 #[tauri::command]

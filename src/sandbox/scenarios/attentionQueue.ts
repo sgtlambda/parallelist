@@ -1,3 +1,4 @@
+import { nextTick } from 'vue'
 import Window from '../views/Window.vue'
 import { backend } from '../backend'
 import { boot, terminals } from '../seed'
@@ -129,6 +130,27 @@ export default defineGroup('Attention queue', [
           asked: { [sso]: 'Want the login button on the left or the right?' },
         },
       ),
+  },
+  {
+    id: 'here-replied',
+    title: 'Replied to, still on screen',
+    note: 'The card keeps its place, without its age, until another terminal is shown. Its mark goes with the reply.',
+    component: Window,
+    props: queue,
+    async setup() {
+      await withQueue(
+        [
+          { path: header, status: 'idle', ready: true, minutesAgo: 15 },
+          { path: sso, status: 'idle', ready: true, minutesAgo: 6 },
+        ],
+        {
+          here: { branch: 'fix/1234-header', path: header },
+          asked: { [header]: 'Should the header stay sticky on mobile?' },
+        },
+      )
+      await nextTick()
+      terminals([{ path: header, status: 'idle' }])
+    },
   },
   {
     id: 'working',

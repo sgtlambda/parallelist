@@ -270,7 +270,8 @@ export const api = {
       channel,
     }),
   /** Resolves to when the terminal was last active, which typing makes now. */
-  terminalWrite: (path: string, data: string) => invoke<number>('terminal_write', { path, data }),
+  terminalWrite: (path: string, data: string, typed: boolean) =>
+    invoke<number>('terminal_write', { path, data, typed }),
   terminalResize: (path: string, cols: number, rows: number) =>
     invoke<void>('terminal_resize', { path, cols, rows }),
   terminalClose: (path: string) => invoke<void>('terminal_close', { path }),

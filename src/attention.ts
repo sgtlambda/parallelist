@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, shallowRef, watch } from 'vue'
 import { entryOf, type Entry } from './palette'
 import { selectedTerminal } from './store'
 import { enterTerminal } from './terminal'
@@ -20,6 +20,11 @@ import { running, statuses } from './terminalState'
  * are in the order they started working, so one finishing moves from the
  * head of that line to the back of the queue, right beside it.
  *
+ * The terminal on screen keeps its place for as long as it is on screen, even
+ * once it has had its reply and is working again, so a card doesn't leave
+ * under the user mid-answer. Going elsewhere lets go of it: a terminal still
+ * waiting takes its real place, and any other leaves the queue.
+ *
  * Each card is on the branch the list has it on, found through the same
  * placement (`branchesOf`), so there is always a row to go to. A terminal
  * of a project no longer in the config has none, and no card either.
@@ -27,9 +32,12 @@ import { running, statuses } from './terminalState'
 
 export interface QueueItem {
   path: string
-  kind: 'blocked' | 'ready' | 'working'
+  /** `answered`: on screen, kept in its place, with nothing waiting any more. */
+  kind: 'blocked' | 'ready' | 'working' | 'answered'
   /** When it started waiting, or working. */
   since: number
+  /** What the line is ordered by: `since`, unless kept in its place. */
+  place: number
   /** What the program says it is doing, while working or blocked. */
   message: string | null
   /** Its branch, as the branch list has it. */
@@ -40,8 +48,21 @@ export interface QueueItem {
 }
 
 function byAge(a: QueueItem, b: QueueItem) {
-  return a.since - b.since || a.path.localeCompare(b.path)
+  return a.place - b.place || a.path.localeCompare(b.path)
 }
+
+/** The terminal on screen, if it has waited since it came on screen, and the
+ *  place in the queue that wait gave it. */
+const kept = shallowRef<{ path: string; since: number } | null>(null)
+
+watch(
+  [selectedTerminal, () => (selectedTerminal.value && statuses.get(selectedTerminal.value)?.waitingSince) || null],
+  ([path, since]) => {
+    if (kept.value?.path !== path) kept.value = null
+    if (path && since && !kept.value) kept.value = { path, since }
+  },
+  { immediate: true },
+)
 
 const items = computed(() => {
   const here = selectedTerminal.value
@@ -50,14 +71,19 @@ const items = computed(() => {
   for (const path of running.keys()) {
     const s = statuses.get(path)
     const entry = entryOf.value.get(path)
-    if (!s || !entry) continue
-    const item = { path, message: s.message, entry, here: path === here }
-    if (s.waitingSince) {
+    const place = kept.value?.path === path && path === here ? kept.value.since : null
+    if (!entry || (!s && !place)) continue
+    const item = { path, message: s?.message ?? null, entry, here: path === here }
+    const workingSince = s?.status === 'working' ? s.workingSince : null
+    if (s?.waitingSince) {
       // Blocked outweighs ready, as in the terminal mark.
       const kind = s.status === 'blocked' ? 'blocked' : 'ready'
-      waiting.push({ ...item, kind, since: s.waitingSince })
-    } else if (s.status === 'working' && s.workingSince) {
-      working.push({ ...item, kind: 'working', since: s.workingSince })
+      waiting.push({ ...item, kind, since: s.waitingSince, place: place ?? s.waitingSince })
+    } else if (place) {
+      const since = workingSince ?? place
+      waiting.push({ ...item, kind: workingSince ? 'working' : 'answered', since, place })
+    } else if (workingSince) {
+      working.push({ ...item, kind: 'working', since: workingSince, place: workingSince })
     }
   }
   return { waiting: waiting.sort(byAge), working: working.sort(byAge) }

@@ -44,9 +44,11 @@ function waitKey(item: QueueItem) {
 watch(
   queue,
   (items) => {
-    const current = new Set(items.map(waitKey))
+    // A card kept in the queue while its program works again asks nothing.
+    const waits = items.filter((item) => item.kind !== 'working')
+    const current = new Set(waits.map(waitKey))
     for (const key of questions.keys()) if (!current.has(key)) questions.delete(key)
-    for (const item of items) {
+    for (const item of waits) {
       const key = waitKey(item)
       if (questions.has(key)) continue
       questions.set(key, null)
@@ -77,6 +79,7 @@ const TITLES = {
   blocked: 'Blocked — waiting for your answer',
   ready: 'Ready — finished, waiting for your reply',
   working: 'Working',
+  answered: 'Replied — leaves the queue when another terminal is shown',
 }
 
 /** How long it has waited or worked, ticking with the store's clock. */
@@ -158,7 +161,7 @@ const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0
                 {{ basename(item.path) }}
               </span>
               <span class="spacer" />
-              <span class="attention-age faint">{{ elapsed(item) }}</span>
+              <span v-if="item.kind !== 'answered'" class="attention-age faint">{{ elapsed(item) }}</span>
             </span>
             <span class="row">
               <span class="truncate attention-said" :class="{ faint: !said(item) }">

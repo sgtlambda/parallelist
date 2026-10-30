@@ -490,9 +490,12 @@ redundant complexity and are not.
     says something waits for the user: orange while `blocked` (on an answer,
     seen or not, since it stays stuck until answered), blue while **ready**.
     Ready is a backend flag, set whenever `done` arrives, on screen or not,
-    and cleared by typing into the terminal (`Terminals::write`; a focus
-    report xterm sends on its own doesn't count, as it doesn't for
-    activity). Not by looking at it: it used to be, and a turn glanced at
+    and cleared by typing into the terminal (`Terminals::write`). What xterm
+    sends while the user only looks and scrolls doesn't count, as it doesn't
+    for activity: focus and mouse reports, and the arrow keys a wheel makes in
+    the alternate screen. The webview tells those apart (`NOT_TYPED` and
+    `wheeling` in `src/terminal.ts`, since the bytes of a wheel's arrow key are
+    a real one's) and sends them with `typed` off. Not by looking at it: it used to be, and a turn glanced at
     while on the way elsewhere fell out of the queue without a reply. The
     frontend still reports which terminal is on screen
     (`terminal_viewing`), but only so a removed workspace's terminal can be
@@ -508,8 +511,8 @@ redundant complexity and are not.
     (`terminalRank` in `src/terminalState.ts`, the one ordering both use).
     Active means started, a status change, or typed into — kept by the
     backend as `activeAt` — and never output, or a chatty dev server would
-    sit on top for good. A focus report xterm sends on clicking in isn't
-    typing either. Recency is deliberately not reactive: the branch list
+    sit on top for good. Neither is what xterm sends while the user only
+    looks and scrolls. Recency is deliberately not reactive: the branch list
     re-sorts on its own only when a tier changes, and picks up recency
     whenever it re-sorts anyway, so rows don't move under the pointer.
     When rows do change places, they slide there (`src/reorder.ts`, a
@@ -560,9 +563,11 @@ redundant complexity and are not.
   keeps when each wait began (`waitingSince`, set by `Status::settle`) so
   a reload keeps the order; blocked turning into ready is the same wait,
   and a terminal that starts waiting again joins at the back. The terminal
-  on screen keeps its card (a blocked one waits there until answered, a
-  ready one until typed into), marked "here", and ⌘↵ goes to the first
-  card past it. The strip is there
+  on screen keeps its card and its place, marked "here", for as long as it
+  is on screen, even after its reply and while its program works again
+  (`kept` in `src/attention.ts`), and ⌘↵ goes to the first card past it.
+  Showing another terminal lets go: one still waiting takes its real place,
+  any other leaves the queue. The strip is there
   even when empty, so the panes above never change height and the terminal
   in them never reflows as cards come and go. Its cards find their branch
   through the palette's entries, placed as the list places them (above).
