@@ -19,7 +19,7 @@ import {
   type LiveTask,
 } from '../tasks'
 import { openTargets, project, projectId, selectedBranch, selectedRow, selectedTerminal, state } from '../store'
-import { workspaceBadges } from '../status'
+import { BRANCH_DELETED_BADGE, REMOVED_BADGE, workspaceBadges } from '../status'
 import { openIn as runTarget, openTaskIn, targetBusy, targetTitle } from '../openIn'
 import {
   FONT_SIZE,
@@ -60,14 +60,7 @@ const pending = computed(() => {
   )
 })
 
-/** The row's terminals whose workspace the overview doesn't list, other than
- *  a create's: removed from inside the terminal, which is still open. A
- *  create's terminal can start before a refresh lists its workspace, and
- *  until then the create's card stands for it. */
-const removed = computed(() => {
-  const creating = new Set(pending.value.map((t) => normalizePath(t.path ?? '')))
-  return (row.value?.unlisted ?? []).filter((w) => !creating.has(normalizePath(w.path)))
-})
+const removed = computed(() => row.value?.removed ?? [])
 
 const cards = computed(() => {
   const claimed = new Set(
@@ -222,11 +215,7 @@ const originState = computed(() => {
   // On no ref: a row only for a terminal (`branchesOf`). With its workspace
   // removed, the branch went too; otherwise it is being created.
   if (!branch.hasLocal && !branch.hasRemote && removed.value.length) {
-    return {
-      text: 'branch deleted',
-      cls: '',
-      title: 'Deleted along with its workspace, from inside the terminal that is still open.',
-    }
+    return { text: BRANCH_DELETED_BADGE.text, cls: '', title: BRANCH_DELETED_BADGE.title }
   }
 
   if (!branch.hasRemote && branch.merged) {
@@ -291,12 +280,8 @@ async function openPullRequest() {
         <Icon :name="terminal.kind" :size="12" />
         <span class="truncate">{{ basename(terminal.path) }}</span>
       </span>
-      <span
-        v-if="terminalOrphaned"
-        class="badge"
-        title="Its directory was deleted from inside this terminal. It closes once you leave it, unless what runs in it is still working or waiting on you."
-      >
-        removed
+      <span v-if="terminalOrphaned" class="badge" :title="REMOVED_BADGE.title">
+        {{ REMOVED_BADGE.text }}
       </span>
       <span class="spacer" />
       <span v-if="terminal" class="zoom">
@@ -519,12 +504,7 @@ async function openPullRequest() {
               <div class="row card-head">
                 <span class="card-title">{{ WORKSPACE_TITLES[item.gone.kind] }}</span>
                 <span class="spacer" />
-                <span
-                  class="badge"
-                  title="Its directory was deleted from inside its terminal. The terminal closes once you have seen it and left, unless what runs in it is still working or waiting on you."
-                >
-                  removed
-                </span>
+                <span class="badge" :title="REMOVED_BADGE.title">{{ REMOVED_BADGE.text }}</span>
                 <TerminalMark class="terminal-hint live" :paths="[item.gone.path]" :size="13" />
               </div>
               <div class="path-row">

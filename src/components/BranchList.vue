@@ -24,7 +24,7 @@ import {
   visibleRows,
 } from '../store'
 import { relativeTime } from '../format'
-import { atRisk, rowBadges } from '../status'
+import { atRisk, removedBadges, rowBadges } from '../status'
 import { enterShell } from '../enterShell'
 import { openIn, targetBusy } from '../openIn'
 import { terminalActive } from '../terminalState'
@@ -48,7 +48,7 @@ const tabs = computed(() => [
         },
       ]
     : []),
-  { id: 'workspaces' as const, label: 'Workspaces', title: 'Branches with a workspace on disk — a worktree or a clone', count: counts.value.workspaces },
+  { id: 'workspaces' as const, label: 'Workspaces', title: 'Branches with a workspace on disk — a worktree or a clone — or a terminal still open in a removed one', count: counts.value.workspaces },
   { id: 'all' as const, label: 'All', title: 'Every branch on origin', count: counts.value.all },
 ])
 
@@ -258,13 +258,19 @@ animateReorder(
   () => [state.overview?.project.id, state.filter, state.search].join('\0'),
 )
 
-/** Where this branch lives on disk, each entry labelled by its own kind. */
-function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[] {
-  return row.workspaces.map((c) => ({
+/** Where this branch lives on disk, each entry labelled by its own kind, and
+ *  where it did until it was removed from inside a terminal still open there. */
+function folders(row: Row): { kind: WorkspaceKind; name: string; path: string; removed: boolean }[] {
+  const entry = (c: Workspace, removed: boolean) => ({
     kind: c.kind,
     name: basename(c.path),
     path: c.path,
-  }))
+    removed,
+  })
+  return [
+    ...row.workspaces.map((c) => entry(c, false)),
+    ...row.removed.map((c) => entry(c, true)),
+  ]
 }
 </script>
 
@@ -338,18 +344,22 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
         :key="row.branch.name"
         :data-reorder="row.branch.name"
         class="branch"
-        :class="{ selected: row.branch.name === selectedBranch }"
+        :class="{
+          selected: row.branch.name === selectedBranch,
+          removed: row.removed.length && !row.workspaces.length,
+        }"
         @click="selectBranch(row.branch.name)"
         @dblclick="enterShell(row)"
         @contextmenu.prevent="openMenu(row)"
       >
         <div class="row">
           <span class="branch-name truncate">{{ row.branch.name }}</span>
-          <span v-if="row.workspaces.length" class="folder">
+          <span v-if="folders(row).length" class="folder">
             <span
               v-for="(entry, i) in folders(row)"
               :key="entry.path"
               class="folder-entry"
+              :class="{ removed: entry.removed }"
               :title="`${WORKSPACE_LABELS[entry.kind]}\n${entry.path}`"
             >
               <span v-if="i > 0" class="folder-sep">·</span>
@@ -369,7 +379,7 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
             {{ row.pr.isDraft && row.pr.state === 'open' ? 'draft' : row.pr.state }}
           </span>
           <span
-            v-for="badge in rowBadges(row.workspaces)"
+            v-for="badge in [...removedBadges(row), ...rowBadges(row.workspaces)]"
             :key="badge.key"
             class="badge"
             :class="{ warn: badge.warn }"

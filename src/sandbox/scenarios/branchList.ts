@@ -115,7 +115,7 @@ export default defineGroup('Branch list', [
   {
     id: 'removed',
     title: 'A removed workspace whose terminal is still open',
-    note: 'Not in the overview, so listed on the branch its terminal was opened on until nothing in it needs the user.',
+    note: 'Not in the overview, so listed on the branch its terminal was opened on, greyed, until nothing in it needs the user.',
     component: BranchList,
     ...box,
     async setup() {

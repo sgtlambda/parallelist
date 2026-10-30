@@ -9,7 +9,7 @@ import {
   type Overview,
   type PullRequest,
 } from './api'
-import { hasPendingCreate, normalizePath } from './tasks'
+import { createTasksFor, hasCard, hasPendingCreate, normalizePath } from './tasks'
 import { byTerminalRank, latestShown, running, shown, terminalRank } from './terminalState'
 
 export type Filter = 'active' | 'prs' | 'assigned' | 'workspaces' | 'all'
@@ -20,7 +20,7 @@ export interface Placed {
   workspaces: Workspace[]
   /** Running terminals on this branch whose workspace the overview doesn't
    *  list: removed from inside the terminal, typically, or newer than the
-   *  overview. Counted nowhere, but listed so the terminal can be reached. */
+   *  overview. Listed so the terminal can be reached; Cleanup never sees them. */
   unlisted: Workspace[]
 }
 
@@ -30,6 +30,10 @@ export interface Row extends Placed {
   aheadBehind: AheadBehind | null
   /** Finished work — merged or closed — with a workspace still on disk. */
   stale: boolean
+  /** The `unlisted` removed from inside their terminal: all of them but a
+   *  create's, whose terminal can start before a refresh lists its workspace,
+   *  and whose card stands for it until then. */
+  removed: Workspace[]
 }
 
 /**
@@ -177,6 +181,12 @@ export const rows = computed<Row[]>(() => {
       stale:
         workspaces.some((c) => c.kind !== 'primary') &&
         (branch.merged || pr?.state === 'merged' || pr?.state === 'closed'),
+      removed: unlisted.filter(
+        (w) =>
+          !createTasksFor(ov.project.id, branch.name).some(
+            (t) => hasCard(t) && normalizePath(t.path ?? '') === normalizePath(w.path),
+          ),
+      ),
     }
   })
 })
@@ -216,7 +226,7 @@ function haystack(row: Row): string {
     // Directory names are how a workspace gets referred to in practice ("the
     // app-b one"), and for a clone on a branch that exists nowhere else
     // it's the only name you'd think to type.
-    ...row.workspaces.map((c) => c.path),
+    ...[...row.workspaces, ...row.unlisted].map((c) => c.path),
   ]
     .join(' ')
     .toLowerCase()
@@ -259,6 +269,12 @@ function isActive(row: Row, activeDays: number): boolean {
   return age < activeDays * DAY
 }
 
+/** A terminal still open in a removed workspace counts, as it does for Active:
+ *  its queue card has to find its row on this tab as well. */
+function hasWorkspace(row: Row): boolean {
+  return row.workspaces.length > 0 || row.unlisted.length > 0
+}
+
 export const counts = computed(() => {
   const days = state.config?.activeDays ?? 30
   const all = rows.value
@@ -266,7 +282,7 @@ export const counts = computed(() => {
     active: all.filter((r) => isActive(r, days)).length,
     prs: all.filter((r) => r.pr?.state === 'open').length,
     assigned: all.filter((r) => r.pr?.state === 'open' && assignedToMe(r)).length,
-    workspaces: all.filter((r) => r.workspaces.length > 0).length,
+    workspaces: all.filter(hasWorkspace).length,
     all: all.length,
     // One per Cleanup entry, so each menu item's number is exactly what that
     // sweep would list.
@@ -292,7 +308,7 @@ export const visibleRows = computed<Row[]>(() => {
     case 'assigned':
       return inOrder(list.filter((r) => r.pr?.state === 'open' && assignedToMe(r)))
     case 'workspaces':
-      return inOrder(list.filter((r) => r.workspaces.length > 0))
+      return inOrder(list.filter(hasWorkspace))
     case 'all':
       return inOrder(list)
     default:
