@@ -5,6 +5,7 @@ import TerminalMark from './TerminalMark.vue'
 import { WORKSPACE_LABELS, basename, relativeTime } from '../format'
 import { highlight } from '../fuzzy'
 import { paletteLoading, paletteOpen, refreshPalette, searchPalette, type Result } from '../palette'
+import { enterShellOf } from '../enterShell'
 import { goToBranch } from '../store'
 import { useEscape } from '../useEscape'
 
@@ -54,6 +55,14 @@ function choose(result: Result | undefined) {
   goToBranch(result.entry.projectId, result.entry.branch.name)
 }
 
+/** Straight into the branch's shell, as double-clicking it in the list does. */
+function enter(result: Result | undefined) {
+  if (!result) return
+  returnFocus = null
+  paletteOpen.value = false
+  void enterShellOf(result.entry.projectId, result.entry.branch.name)
+}
+
 function move(by: number) {
   const count = results.value.length
   if (!count) return
@@ -72,6 +81,12 @@ function onKey(event: KeyboardEvent) {
   } else if (event.key === 'ArrowUp' || (ctrl && (event.key === 'p' || event.key === 'k'))) {
     event.preventDefault()
     move(-1)
+  } else if (event.key === 'Enter' && event.metaKey) {
+    event.preventDefault()
+    // The palette is gone by the time this reaches the window, whose ⌘↵
+    // would then go to whatever has waited longest as well.
+    event.stopPropagation()
+    enter(results.value[index.value])
   } else if (event.key === 'Enter') {
     event.preventDefault()
     choose(results.value[index.value])
@@ -149,6 +164,7 @@ function hover(i: number) {
       <div class="palette-footer faint">
         <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
         <span><kbd>↵</kbd> go to branch</span>
+        <span><kbd>⌘↵</kbd> open shell</span>
         <span><kbd>esc</kbd> close</span>
       </div>
     </div>
