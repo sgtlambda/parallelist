@@ -195,7 +195,8 @@ const handlers: Record<string, Handler> = {
 
   terminal_open: ({ projectId, branch, path, cols, rows, channel }: any) =>
     terminals.open(projectId, branch, path, cols, rows, channel),
-  terminal_write: ({ path, data }: { path: string; data: string }) => terminals.write(path, data),
+  terminal_write: ({ path, data, typed }: { path: string; data: string; typed: boolean }) =>
+    terminals.write(path, data, typed),
   terminal_resize: ({ path, cols }: { path: string; cols: number }) =>
     terminals.resize(path, cols),
   terminal_close: ({ path }: { path: string }) => terminals.close(path),

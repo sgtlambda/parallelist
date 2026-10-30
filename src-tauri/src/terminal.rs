@@ -261,6 +261,12 @@ impl Terminal {
         status.settle();
     }
 
+    fn send(&self, data: &[u8]) -> Result<(), String> {
+        let mut writer = self.writer.lock().unwrap();
+        writer.write_all(data).map_err(|e| e.to_string())?;
+        writer.flush().map_err(|e| e.to_string())
+    }
+
     /// The user typed into it: whatever waited for a reply has had one.
     /// Returns whether anything was waiting.
     fn typed(&self) -> bool {
@@ -542,24 +548,27 @@ impl Terminals {
 
     /// Type `data` into the terminal. Returns when it was last active,
     /// which this makes now, and a turn that ended there has had its reply,
-    /// reported like any status change — unless `data` is only a focus
-    /// report: xterm sends one on its own whenever the terminal is clicked
-    /// into or left, if the program asked for them, as Claude Code does.
-    /// Looking isn't activity, and isn't a reply.
+    /// reported like any status change.
     pub fn write(&self, path: &str, data: &[u8]) -> Result<u64, String> {
         let term = self.get(path)?;
-        let mut writer = term.writer.lock().unwrap();
-        writer.write_all(data).map_err(|e| e.to_string())?;
-        writer.flush().map_err(|e| e.to_string())?;
-        drop(writer);
-        if matches!(data, b"\x1b[I" | b"\x1b[O") {
-            return Ok(term.status.lock().unwrap().active_at);
-        }
+        term.send(data)?;
         if term.typed() {
             if let Some(hook) = &self.hook {
                 hook(TerminalEvent::Status(&term.info()));
             }
         }
+        let active_at = term.status.lock().unwrap().active_at;
+        Ok(active_at)
+    }
+
+    /// Pass on what xterm sends while the user only looks and scrolls (focus
+    /// and mouse reports, arrow keys for a wheel): the program gets it, but
+    /// looking isn't activity, and isn't a reply. Returns when it was last
+    /// active. The webview tells these apart (`NOT_TYPED` in `terminal.ts`),
+    /// since an arrow key from a wheel looks like any other here.
+    pub fn write_untyped(&self, path: &str, data: &[u8]) -> Result<u64, String> {
+        let term = self.get(path)?;
+        term.send(data)?;
         let active_at = term.status.lock().unwrap().active_at;
         Ok(active_at)
     }
@@ -864,7 +873,7 @@ mod tests {
         assert!(started > 0, "a new terminal is active from the start");
 
         std::thread::sleep(Duration::from_millis(5));
-        assert_eq!(terminals.write(&path, b"\x1b[I").unwrap(), started);
+        assert_eq!(terminals.write_untyped(&path, b"\x1b[I").unwrap(), started);
         let typed = terminals.write(&path, b"echo out-$((40+2))\n").unwrap();
         assert!(typed > started);
         read_until(&rx, "out-42");
@@ -1047,9 +1056,10 @@ mod tests {
         let since = terminals.list()[0].waiting_since.expect("waiting");
 
         // Looking isn't replying, and neither is the focus report xterm
-        // sends on clicking in.
+        // sends on clicking in, or what it sends for a wheel.
         terminals.view(Some(&path));
-        terminals.write(&path, b"\x1b[I").unwrap();
+        terminals.write_untyped(&path, b"\x1b[I").unwrap();
+        terminals.write_untyped(&path, b"\x1b[<64;10;5M").unwrap();
         assert!(statuses.try_recv().is_err(), "nothing changed");
         assert!(terminals.list()[0].ready, "still waiting for a reply");
         assert_eq!(terminals.waiting(), 1);

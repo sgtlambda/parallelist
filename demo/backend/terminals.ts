@@ -329,10 +329,10 @@ const KEYS = /\x1b\[[0-9;?]*[A-Za-z~]|\x1b[\s\S]?|[\s\S]/gu
 
 /** Typed into, which is also the reply a finished turn waits for. A focus
  *  report isn't typing, as in the backend. */
-export function write(path: string, data: string): number {
+export function write(path: string, data: string, typed: boolean): number {
   const s = sessions.get(path)
   if (!s) return Date.now()
-  if (data === '\x1b[I' || data === '\x1b[O') return s.activeAt
+  if (!typed) return s.activeAt
   s.activeAt = Date.now()
   if (s.ready) {
     s.ready = false

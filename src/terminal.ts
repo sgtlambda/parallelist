@@ -58,9 +58,22 @@ interface Session {
   /** Typed but not yet sent: while the shell starts, or while the previous
    *  write is still in flight. */
   pending: string
+  /** Whether anything in `pending` was typed (`NOT_TYPED`). */
+  pendingTyped: boolean
+  /** A wheel event is being handled: what xterm sends for it isn't typing. */
+  wheeling: boolean
   writing: boolean
   disposed: boolean
 }
+
+/**
+ * What xterm sends on its own while the user only looks and scrolls: focus
+ * reports, and mouse reports if the program asked for them. These reach the
+ * program, but aren't a reply and aren't activity. Without mouse reporting a
+ * wheel in the alternate screen sends arrow keys, which only `wheeling` can
+ * tell from real ones.
+ */
+const NOT_TYPED = /^(?:\x1b\[[IO]|\x1b\[<\d+;\d+;\d+[Mm])+$/
 
 const sessions = new Map<string, Session>()
 
@@ -190,12 +203,21 @@ function session(path: string): Session {
     fit,
     state: 'new',
     pending: '',
+    pendingTyped: false,
+    wheeling: false,
     writing: false,
     disposed: false,
   }
 
+  // xterm sends what a wheel event makes right after asking this, in the
+  // same task, so the flag is down again before anything else can be typed.
+  term.attachCustomWheelEventHandler(() => {
+    s.wheeling = true
+    queueMicrotask(() => (s.wheeling = false))
+    return true
+  })
   term.onData((data) => {
-    if (s.state === 'running' || s.state === 'starting') send(s, data)
+    if (s.state === 'running' || s.state === 'starting') send(s, data, !s.wheeling && !NOT_TYPED.test(data))
     else if (s.state === 'exited' && data === '\r') void start(s)
   })
   term.onResize(({ cols, rows }) => {
@@ -218,16 +240,19 @@ function session(path: string): Session {
  * fast typing over a write-per-keystroke came out scrambled (`$TERM` arrived
  * as `$TREM`).
  */
-function send(s: Session, data: string) {
+function send(s: Session, data: string, typed: boolean) {
   s.pending += data
+  s.pendingTyped ||= typed
   if (s.writing || s.state !== 'running') return
   s.writing = true
   void (async () => {
     while (s.pending && s.state === 'running') {
       const chunk = s.pending
+      const chunkTyped = s.pendingTyped
       s.pending = ''
+      s.pendingTyped = false
       await api
-        .terminalWrite(s.path, chunk)
+        .terminalWrite(s.path, chunk, chunkTyped)
         .then((at) => void activeAt.set(s.path, at))
         .catch(() => {})
     }
@@ -260,7 +285,7 @@ async function start(s: Session) {
   if (s.disposed || s.state !== 'starting') return
   s.state = 'running'
   running.set(s.path, homeOf(opened.terminal))
-  send(s, '')
+  send(s, '', false)
 }
 
 function ended(s: Session, code: number | null) {
@@ -332,7 +357,7 @@ export function runInTerminal(
 ) {
   const s = session(path)
   startOn.set(s.path, { projectId, branch })
-  if (s.state === 'running') send(s, `${command}\r`)
+  if (s.state === 'running') send(s, `${command}\r`, true)
   else s.pending += `${command}\r`
   // A new one is otherwise started by being shown.
   if (s.state === 'exited' || (!reveal && s.state === 'new')) void start(s)
