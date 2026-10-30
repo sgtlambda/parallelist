@@ -984,6 +984,17 @@ code,
   opacity: 0.5;
 }
 
+/* Removed from inside a terminal still open there: greyed like its card, with
+   the terminal's mark left as it is, since that can still be waiting. */
+.folder-entry.removed .truncate {
+  text-decoration: line-through;
+}
+
+.branch.removed:not(.selected) .branch-name,
+.branch.removed:not(.selected) .muted {
+  color: var(--text-faint);
+}
+
 /* Inline with the path rather than boxed: the icon reads as a prefix to the
    directory, not as a separate tag. */
 .path-row {

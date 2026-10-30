@@ -440,6 +440,11 @@ redundant complexity and are not.
     by its home (below), and its card shows greyed as "removed". Before
     this the shell lived on unreachable: the project lit up with a
     terminal no row could show.
+    Its row says so the same way whichever refs survive (`Row.removed`,
+    `removedBadges`): greyed, its directory struck through, marked "removed",
+    and "branch deleted" too when no ref is left. It stays on the tabs and
+    searches that find a workspace, because its queue card has to find it. A
+    create's terminal, also `unlisted` until a refresh lists it, isn't marked.
     "On screen" is reported apart from focus, so switching apps isn't
     leaving it. "Removed" means the directory no longer holds a workspace
     (no `.git`), not that it is gone: a dev server left running in a removed

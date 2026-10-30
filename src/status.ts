@@ -9,6 +9,7 @@
  */
 import type { RemovalImpact, Workspace } from './api'
 import { basename } from './format'
+import type { Row } from './store'
 
 export interface Badge {
   /** Stable, for `v-for` keys. */
@@ -21,6 +22,29 @@ export interface Badge {
 
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`
+}
+
+export const REMOVED_BADGE: Badge = {
+  key: 'removed',
+  text: 'removed',
+  warn: false,
+  title:
+    'Its directory was deleted from inside its terminal. The terminal closes once you have left it, unless what runs in it is still working or waiting on you.',
+}
+
+export const BRANCH_DELETED_BADGE: Badge = {
+  key: 'branch-deleted',
+  text: 'branch deleted',
+  warn: false,
+  title: 'Deleted along with its workspace, from inside the terminal that is still open.',
+}
+
+/** What a row says about a workspace removed from inside its terminal. */
+export function removedBadges(row: Pick<Row, 'branch' | 'removed'>): Badge[] {
+  if (!row.removed.length) return []
+  return row.branch.hasLocal || row.branch.hasRemote
+    ? [REMOVED_BADGE]
+    : [REMOVED_BADGE, BRANCH_DELETED_BADGE]
 }
 
 /** Not asked yet, as opposed to unknown: the list is showing `api.peek`
