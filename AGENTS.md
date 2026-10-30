@@ -545,7 +545,11 @@ redundant complexity and are not.
 - **The command palette (⌘P) searches every project's branches** without
   refreshing them: each project lists the newer of its cached overview and
   a `peek`, so it has no PRs and doesn't search them. ⌘P rather than ⌘K
-  because terminals use ⌘K to clear. Ranking is fzy's score (`src/fuzzy.ts`,
+  because terminals use ⌘K to clear. ↵ goes to the branch; ⌘↵ goes into its
+  shell as a double-click would (`enterShellOf`), stopping the key before the
+  window's ⌘↵ sees a palette already closed. In another project a workspace
+  the list holds is entered at once, but a create waits for a refresh asked
+  for after the switch, so a stale list can't duplicate a workspace. Ranking is fzy's score (`src/fuzzy.ts`,
   about a point per well-placed character) plus a flat bonus — 2 to 4.5 by
   terminal tier, else one for the current project — so those settle short
   queries and barely touch long ones, and an empty query opens on running

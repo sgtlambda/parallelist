@@ -65,6 +65,7 @@ disk.
   or finished, and the app marks it. Double-clicking a branch goes into its
   shell: the one already running there, or a new one.
 - **`⌘P` jumps to any branch of any project**, with what's waiting first.
+  `⌘↵` there goes into the branch's shell, as double-clicking it does.
 - **A folder dropped on the window** goes to the branch it holds, or is
   added as a project. A worktree of a clone that isn't a project yet brings
   in the clone. Dropped on a terminal, a file or folder is pasted there as

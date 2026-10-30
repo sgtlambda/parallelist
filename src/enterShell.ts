@@ -1,6 +1,7 @@
-import { createWithDefaults, defaultTargets, offeredTargets } from './newWorkspace'
+import { watch } from 'vue'
+import { createWithDefaults, defaultTargets, offeredTargets, rowFor } from './newWorkspace'
 import { openIn } from './openIn'
-import { project, projectId, state, type Row } from './store'
+import { goToBranch, project, projectId, state, type Row } from './store'
 import { createTasksFor, isActive, normalizePath, removalOf } from './tasks'
 import { enterTerminal } from './terminal'
 import { byTerminalRank, latestShown, terminalActive, terminalRank } from './terminalState'
@@ -71,6 +72,44 @@ export async function enterShell(row: Row) {
   } finally {
     starting.delete(key)
   }
+}
+
+/**
+ * The same from the command palette, for a branch of any project. In another
+ * project what is held may be old, so a workspace it lists is gone to at
+ * once, but "no workspace" isn't believed until a refresh asked for now has
+ * landed: making one on the word of a stale list would duplicate one. Nothing
+ * happens if the user has moved on by then, or the refresh failed.
+ */
+export async function enterShellOf(id: string, branch: string) {
+  const elsewhere = id !== projectId.value
+  const since = Date.now()
+  goToBranch(id, branch)
+  const here = () => projectId.value === id && state.selectedBranch === branch
+  if (elsewhere) {
+    const settled = () => {
+      const row = rowFor(branch)
+      return (
+        !here() ||
+        !!state.error ||
+        state.overviewAt >= since ||
+        !!row?.workspaces.length ||
+        !!row?.unlisted.length
+      )
+    }
+    if (!settled()) {
+      await new Promise<void>((resolve) => {
+        const stop = watch(settled, (done) => {
+          if (!done) return
+          stop()
+          resolve()
+        })
+      })
+    }
+    if (!here() || state.error) return
+  }
+  const row = rowFor(branch)
+  if (row) await enterShell(row)
 }
 
 /** Branches whose create is being planned or started, before its task
