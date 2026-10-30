@@ -10,7 +10,14 @@ import {
   type PullRequest,
 } from './api'
 import { hasPendingCreate, normalizePath } from './tasks'
-import { byTerminalRank, running, terminalRank } from './terminalState'
+import {
+  branchKey,
+  byTerminalRank,
+  followBranches,
+  running,
+  shown,
+  terminalRank,
+} from './terminalState'
 
 export type Filter = 'active' | 'prs' | 'assigned' | 'workspaces' | 'all'
 
@@ -372,6 +379,34 @@ export function dropCached(id: string) {
 
 let inFlight = 0
 
+/**
+ * Put an overview on screen. A workspace is its directory, whichever branch
+ * is in it now, so a branch renamed or switched from inside its terminal
+ * takes along what was shown of it. The selection goes too: from a terminal
+ * on screen to the branch its workspace is on now, and from a branch that no
+ * longer exists to the one its workspace became.
+ */
+function land(id: string, overview: Overview) {
+  const previous = state.overview?.project.id === id ? state.overview : null
+  const branchOf = new Map<string, string>()
+  for (const w of overview.workspaces) {
+    if (w.branch) branchOf.set(normalizePath(w.path), w.branch)
+  }
+  const selected = state.selectedBranch
+  const onScreen = shown.get(branchKey(id, selected) ?? '')
+  const gone = selected && !overview.branches.some((b) => b.name === selected)
+  const held = gone ? previous?.workspaces.filter((w) => w.branch === selected) ?? [] : []
+  const followed = [...(onScreen ? [onScreen] : []), ...held.map((w) => normalizePath(w.path))]
+    .map((path) => branchOf.get(path))
+    .find((branch) => branch && branch !== selected)
+  state.overview = overview
+  followBranches(id, branchOf)
+  if (followed) {
+    state.selectedBranch = followed
+    revealSelected(followed)
+  }
+}
+
 export async function refresh(options: { fetch?: boolean } = {}) {
   const id = projectId.value
   if (!id) {
@@ -401,14 +436,15 @@ export async function refresh(options: { fetch?: boolean } = {}) {
       at: Date.now(),
     })
     if (!current()) return
-    state.overview = overview
+    land(id, overview)
     state.overviewAt = askedAt
     state.error = null
     // A branch being created may not exist in any ref yet; its pending card
-    // is what the user is looking at, so the selection stays.
+    // is what the user is looking at, so the selection stays. So does a row
+    // no ref has, which is there for a terminal (`branchesOf`).
     if (
       state.selectedBranch &&
-      !overview.branches.some((b) => b.name === state.selectedBranch) &&
+      !selectedRow.value &&
       !hasPendingCreate(id, state.selectedBranch)
     ) {
       state.selectedBranch = null
@@ -429,7 +465,7 @@ async function peek(id: string, current: () => boolean) {
   try {
     const overview = await api.peek(id)
     if (!current() || state.overview) return
-    state.overview = overview
+    land(id, overview)
     // Zero, which also keeps it out of `cache`: nothing that finished before
     // it is known to be reflected, so create cards hold on until the real
     // refresh lands.
@@ -476,11 +512,12 @@ export async function selectProject(id: string | null, branch?: string) {
   // Restore whatever we last saw for this project so the list is populated
   // straight away. The refresh below replaces it; the status line says so.
   const cached = id ? cache.get(id) : undefined
-  state.overview = cached?.overview ?? null
+  state.overview = null
   state.overviewAt = cached?.overviewAt ?? 0
   state.aheadBehind = cached?.aheadBehind ?? {}
   state.selectedBranch = branch ?? cached?.selectedBranch ?? null
   state.error = null
+  if (id && cached) land(id, cached.overview)
 
   await api.selectProject(id)
   await refresh({ fetch: true })

@@ -81,7 +81,8 @@ pub type Sink = Box<dyn Fn(Chunk) -> bool + Send>;
 /// where it goes instead whenever the overview doesn't put its workspace on
 /// a branch — removed from inside the terminal, on a detached HEAD
 /// mid-rebase, or newer than the overview — so a running terminal always
-/// has a row.
+/// has a row. The frontend keeps the branch up to date from each overview
+/// (`followBranches`), for a branch renamed or switched from inside.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Home {

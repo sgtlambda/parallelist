@@ -10,8 +10,8 @@ import { normalizePath } from './tasks'
  * it without an import cycle.
  */
 
-/** Where a terminal belongs (`TerminalInfo`): its project, and the branch
- *  and kind of workspace it was opened on. */
+/** Where a terminal belongs (`TerminalInfo`): its project, the kind of
+ *  workspace it was opened on, and the branch last seen in that workspace. */
 export type Home = Pick<TerminalInfo, 'projectId' | 'branch' | 'kind'>
 
 /**
@@ -24,6 +24,37 @@ export const running = reactive(new Map<string, Home>())
 
 export function homeOf(t: TerminalInfo): Home {
   return { projectId: t.projectId, branch: t.branch, kind: t.kind }
+}
+
+/** Branch key → path of the workspace whose terminal it shows. Absent means
+ *  the overview. In memory only. */
+export const shown = reactive(new Map<string, string>())
+
+export function branchKey(projectId: string | null, branch: string | null): string | null {
+  return projectId && branch ? `${projectId}\0${branch}` : null
+}
+
+/**
+ * The directory is what a terminal belongs to, and the branch in it can
+ * change under it: renamed, or switched, from inside the terminal. Given
+ * where a project's workspaces are now, each of its terminals' homes and
+ * whatever a branch showed go along to the branch their workspace is on. A
+ * workspace on no branch (a detached HEAD, mid-rebase) stays where it was.
+ */
+export function followBranches(projectId: string, branchOf: Map<string, string>) {
+  for (const [path, home] of running) {
+    const branch = branchOf.get(path)
+    if (home.projectId === projectId && branch && branch !== home.branch) {
+      running.set(path, { ...home, branch })
+    }
+  }
+  const prefix = `${projectId}\0`
+  for (const [key, path] of [...shown]) {
+    const branch = branchOf.get(path)
+    if (!key.startsWith(prefix) || !branch || key === prefix + branch) continue
+    shown.delete(key)
+    shown.set(prefix + branch, path)
+  }
 }
 
 /** What the program in each terminal reports over OSC 7501, when it does,

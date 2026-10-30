@@ -290,9 +290,10 @@ export type TerminalMessage = ArrayBuffer | { exit: number }
 
 export interface TerminalInfo {
   path: string
-  /** Its home, fixed when the shell starts: the project, and the branch and
-   *  kind of workspace it was opened on. Where it is listed whenever the
-   *  overview doesn't put its workspace on a branch (`branchesOf`). */
+  /** Its home, as the shell started: the project, and the branch and kind of
+   *  workspace it was opened on. Where it is listed whenever the overview
+   *  doesn't put its workspace on a branch (`branchesOf`), with the branch
+   *  kept up with the overviews since (`followBranches`). */
   projectId: string
   branch: string
   kind: WorkspaceKind

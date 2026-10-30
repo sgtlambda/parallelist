@@ -3,11 +3,11 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { computed, nextTick, reactive, watch } from 'vue'
+import { computed, nextTick, watch } from 'vue'
 import { api, onTerminalExit, onTerminalStatus, type TerminalMessage } from './api'
 import { goToBranch, projectId as currentProject, saveConfig, state } from './store'
 import { normalizePath } from './tasks'
-import { activeAt, homeOf, running, setStatus, statuses } from './terminalState'
+import { activeAt, branchKey, homeOf, running, setStatus, shown, statuses } from './terminalState'
 
 /**
  * Terminals in the detail pane: a shell per workspace, in the backend
@@ -28,18 +28,10 @@ import { activeAt, homeOf, running, setStatus, statuses } from './terminalState'
  * attaches to it and gets its recent output replayed.
  */
 
-/** Branch key → path of the workspace whose terminal it shows. Absent means
- *  the overview. */
-const shown = reactive(new Map<string, string>())
-
 /** Where each workspace's terminal was last asked for, which is where its
  *  shell is at home when it starts (`TerminalInfo`). One already running
- *  keeps the home it started with. */
+ *  keeps the home it has. */
 const startOn = new Map<string, { projectId: string; branch: string }>()
-
-function branchKey(projectId: string | null, branch: string | null): string | null {
-  return projectId && branch ? `${projectId}\0${branch}` : null
-}
 
 /** The workspace whose terminal this branch shows, or null for the overview.
  *  Only a wish: the pane falls back to the overview while that workspace isn't
@@ -306,11 +298,11 @@ let viewingSent: string | null | undefined
  *  into, looked at or not — but leaving one whose workspace was removed
  *  lets it close. */
 function reportViewing() {
-  let shown: string | null = null
-  for (const s of sessions.values()) if (s.el.isConnected) shown = s.path
-  if (shown === viewingSent) return
-  viewingSent = shown
-  void api.terminalViewing(shown).catch(() => {})
+  let viewing: string | null = null
+  for (const s of sessions.values()) if (s.el.isConnected) viewing = s.path
+  if (viewing === viewingSent) return
+  viewingSent = viewing
+  void api.terminalViewing(viewing).catch(() => {})
 }
 
 /**

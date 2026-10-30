@@ -444,9 +444,20 @@ redundant complexity and are not.
     (no `.git`), not that it is gone: a dev server left running in a removed
     worktree recreates its cache folder there, and a bare directory like that
     used to keep the terminal, and its card in the queue, for good.
+  - **A terminal belongs to its directory, and the branch follows.** A
+    branch renamed or switched from inside a terminal is only seen at the
+    next overview, so a queue card can still go to the old name. When an
+    overview lands (`land` in `store.ts`), what each branch shows and each
+    terminal's home move to the branch their workspace is on now
+    (`followBranches`), and the selection goes along if it was on that
+    terminal, or on a branch that no longer exists. Before this the refresh
+    dropped the selection and left "No branch selected", or the overview of
+    the old name if it was still on origin. Rows stay keyed by branch name,
+    since a row is a branch; only what hangs off it follows the directory.
   - **Every running terminal has a row, by construction.** Each has a
-    *home*, fixed when its shell starts: the project and branch it was
-    opened on, and its workspace's kind (`terminal::Home`, on every
+    *home*, set when its shell starts and kept up by `followBranches`: the
+    project, the branch last seen in its workspace, and the workspace's
+    kind (`terminal::Home`, on every
     `TerminalInfo`; `running` in `terminalState.ts` maps path → home, so
     nothing can be running without one). `branchesOf` in `store.ts` is the
     one place terminals are put on branches: where the overview has the
