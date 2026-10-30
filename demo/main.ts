@@ -3,7 +3,7 @@ import App from '../src/App.vue'
 import '../src/styles.css'
 import './demo.css'
 import { startStory } from './backend'
-import { state } from '../src/store'
+import { selectBranch, state } from '../src/store'
 import { showTerminal } from '../src/terminal'
 
 /**
@@ -37,7 +37,7 @@ const stop = watch(
   (overview) => {
     if (!overview) return
     stop()
-    state.selectedBranch = BRANCH
+    selectBranch(BRANCH)
     const there = overview.workspaces.find((w) => w.branch === BRANCH)
     if (there) showTerminal(overview.project.id, BRANCH, there.path)
   },

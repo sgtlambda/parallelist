@@ -5,9 +5,9 @@ import { Terminal, type ITheme } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { computed, nextTick, watch } from 'vue'
 import { api, onTerminalExit, onTerminalStatus, type TerminalMessage } from './api'
-import { goToBranch, projectId as currentProject, saveConfig, state } from './store'
+import { goToWorkspace, saveConfig, state } from './store'
 import { normalizePath } from './tasks'
-import { activeAt, branchKey, homeOf, running, setStatus, shown, statuses } from './terminalState'
+import { activeAt, homeOf, running, setStatus, shown, statuses } from './terminalState'
 
 /**
  * Terminals in the detail pane: a shell per workspace, in the backend
@@ -15,9 +15,9 @@ import { activeAt, branchKey, homeOf, running, setStatus, shown, statuses } from
  *
  * Two pieces of state, kept apart because they are keyed differently:
  *
- * - **What each branch shows**: its overview, or the terminal of one of its
- *   workspaces. Per project + branch, so switching branches or projects and
- *   back lands where it was left. In memory only.
+ * - **What each workspace shows**: its overview, or its terminal (`shown`).
+ *   Per directory, so switching branches or projects and back lands where it
+ *   was left, whatever became of the branch in it. In memory only.
  * - **The sessions**, one per workspace directory. A session owns its own
  *   DOM: the xterm is `open()`ed into an element once, and that element is
  *   moved between hosts rather than rebuilt, so scrollback, scroll position
@@ -33,24 +33,19 @@ import { activeAt, branchKey, homeOf, running, setStatus, shown, statuses } from
  *  keeps the home it has. */
 const startOn = new Map<string, { projectId: string; branch: string }>()
 
-/** The workspace whose terminal this branch shows, or null for the overview.
- *  Only a wish: the pane falls back to the overview while that workspace isn't
- *  listed on the row, without forgetting it. */
-export function terminalFor(projectId: string | null, branch: string | null): string | null {
-  const key = branchKey(projectId, branch)
-  return (key && shown.get(key)) ?? null
-}
-
+/** Go to a workspace and show its terminal rather than its overview. `branch`
+ *  is only where it is thought to be: the name it has if a shell starts now. */
 export function showTerminal(projectId: string | null, branch: string | null, path: string) {
-  const key = branchKey(projectId, branch)
-  if (!key || !projectId || !branch) return
-  shown.set(key, normalizePath(path))
-  startOn.set(normalizePath(path), { projectId, branch })
+  if (!projectId || !branch) return
+  const key = normalizePath(path)
+  shown.delete(key)
+  shown.add(key)
+  startOn.set(key, { projectId, branch })
+  goToWorkspace(projectId, key, branch)
 }
 
-export function showOverview(projectId: string | null, branch: string | null) {
-  const key = branchKey(projectId, branch)
-  if (key) shown.delete(key)
+export function showOverview(path: string) {
+  shown.delete(normalizePath(path))
 }
 
 interface Session {
@@ -341,11 +336,7 @@ export function runInTerminal(
   else s.pending += `${command}\r`
   // A new one is otherwise started by being shown.
   if (s.state === 'exited' || (!reveal && s.state === 'new')) void start(s)
-  if (!reveal) return
-  if (currentProject.value !== projectId || state.selectedBranch !== branch) {
-    goToBranch(projectId, branch)
-  }
-  showTerminal(projectId, branch, path)
+  if (reveal) showTerminal(projectId, branch, path)
 }
 
 /**
@@ -357,7 +348,6 @@ export function runInTerminal(
 export function enterTerminal(projectId: string, branch: string, path: string) {
   const focused = document.activeElement
   if (focused instanceof HTMLElement && focused.closest('input, textarea')) focused.blur()
-  goToBranch(projectId, branch)
   showTerminal(projectId, branch, path)
   void nextTick(() => {
     const s = sessions.get(normalizePath(path))
@@ -397,8 +387,8 @@ export function detach(path: string) {
   reportViewing()
 }
 
-/** Hang up on the workspace's shell and forget its session. Every branch
- *  showing it goes back to its overview. */
+/** Hang up on the workspace's shell and forget its session. The workspace
+ *  goes back to its overview. */
 export function closeTerminal(path: string) {
   const key = normalizePath(path)
   void api.terminalClose(key).catch(() => {})
@@ -411,7 +401,7 @@ export function closeTerminal(path: string) {
   }
   running.delete(key)
   statuses.delete(key)
-  for (const [branch, shownPath] of shown) if (shownPath === key) shown.delete(branch)
+  shown.delete(key)
   reportViewing()
 }
 

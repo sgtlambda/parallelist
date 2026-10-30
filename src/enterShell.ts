@@ -2,8 +2,8 @@ import { createWithDefaults, defaultTargets, offeredTargets } from './newWorkspa
 import { openIn } from './openIn'
 import { project, projectId, state, type Row } from './store'
 import { createTasksFor, isActive, normalizePath, removalOf } from './tasks'
-import { enterTerminal, terminalFor } from './terminal'
-import { byTerminalRank, terminalActive, terminalRank } from './terminalState'
+import { enterTerminal } from './terminal'
+import { byTerminalRank, latestShown, terminalActive, terminalRank } from './terminalState'
 
 /**
  * Double-clicking a branch: into a shell on it, whatever it takes.
@@ -23,7 +23,7 @@ export async function enterShell(row: Row) {
   const id = projectId.value
   if (!id) return
   const branch = row.branch.name
-  const shown = terminalFor(id, branch)
+  const shown = latestShown([...row.workspaces, ...row.unlisted].map((w) => w.path))
 
   const live = [...row.workspaces, ...row.unlisted].map((w) => w.path).filter(terminalActive)
   if (live.length) {
