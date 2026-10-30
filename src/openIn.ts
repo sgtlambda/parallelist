@@ -1,5 +1,5 @@
 import { api, type OpenContext, type OpenTarget, type Task } from './api'
-import { openTargetsFor, state } from './store'
+import { openTargetsFor, selectedBranch, state } from './store'
 import { runInTerminal } from './terminal'
 import { terminalActive } from './terminalState'
 
@@ -59,7 +59,7 @@ export async function openTaskIn(targetId: string, task: Task, reveal = true) {
 export async function runCreateTargets(task: Task) {
   if (!task.openTargets.length) return
   const reveal =
-    state.config?.selectedProjectId === task.projectId && state.selectedBranch === task.branch
+    state.config?.selectedProjectId === task.projectId && selectedBranch.value === task.branch
   const known = openTargetsFor(task.projectId)
   for (const id of task.openTargets) {
     const target = known.find((t) => t.id === id)

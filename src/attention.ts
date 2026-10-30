@@ -1,7 +1,7 @@
 import { computed } from 'vue'
 import { entryOf, type Entry } from './palette'
-import { projectId, state } from './store'
-import { enterTerminal, terminalFor } from './terminal'
+import { selectedTerminal } from './store'
+import { enterTerminal } from './terminal'
 import { running, statuses } from './terminalState'
 
 /**
@@ -44,7 +44,7 @@ function byAge(a: QueueItem, b: QueueItem) {
 }
 
 const items = computed(() => {
-  const here = terminalFor(projectId.value, state.selectedBranch)
+  const here = selectedTerminal.value
   const waiting: QueueItem[] = []
   const working: QueueItem[] = []
   for (const path of running.keys()) {

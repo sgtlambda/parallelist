@@ -1,5 +1,5 @@
 import { api, type CreateRequest, type OpenTarget } from './api'
-import { openTargetsFor, rows, state, type Row } from './store'
+import { openTargetsFor, rows, selectBranch, state, type Row } from './store'
 
 /**
  * How a new workspace is made from a few choices: what the New workspace
@@ -101,7 +101,7 @@ export async function startCreate(request: CreateRequest): Promise<boolean> {
     state.error = String(e)
     return false
   }
-  state.selectedBranch = request.branch
+  selectBranch(request.branch)
   return true
 }
 

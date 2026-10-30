@@ -403,8 +403,8 @@ redundant complexity and are not.
   icon set can be swapped by editing one file.
 - **Terminals live in the detail pane, one per workspace.** Clicking a
   workspace card swaps the pane to that workspace's terminal; every button on
-  the card stops its click. What each branch shows (overview or which
-  terminal) is remembered per project + branch, in memory only.
+  the card stops its click. What each workspace shows (overview or
+  terminal) is remembered per directory, in memory only.
   - The shells are a backend registry (`src-tauri/src/terminal.rs`, portable-pty),
     keyed by workspace path, for the same reason tasks are: a webview reload
     must not orphan a shell running a dev server. Each keeps a 512 KB backlog;
@@ -444,9 +444,24 @@ redundant complexity and are not.
     (no `.git`), not that it is gone: a dev server left running in a removed
     worktree recreates its cache folder there, and a bare directory like that
     used to keep the terminal, and its card in the queue, for good.
+  - **A workspace is its directory; a branch name is derived.** The
+    selection is the workspace's path, plus the name last seen
+    (`state.selection`), and `selectedBranch` works out which branch that is
+    from where the overview has the workspace now. What a workspace shows,
+    its overview or its terminal, is kept by path (`shown`). So a branch
+    renamed or switched from inside a terminal needs nothing moved: a queue
+    card can still carry the old name until the next refresh, and going
+    there selects the directory, whose terminal shows at once, with the row
+    and label correcting themselves when the overview lands. Keying these on
+    the name left "No branch selected" after that refresh, or the overview
+    of the old name if it was still on origin. A branch with no workspace is
+    the exception, since its name is all it has: selecting one (`selectBranch`)
+    takes its workspace as soon as an overview lists one. Don't key anything
+    about a terminal or workspace on a branch name.
   - **Every running terminal has a row, by construction.** Each has a
-    *home*, fixed when its shell starts: the project and branch it was
-    opened on, and its workspace's kind (`terminal::Home`, on every
+    *home*, set when its shell starts: the project, the branch last seen in
+    its workspace (kept up as overviews land, for a rename), and the
+    workspace's kind (`terminal::Home`, on every
     `TerminalInfo`; `running` in `terminalState.ts` maps path → home, so
     nothing can be running without one). `branchesOf` in `store.ts` is the
     one place terminals are put on branches: where the overview has the

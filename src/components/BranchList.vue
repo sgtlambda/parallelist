@@ -16,6 +16,8 @@ import {
   project,
   projectId,
   refresh,
+  selectBranch,
+  selectedBranch,
   staleWorkspacePaths,
   state,
   viewer,
@@ -188,7 +190,7 @@ function menuTerminals(row: Row): string[] {
 }
 
 function openMenu(row: Row) {
-  state.selectedBranch = row.branch.name
+  selectBranch(row.branch.name)
   void popupMenu(menuItems(row), (id) => void onMenuSelect(row, id))
 }
 
@@ -240,7 +242,7 @@ function scrollToSelected() {
 }
 
 watch(
-  () => state.selectedBranch,
+  selectedBranch,
   (branch) => {
     scrollPending = !!branch
     void nextTick(scrollToSelected)
@@ -336,8 +338,8 @@ function folders(row: Row): { kind: WorkspaceKind; name: string; path: string }[
         :key="row.branch.name"
         :data-reorder="row.branch.name"
         class="branch"
-        :class="{ selected: row.branch.name === state.selectedBranch }"
-        @click="state.selectedBranch = row.branch.name"
+        :class="{ selected: row.branch.name === selectedBranch }"
+        @click="selectBranch(row.branch.name)"
         @dblclick="enterShell(row)"
         @contextmenu.prevent="openMenu(row)"
       >

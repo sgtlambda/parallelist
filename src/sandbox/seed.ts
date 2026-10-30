@@ -1,4 +1,4 @@
-import { loadConfig, refresh, state } from '../store'
+import { loadConfig, refresh, selectBranch, state } from '../store'
 import { homeOf, running, setStatus, statuses } from '../terminalState'
 import { normalizePath } from '../tasks'
 import type { AppConfig, Overview, TerminalInfo } from '../api'
@@ -31,7 +31,7 @@ export async function boot(options: Boot = {}) {
   })
   state.filter = options.filter ?? 'active'
   await loadConfig()
-  state.selectedBranch = options.selected ?? null
+  selectBranch(options.selected ?? null)
   const done = refresh()
   // A loading list is the point: don't wait for what will not come.
   if (!options.loading) await done

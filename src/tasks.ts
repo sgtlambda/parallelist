@@ -1,7 +1,7 @@
 import { computed, markRaw, reactive, ref } from 'vue'
 import { api, onTaskEvents, type Task, type TaskHeader, type TaskLine } from './api'
 import { WORKSPACE_TITLES } from './format'
-import { projectId, refresh, selectProject, selectedRow, state } from './store'
+import { projectId, refresh, selectBranch, selectProject, selectedBranch, selectedRow, state } from './store'
 
 /**
  * The window's view of the backend's task registry: refreshes, creates,
@@ -158,7 +158,7 @@ function onScreen(task: LiveTask): boolean {
   const target = normalizePath(task.path ?? '')
   return (
     projectId.value === task.projectId &&
-    state.selectedBranch === task.branch &&
+    selectedBranch.value === task.branch &&
     (selectedRow.value?.workspaces.some((w) => normalizePath(w.path) === target) ?? false)
   )
 }
@@ -317,7 +317,7 @@ export async function revealTask(task: Task) {
   if (state.config?.selectedProjectId !== task.projectId) {
     await selectProject(task.projectId)
   }
-  state.selectedBranch = task.branch
+  selectBranch(task.branch)
 }
 
 /** A finished create whose card is off screen: the box's "Ready" notice. */

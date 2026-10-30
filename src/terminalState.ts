@@ -10,8 +10,8 @@ import { normalizePath } from './tasks'
  * it without an import cycle.
  */
 
-/** Where a terminal belongs (`TerminalInfo`): its project, and the branch
- *  and kind of workspace it was opened on. */
+/** Where a terminal belongs (`TerminalInfo`): its project, the kind of
+ *  workspace it was opened on, and the branch last seen in that workspace. */
 export type Home = Pick<TerminalInfo, 'projectId' | 'branch' | 'kind'>
 
 /**
@@ -24,6 +24,20 @@ export const running = reactive(new Map<string, Home>())
 
 export function homeOf(t: TerminalInfo): Home {
   return { projectId: t.projectId, branch: t.branch, kind: t.kind }
+}
+
+/**
+ * The workspaces showing their terminal rather than the overview, by path,
+ * oldest first. A wish, in memory only: the pane falls back to the overview
+ * while that terminal can't be shown, without forgetting it. Not per branch,
+ * since the branch in a directory can change under it.
+ */
+export const shown = reactive(new Set<string>())
+
+/** Of these workspaces, the one whose terminal was shown last. */
+export function latestShown(paths: string[]): string | null {
+  const keys = new Set(paths.map(normalizePath))
+  return [...shown].reverse().find((path) => keys.has(path)) ?? null
 }
 
 /** What the program in each terminal reports over OSC 7501, when it does,

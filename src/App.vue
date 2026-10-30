@@ -38,6 +38,7 @@ import {
   openCleanup,
   projectId,
   refresh,
+  selectedBranch,
   settingsOpen,
   startBackgroundSync,
   state,
@@ -66,13 +67,13 @@ function openCreate(branch: string) {
 function newFromShortcut(forSelected: boolean) {
   if (!projectId.value || document.querySelector('.scrim')) return
   if (!forSelected) openCreate('')
-  else if (state.selectedBranch) openCreate(state.selectedBranch)
+  else if (selectedBranch.value) openCreate(selectedBranch.value)
 }
 
 // The menu greys out what the shortcuts would do nothing for.
 watchEffect(() => {
   void api
-    .setCreateMenu(!onboarding.value && !!projectId.value, !onboarding.value && !!state.selectedBranch)
+    .setCreateMenu(!onboarding.value && !!projectId.value, !onboarding.value && !!selectedBranch.value)
     .catch(() => {})
 })
 
@@ -276,7 +277,7 @@ onUnmounted(() => {
       <ProjectSidebar />
       <BranchList @create="openCreate('')" />
       <DetailPane
-        @create="openCreate(state.selectedBranch ?? '')"
+        @create="openCreate(selectedBranch ?? '')"
         @remove="openCleanup($event, [], 'Remove workspace')"
         @error="state.error = $event"
       />

@@ -18,7 +18,7 @@ import {
   taskProgress,
   type LiveTask,
 } from '../tasks'
-import { openTargets, project, projectId, selectedRow, state } from '../store'
+import { openTargets, project, projectId, selectedBranch, selectedRow, selectedTerminal, state } from '../store'
 import { workspaceBadges } from '../status'
 import { openIn as runTarget, openTaskIn, targetBusy, targetTitle } from '../openIn'
 import {
@@ -27,11 +27,10 @@ import {
   fontSize,
   showOverview,
   showTerminal,
-  terminalFor,
   zoomPercent,
   zoomTerminals,
 } from '../terminal'
-import { terminalMark } from '../terminalState'
+import { running, terminalMark } from '../terminalState'
 
 const emit = defineEmits<{
   (e: 'create'): void
@@ -56,7 +55,7 @@ const row = selectedRow
  */
 const pending = computed(() => {
   const listed = new Set((row.value?.workspaces ?? []).map((w) => normalizePath(w.path)))
-  return createTasksFor(projectId.value, state.selectedBranch).filter(
+  return createTasksFor(projectId.value, selectedBranch.value).filter(
     (t) => hasCard(t) && !(t.status === 'done' && listed.has(normalizePath(t.path ?? ''))),
   )
 })
@@ -110,7 +109,7 @@ function removing(removal: LiveTask | null): boolean {
 /** The pane has something to show: a branch row, or a card for one on its
  *  way. */
 const title = computed(
-  () => row.value?.branch.name ?? (cards.value.length ? state.selectedBranch : null),
+  () => row.value?.branch.name ?? (cards.value.length || terminal.value ? selectedBranch.value : null),
 )
 
 const targets = computed(() => {
@@ -123,22 +122,24 @@ const hiddenCount = computed(() => {
 })
 
 /** The workspace whose terminal the pane shows instead of the overview. Only
- *  while that workspace is listed on the row, or is a finished create still
- *  holding its card: during a load, or once it has been removed, the overview
- *  shows — but the branch keeps asking for the terminal, so it comes back
- *  when the workspace does. Without the create, a terminal target ticked in
+ *  while its shell runs, or that workspace is listed on the row, or is a
+ *  finished create still holding its card: a running shell needs no overview
+ *  to agree, and once a workspace has been removed the overview shows — but
+ *  it keeps asking for the terminal, so it comes back when the workspace does. Without the create, a terminal target ticked in
  *  the New workspace dialog sat unstarted until the refresh listed it.
  *  Not while a create is still setting the workspace up, though a refresh
  *  can list it by then: a double-click asks for its shell straight away,
  *  and it would start before the setup steps had run. */
 const terminal = computed((): Pick<Workspace, 'path' | 'kind'> | null => {
-  const path = terminalFor(projectId.value, state.selectedBranch)
+  const path = selectedTerminal.value
   if (!path) return null
-  const creates = createTasksFor(projectId.value, state.selectedBranch)
+  const creates = createTasksFor(projectId.value, selectedBranch.value)
   if (creates.some((t) => isActive(t) && normalizePath(t.path ?? '') === path)) return null
   const listed = [...(row.value?.workspaces ?? []), ...(row.value?.unlisted ?? [])]
   const workspace = listed.find((w) => normalizePath(w.path) === path)
   if (workspace) return workspace
+  const home = running.get(path)
+  if (home) return { path, kind: home.kind }
   const created = creates.find(
     (t) => t.status === 'done' && hasCard(t) && normalizePath(t.path ?? '') === path,
   )
@@ -155,7 +156,7 @@ const terminalOrphaned = computed(
  *  terminal. Buttons on the card stop their clicks, so they never get here. */
 function activate(item: (typeof cards.value)[number], event: Event) {
   if (item.job) return openTasks(item.job.id)
-  if (item.gone) return showTerminal(projectId.value, state.selectedBranch, item.gone.path)
+  if (item.gone) return showTerminal(projectId.value, selectedBranch.value, item.gone.path)
   if (!item.workspace || removing(item.removal)) return
   // Drag-selecting the path ends in a click on the card; that was a copy, not
   // a request for a terminal.
@@ -167,7 +168,7 @@ function activate(item: (typeof cards.value)[number], event: Event) {
   ) {
     return
   }
-  showTerminal(projectId.value, state.selectedBranch, item.workspace.path)
+  showTerminal(projectId.value, selectedBranch.value, item.workspace.path)
 }
 
 const reviewLabel: Record<string, string> = {
@@ -275,7 +276,7 @@ async function openPullRequest() {
         v-if="terminal"
         class="btn ghost small icon"
         title="Back to the overview"
-        @click="showOverview(projectId, state.selectedBranch)"
+        @click="showOverview(terminal.path)"
       >
         <Icon name="back" />
       </button>

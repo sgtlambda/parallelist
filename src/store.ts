@@ -10,7 +10,7 @@ import {
   type PullRequest,
 } from './api'
 import { hasPendingCreate, normalizePath } from './tasks'
-import { byTerminalRank, running, terminalRank } from './terminalState'
+import { byTerminalRank, latestShown, running, shown, terminalRank } from './terminalState'
 
 export type Filter = 'active' | 'prs' | 'assigned' | 'workspaces' | 'all'
 
@@ -32,6 +32,19 @@ export interface Row extends Placed {
   stale: boolean
 }
 
+/**
+ * What is selected: a workspace when the branch has one, by its directory,
+ * which stays the same whatever happens to the branch in it. `branch` is the
+ * name last seen, for a branch with no workspace, whose name is all it has,
+ * and for finding a row while the workspace isn't placed on one. Which branch
+ * is selected is otherwise worked out from where the workspace is now
+ * (`selectedBranch`), so a rename can't leave the selection behind.
+ */
+export interface Selection {
+  path: string | null
+  branch: string
+}
+
 const DAY = 86_400
 
 export const state = reactive({
@@ -39,7 +52,7 @@ export const state = reactive({
   overview: null as Overview | null,
   loading: false,
   error: null as string | null,
-  selectedBranch: null as string | null,
+  selection: null as Selection | null,
   filter: 'active' as Filter,
   search: '',
   aheadBehind: {} as Record<string, AheadBehind>,
@@ -287,9 +300,45 @@ export const visibleRows = computed<Row[]>(() => {
   }
 })
 
+/** The branch each workspace on screen is on, as the list has it. */
+const placedOn = computed(() => {
+  const byPath = new Map<string, string>()
+  for (const row of rows.value) {
+    for (const w of [...row.workspaces, ...row.unlisted]) {
+      byPath.set(normalizePath(w.path), row.branch.name)
+    }
+  }
+  return byPath
+})
+
+export const selectedBranch = computed(() => {
+  const s = state.selection
+  if (!s) return null
+  return (s.path && placedOn.value.get(s.path)) || s.branch
+})
+
 export const selectedRow = computed<Row | null>(
-  () => rows.value.find((r) => r.branch.name === state.selectedBranch) ?? null,
+  () => rows.value.find((r) => r.branch.name === selectedBranch.value) ?? null,
 )
+
+/** The terminal the pane is asked to show, if any. */
+export const selectedTerminal = computed(() => {
+  const path = state.selection?.path
+  return path && shown.has(path) ? path : null
+})
+
+/** The workspace to select for a branch: the one whose terminal it showed
+ *  last, else the first listed. */
+function workspaceOn(branch: string): string | null {
+  const row = rows.value.find((r) => r.branch.name === branch)
+  const paths = [...(row?.workspaces ?? []), ...(row?.unlisted ?? [])].map((w) => w.path)
+  return latestShown(paths) ?? (paths.length ? normalizePath(paths[0]) : null)
+}
+
+/** Select a branch of the project on screen, as clicking its row does. */
+export function selectBranch(branch: string | null) {
+  state.selection = branch ? { path: workspaceOn(branch), branch } : null
+}
 
 export async function loadConfig() {
   const config = await api.getConfig()
@@ -339,7 +388,7 @@ interface CacheEntry {
   overview: Overview
   overviewAt: number
   aheadBehind: Record<string, AheadBehind>
-  selectedBranch: string | null
+  selection: Selection | null
   at: number
 }
 
@@ -355,7 +404,7 @@ function remember(id: string) {
     overview: state.overview,
     overviewAt: state.overviewAt,
     aheadBehind: state.aheadBehind,
-    selectedBranch: state.selectedBranch,
+    selection: state.selection,
     at: Date.now(),
   })
 }
@@ -371,6 +420,29 @@ export function dropCached(id: string) {
 }
 
 let inFlight = 0
+
+/**
+ * Put an overview on screen. The selection needs no moving, since it follows
+ * from where its workspace is; what is written down is the name for when
+ * that can't say, and the workspace if it has none yet. A terminal's home
+ * likewise keeps the branch last seen, for once its workspace is on none.
+ */
+function land(overview: Overview) {
+  state.overview = overview
+  for (const w of overview.workspaces) {
+    const path = normalizePath(w.path)
+    const home = running.get(path)
+    if (w.branch && home && home.projectId === overview.project.id && home.branch !== w.branch) {
+      running.set(path, { ...home, branch: w.branch })
+    }
+  }
+  const s = state.selection
+  if (!s) return
+  const placed = s.path && placedOn.value.get(s.path)
+  if (placed) s.branch = placed
+  // One still asked for stays: a create's, which is listed later.
+  else if (!s.path || !shown.has(s.path)) s.path = workspaceOn(s.branch) ?? s.path
+}
 
 export async function refresh(options: { fetch?: boolean } = {}) {
   const id = projectId.value
@@ -397,21 +469,22 @@ export async function refresh(options: { fetch?: boolean } = {}) {
       overview,
       overviewAt: askedAt,
       aheadBehind: previous?.aheadBehind ?? {},
-      selectedBranch: previous?.selectedBranch ?? null,
+      selection: previous?.selection ?? null,
       at: Date.now(),
     })
     if (!current()) return
-    state.overview = overview
+    land(overview)
     state.overviewAt = askedAt
     state.error = null
     // A branch being created may not exist in any ref yet; its pending card
-    // is what the user is looking at, so the selection stays.
+    // is what the user is looking at, so the selection stays. So does a row
+    // no ref has, which is there for a terminal (`branchesOf`).
     if (
-      state.selectedBranch &&
-      !overview.branches.some((b) => b.name === state.selectedBranch) &&
-      !hasPendingCreate(id, state.selectedBranch)
+      selectedBranch.value &&
+      !selectedRow.value &&
+      !hasPendingCreate(id, selectedBranch.value)
     ) {
-      state.selectedBranch = null
+      state.selection = null
     }
     void loadAheadBehind()
   } catch (e) {
@@ -429,7 +502,7 @@ async function peek(id: string, current: () => boolean) {
   try {
     const overview = await api.peek(id)
     if (!current() || state.overview) return
-    state.overview = overview
+    land(overview)
     // Zero, which also keeps it out of `cache`: nothing that finished before
     // it is known to be reflected, so create cards hold on until the real
     // refresh lands.
@@ -460,8 +533,9 @@ async function loadAheadBehind() {
   }
 }
 
-/** Open a project, landing on `branch` if given, else wherever it was left. */
-export async function selectProject(id: string | null, branch?: string) {
+/** Open a project, landing on `selection` if given, else wherever it was
+ *  left. */
+export async function selectProject(id: string | null, selection?: Selection) {
   const leaving = projectId.value
   if (leaving && leaving !== id) {
     remember(leaving)
@@ -476,11 +550,12 @@ export async function selectProject(id: string | null, branch?: string) {
   // Restore whatever we last saw for this project so the list is populated
   // straight away. The refresh below replaces it; the status line says so.
   const cached = id ? cache.get(id) : undefined
-  state.overview = cached?.overview ?? null
+  state.overview = null
   state.overviewAt = cached?.overviewAt ?? 0
   state.aheadBehind = cached?.aheadBehind ?? {}
-  state.selectedBranch = branch ?? cached?.selectedBranch ?? null
+  state.selection = selection ?? cached?.selection ?? null
   state.error = null
+  if (cached) land(cached.overview)
 
   await api.selectProject(id)
   await refresh({ fetch: true })
@@ -513,9 +588,18 @@ export async function openFolder(path: string) {
 
 /** Jump to a branch of any project, as the command palette does. */
 export function goToBranch(id: string, branch: string) {
-  if (id === projectId.value) state.selectedBranch = branch
-  else void selectProject(id, branch)
-  revealSelected(branch)
+  if (id === projectId.value) selectBranch(branch)
+  else void selectProject(id, { path: null, branch })
+  revealSelected()
+}
+
+/** Jump to a workspace of any project. `branch` is only where it is thought
+ *  to be, for until the overview says. */
+export function goToWorkspace(id: string, path: string, branch: string) {
+  const selection = { path: normalizePath(path), branch }
+  if (id === projectId.value) state.selection = selection
+  else void selectProject(id, selection)
+  revealSelected()
 }
 
 /**
@@ -524,19 +608,20 @@ export function goToBranch(id: string, branch: string) {
  * it isn't there yet — after switching to a project with nothing cached, it
  * arrives with the peek or the refresh.
  */
-function revealSelected(branch: string) {
+function revealSelected() {
+  const asked = state.selection
   const reveal = () => {
     // Selected something else meanwhile, or the refresh dropped it.
-    if (state.selectedBranch !== branch) return true
+    if (state.selection !== asked) return true
     if (!selectedRow.value) return false
-    const listed = () => visibleRows.value.some((r) => r.branch.name === branch)
+    const listed = () => visibleRows.value.some((r) => r === selectedRow.value)
     if (!listed()) state.search = ''
     if (!listed()) state.filter = 'all'
     return true
   }
   if (reveal()) return
   const stop = watch(
-    () => [selectedRow.value, state.selectedBranch] as const,
+    () => [selectedRow.value, state.selection] as const,
     () => reveal() && stop(),
   )
 }
