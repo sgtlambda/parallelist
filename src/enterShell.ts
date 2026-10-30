@@ -1,7 +1,7 @@
 import { watch } from 'vue'
 import { createWithDefaults, defaultTargets, offeredTargets, rowFor } from './newWorkspace'
 import { openIn } from './openIn'
-import { goToBranch, project, projectId, state, type Row } from './store'
+import { goToBranch, project, projectId, selectedBranch, state, type Row } from './store'
 import { createTasksFor, isActive, normalizePath, removalOf } from './tasks'
 import { enterTerminal } from './terminal'
 import { byTerminalRank, latestShown, terminalActive, terminalRank } from './terminalState'
@@ -85,7 +85,7 @@ export async function enterShellOf(id: string, branch: string) {
   const elsewhere = id !== projectId.value
   const since = Date.now()
   goToBranch(id, branch)
-  const here = () => projectId.value === id && state.selectedBranch === branch
+  const here = () => projectId.value === id && selectedBranch.value === branch
   if (elsewhere) {
     const settled = () => {
       const row = rowFor(branch)
