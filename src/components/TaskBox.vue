@@ -37,15 +37,22 @@ const others = computed(() => Math.max(0, boxTasks.value.length - 1))
  * Vue's own `<Transition>` underneath, so the leaving box keeps its last
  * render — the finished task's checkmark — for the whole exit.
  *
+ * Sideways, the box eases only between the right end and the middle of the
+ * strip. A title or line of another length changes its width, and that takes
+ * effect at once: with `layout` following every change, the text slid along
+ * with each new line of a log.
+ *
  * Inside, a different featured task cross-fades in while `layout` eases the
- * lines to their new place (the Ready buttons, centred in the strip, push
- * them up). The fades
+ * lines up or down to their new place (the Ready buttons, centred in the
+ * strip, push them up). The fades
  * overlap: `popLayout` pins the outgoing content where it was so the incoming
  * content takes its place at once. `wait` faded one fully out before the
  * other came in, which read as a blank beat whenever a finished task handed
  * the slot to one still running. A task changing state in place is not a
  * swap: the spinner just gives way to the check.
  */
+// motion-dom follows the `y` axis alone for this; motion-v's types lag behind.
+const verticalOnly = 'y' as 'position'
 const tucked = { opacity: 0, y: 6, scale: 0.97 }
 const settled = { opacity: 1, y: 0, scale: 1 }
 const spring = { type: 'spring', stiffness: 520, damping: 40, mass: 0.8 } as const
@@ -86,6 +93,7 @@ async function reveal(task: LiveTask) {
         key="task-box"
         class="task-box"
         layout
+        :layout-dependency="centered"
         :initial="tucked"
         :animate="settled"
         :exit="sink"
@@ -100,7 +108,8 @@ async function reveal(task: LiveTask) {
           <motion.div
             :key="featured.id"
             class="task-box-body"
-            layout="position"
+            :layout="verticalOnly"
+            :layout-dependency="isReady(featured)"
             :initial="{ opacity: 0 }"
             :animate="{ opacity: 1, transition: { duration: 0.18, ease: 'easeOut' } }"
             :exit="{ opacity: 0, transition: { duration: 0.12, ease: 'easeIn' } }"
