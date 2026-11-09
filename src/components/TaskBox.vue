@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { AnimatePresence, MotionConfig, motion } from 'motion-v'
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import Icon from './Icon.vue'
 import {
   boxTasks,
@@ -58,6 +58,28 @@ const settled = { opacity: 1, y: 0, scale: 1 }
 const spring = { type: 'spring', stiffness: 520, damping: 40, mass: 0.8 } as const
 // Accelerating out: it is leaving, not arriving.
 const sink = { ...tucked, transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } }
+
+/**
+ * The room the box takes over the strip's right end, as `--task-reserve`:
+ * the dock's width and its backdrop's fade, or nothing once it is empty
+ * (after the box's exit, not when it starts). The strip ends in a spacer that
+ * wide, so its last card can always be scrolled out from under the box.
+ */
+let resize: ResizeObserver | null = null
+onMounted(() => {
+  const dock = document.querySelector<HTMLElement>('.task-dock')
+  if (!dock) return
+  const root = document.documentElement.style
+  resize = new ResizeObserver(() => {
+    const width = dock.offsetWidth
+    root.setProperty('--task-reserve', width ? `calc(${width}px + var(--task-fade))` : '0px')
+  })
+  resize.observe(dock)
+})
+onBeforeUnmount(() => {
+  resize?.disconnect()
+  document.documentElement.style.removeProperty('--task-reserve')
+})
 
 async function openIn(targetId: string, task: LiveTask) {
   try {

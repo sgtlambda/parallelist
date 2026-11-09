@@ -343,7 +343,10 @@ redundant complexity and are not.
   the attention queue's strip, as wide as its contents need up to 320px
   (its title and line truncate past that), without a card of its own, over a backdrop
   of the strip's colour that fades in from the left (so cards running on
-  under it are covered, not shown through). With no cards in the strip it
+  under it are covered, not shown through). The strip ends in a spacer as
+  wide as the box and its fade (`--task-reserve`, measured by `TaskBox.vue`),
+  so a full queue still scrolls its last card out from under the box. With
+  no cards in the strip it
   moves to the middle of it instead, with no backdrop, in place of the
   logo that otherwise sits there, its frames lighting up one after another. It features one task
   (anything asking for attention, else the oldest running) with a `+N`

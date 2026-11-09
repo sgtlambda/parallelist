@@ -33,8 +33,8 @@ async function withQueue(
 }
 
 /** `withQueue`, with these tasks in the registry as well. */
-async function withTasks(list: Seed, tasks: Task[]) {
-  await withQueue(list)
+async function withTasks(list: Seed, tasks: Task[], overview?: Overview) {
+  await withQueue(list, { overview })
   backend.handle({ list_tasks: () => structuredClone(tasks) })
   await startTaskSync(() => {})
 }
@@ -65,6 +65,18 @@ function crowded(): Overview {
     workspaces: [...base.workspaces, ...names.map((n) => workspace(`app-${n}`, 'worktree', `feature/${n}`))],
   }
 }
+
+/** Six waiting and two working, on the workspaces `crowded` adds. */
+const crowdedSeed = (): Seed => [
+  { path: sso, status: 'idle', ready: true, minutesAgo: 90 },
+  { path: header, status: 'blocked', minutesAgo: 70 },
+  { path: billing, status: 'idle', ready: true, minutesAgo: 55 },
+  { path: `${WS}/app-dark-mode`, status: 'idle', ready: true, minutesAgo: 40 },
+  { path: `${WS}/app-csv-export`, status: 'blocked', minutesAgo: 30 },
+  { path: `${WS}/app-rate-limits`, status: 'idle', ready: true, minutesAgo: 20 },
+  { path: `${WS}/app-audit-log`, status: 'working', minutesAgo: 12 },
+  { path: `${WS}/app-webhooks`, status: 'working', minutesAgo: 5 },
+]
 
 export default defineGroup('Attention queue', [
   {
@@ -185,20 +197,22 @@ export default defineGroup('Attention queue', [
     note: 'The strip keeps its height and does not wrap.',
     component: Window,
     props: queue,
-    setup: () =>
-      withQueue(
-        [
-          { path: sso, status: 'idle', ready: true, minutesAgo: 90 },
-          { path: header, status: 'blocked', minutesAgo: 70 },
-          { path: billing, status: 'idle', ready: true, minutesAgo: 55 },
-          { path: `${WS}/app-dark-mode`, status: 'idle', ready: true, minutesAgo: 40 },
-          { path: `${WS}/app-csv-export`, status: 'blocked', minutesAgo: 30 },
-          { path: `${WS}/app-rate-limits`, status: 'idle', ready: true, minutesAgo: 20 },
-          { path: `${WS}/app-audit-log`, status: 'working', minutesAgo: 12 },
-          { path: `${WS}/app-webhooks`, status: 'working', minutesAgo: 5 },
-        ],
-        { overview: crowded() },
-      ),
+    setup: () => withQueue(crowdedSeed(), { overview: crowded() }),
+  },
+  {
+    id: 'crowded-task',
+    title: 'More than fit, a task running: scrolled to the end',
+    note: 'The strip ends in room for the task box and its fade, so the last card can be scrolled out from under it.',
+    component: Window,
+    props: queue,
+    async setup() {
+      await withTasks(crowdedSeed(), [creating()], crowded())
+      // Past the box's entrance, so the spacer has its width.
+      setTimeout(() => {
+        const strip = document.querySelector('.attention-queue')
+        strip?.scrollTo({ left: strip.scrollWidth })
+      }, 600)
+    },
   },
   {
     id: 'long',
