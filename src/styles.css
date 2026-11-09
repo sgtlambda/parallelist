@@ -357,13 +357,17 @@ code,
    edge, so the cards it covers fade out under it. Runs 56px past the box's
    left side, whatever the box's width. Not the strip's top rule, which runs
    on over it. */
+:root {
+  --task-fade: 56px;
+}
+
 .task-backdrop {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  left: -56px;
-  background: linear-gradient(to right, transparent, var(--bg-sidebar) 56px);
+  left: calc(-1 * var(--task-fade));
+  background: linear-gradient(to right, transparent, var(--bg-sidebar) var(--task-fade));
 }
 
 /* Nothing in the strip to cover. */
@@ -390,6 +394,20 @@ code,
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+}
+
+/* The room the task box takes over the strip's right end (`--task-reserve`,
+   set by `TaskBox.vue`), as the strip's last item, so scrolled to the end
+   the last card sits clear of the box and its fade. An item rather than
+   padding: a scrolling flex container may leave its end padding out. It
+   takes back the gap before it, so with no box it adds nothing, and with
+   one the strip's end padding is the margin between the box and the card. */
+.attention-queue::after {
+  content: '';
+  flex: none;
+  align-self: stretch;
+  width: var(--task-reserve, 0px);
+  margin-left: -8px;
 }
 
 .attention-card {
