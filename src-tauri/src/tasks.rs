@@ -9,6 +9,7 @@
 use serde::Serialize;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::ops::BitOr;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -412,12 +413,12 @@ impl Lanes {
     }
 }
 
-struct Slot<T> {
+struct Slot<T, F> {
     running: bool,
     /// Runs started so far; the current or most recent run is this number.
     started: u64,
     /// Asked for by a request that arrived mid-run, for the next run.
-    queued_flag: bool,
+    queued_flag: F,
     last: Option<(u64, T)>,
 }
 
@@ -427,20 +428,21 @@ struct Slot<T> {
 /// A request while nothing runs starts a run. A request while one is running
 /// cannot use that run — it may have started before whatever prompted the
 /// request — so it waits for the *next* run, and every request that arrives
-/// during the same run shares that one. The flag (for a refresh: whether to
-/// fetch) is or-ed across everyone sharing a run.
-pub struct Coalesced<T> {
-    slot: Mutex<Slot<T>>,
+/// during the same run shares that one. The flag (for a refresh: how much to
+/// do, from nothing but local git up to a fetch) is or-ed across everyone
+/// sharing a run.
+pub struct Coalesced<T, F = bool> {
+    slot: Mutex<Slot<T, F>>,
     wake: Condvar,
 }
 
-impl<T: Clone> Default for Coalesced<T> {
+impl<T: Clone, F: Copy + Default + BitOr<Output = F>> Default for Coalesced<T, F> {
     fn default() -> Self {
         Coalesced {
             slot: Mutex::new(Slot {
                 running: false,
                 started: 0,
-                queued_flag: false,
+                queued_flag: F::default(),
                 last: None,
             }),
             wake: Condvar::new(),
@@ -448,12 +450,12 @@ impl<T: Clone> Default for Coalesced<T> {
     }
 }
 
-impl<T: Clone> Coalesced<T> {
-    pub fn request(&self, flag: bool, run: impl FnOnce(bool) -> T) -> T {
+impl<T: Clone, F: Copy + Default + BitOr<Output = F>> Coalesced<T, F> {
+    pub fn request(&self, flag: F, run: impl FnOnce(F) -> T) -> T {
         let mut slot = self.slot.lock().unwrap();
         let wanted = slot.started + 1;
         if slot.running {
-            slot.queued_flag |= flag;
+            slot.queued_flag = slot.queued_flag | flag;
         }
         loop {
             if let Some((run_no, value)) = &slot.last {
@@ -465,7 +467,7 @@ impl<T: Clone> Coalesced<T> {
                 slot.running = true;
                 slot.started += 1;
                 let run_no = slot.started;
-                let flag = flag || std::mem::take(&mut slot.queued_flag);
+                let flag = flag | std::mem::take(&mut slot.queued_flag);
                 drop(slot);
 
                 let value = catch_unwind(AssertUnwindSafe(|| run(flag)));
