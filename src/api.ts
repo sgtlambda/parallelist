@@ -208,7 +208,10 @@ export const api = {
   areFolders: (paths: string[]) => invoke<boolean[]>('are_folders', { paths }),
   removeProject: (id: string) => invoke<void>('remove_project', { id }),
   selectProject: (id: string | null) => invoke<void>('select_project', { id }),
-  refresh: (id: string, fetch: boolean) => invoke<Overview>('refresh', { id, fetch }),
+  /** `local` leaves GitHub alone and reuses the pull requests last loaded;
+   *  `fetch` wins over it. */
+  refresh: (id: string, fetch: boolean, local = false) =>
+    invoke<Overview>('refresh', { id, fetch, local }),
   /** What is on disk, without fetching, GitHub or any `git status`: shown
    *  while the first refresh of a project runs. */
   peek: (id: string) => invoke<Overview>('peek', { id }),
@@ -323,6 +326,12 @@ export function onTerminalExit(handler: (path: string) => void) {
 /** The program in a terminal reported a new status, or stopped having one. */
 export function onTerminalStatus(handler: (info: TerminalInfo) => void) {
   return listen<TerminalInfo>('terminal-status', (e) => handler(e.payload))
+}
+
+/** Something changed on disk under a project's workspaces: a commit, a branch
+ *  switched, a worktree added or removed, a file saved. Once per burst. */
+export function onProjectChanged(handler: (projectId: string) => void) {
+  return listen<string>('project-changed', (e) => handler(e.payload))
 }
 
 /** The application menu's "Settings…" was chosen (or ⌘, pressed). */

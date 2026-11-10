@@ -23,7 +23,41 @@ use tasks::{Coalesced, Task, TaskContext, TaskEvent, TaskKind, TaskStatus, Tasks
 use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
 use tauri::{Emitter, Manager, State};
 
-type RefreshSlot = Coalesced<Result<Overview, String>>;
+type RefreshSlot = Coalesced<Result<Overview, String>, Scope>;
+
+/// What a project's pull requests came to, and who is asking: kept per project
+/// so a refresh that does not go to GitHub can still report them.
+type PrData = Result<(HashMap<String, gh::PullRequest>, Option<String>), String>;
+
+/// How much of a refresh to do. Requests that share a run are or-ed, so the
+/// run does the most any of them asked for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Scope(u8);
+
+impl Scope {
+    /// Local git only: branches and working trees as they are on disk. What a
+    /// change noticed by the watcher needs, and nothing more.
+    pub const LOCAL: Scope = Scope(0);
+    /// Local git, and pull requests from GitHub.
+    pub const PULL_REQUESTS: Scope = Scope(1);
+    /// Everything, after fetching from origin (every clone's).
+    pub const FETCH: Scope = Scope(3);
+
+    fn fetches(self) -> bool {
+        self.0 & 2 != 0
+    }
+
+    fn asks_github(self) -> bool {
+        self.0 & 1 != 0
+    }
+}
+
+impl std::ops::BitOr for Scope {
+    type Output = Scope;
+    fn bitor(self, other: Scope) -> Scope {
+        Scope(self.0 | other.0)
+    }
+}
 
 struct AppState {
     config: Mutex<AppConfig>,
@@ -31,6 +65,9 @@ struct AppState {
     tasks: Arc<Tasks>,
     /// One per project, so overlapping refreshes of it share runs.
     refreshes: Mutex<HashMap<String, Arc<RefreshSlot>>>,
+    /// The pull requests last loaded for each project, for refreshes that
+    /// leave GitHub alone.
+    pull_requests: Arc<Mutex<HashMap<String, PrData>>>,
     terminals: Arc<terminal::Terminals>,
     /// Set once the user has confirmed quitting with terminals running.
     quit_confirmed: AtomicBool,
@@ -210,12 +247,40 @@ fn select_project(state: State<AppState>, id: Option<String>) -> Result<(), Stri
 /// request that arrived meanwhile — the background poll, the focus check and a
 /// finished task can all ask at once without stacking up.
 #[tauri::command]
-async fn refresh(state: State<'_, AppState>, id: String, fetch: bool) -> Result<Overview, String> {
+async fn refresh(
+    state: State<'_, AppState>,
+    id: String,
+    fetch: bool,
+    local: bool,
+) -> Result<Overview, String> {
     let project = state.project(&id)?;
     let slot = state.refresh_slot(&id);
     let tasks = Arc::clone(&state.tasks);
+    let pull_requests = Arc::clone(&state.pull_requests);
+    let scope = match (fetch, local) {
+        (true, _) => Scope::FETCH,
+        (false, true) => Scope::LOCAL,
+        (false, false) => Scope::PULL_REQUESTS,
+    };
     let overview = tauri::async_runtime::spawn_blocking(move || {
-        slot.request(fetch, |fetch| refresh_task(&tasks, project, fetch))
+        slot.request(scope, |scope| {
+            // Pull requests from the last time they were loaded, if this run
+            // may leave GitHub alone. Nothing loaded yet means it cannot.
+            let known = pull_requests.lock().unwrap().get(&project.id).cloned();
+            let cached = known.filter(|_| !scope.asks_github());
+            let id = project.id.clone();
+            let (overview, loaded) = if cached.is_some() {
+                // A local refresh is not worth a task: it runs whenever a
+                // file is saved, and nothing in it is the user's to read.
+                assemble(project, scope, cached, &|_, _, _| {})?
+            } else {
+                refresh_task(&tasks, project, scope)?
+            };
+            if scope.asks_github() {
+                pull_requests.lock().unwrap().insert(id, loaded);
+            }
+            Ok(overview)
+        })
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -240,7 +305,11 @@ fn phase_labels(phase: &str) -> (&'static str, &'static str) {
 /// counter rewrites in place, then its timing once it is done. The phases
 /// overlap — pull requests load alongside the git work — so they can't share
 /// one line.
-fn refresh_task(tasks: &Tasks, project: ProjectConfig, fetch: bool) -> Result<Overview, String> {
+fn refresh_task(
+    tasks: &Tasks,
+    project: ProjectConfig,
+    scope: Scope,
+) -> Result<(Overview, PrData), String> {
     let id = tasks.add(
         &project.id,
         TaskKind::Refresh,
@@ -270,9 +339,9 @@ fn refresh_task(tasks: &Tasks, project: ProjectConfig, fetch: bool) -> Result<Ov
         }
     };
 
-    let result = build_overview(project, fetch, &report);
+    let result = assemble(project, scope, None, &report);
     match &result {
-        Ok(overview) => {
+        Ok((overview, _)) => {
             // Non-fatal, and already a banner, but the log is where someone
             // looking into a slow or odd refresh will look.
             for warning in &overview.warnings {
@@ -291,6 +360,19 @@ fn refresh_task(tasks: &Tasks, project: ProjectConfig, fetch: bool) -> Result<Ov
 /// so they run concurrently with fetch → branches → scan rather than after it.
 /// That is most of the wall-clock: the two halves cost roughly the same.
 pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Result<Overview, String> {
+    let scope = if fetch { Scope::FETCH } else { Scope::PULL_REQUESTS };
+    assemble(project, scope, None, report).map(|(overview, _)| overview)
+}
+
+/// `build_overview` at a given scope. `cached` stands in for the GitHub
+/// queries, which a scope that does not ask for them skips; what they came to
+/// is handed back either way, for the caller to keep.
+fn assemble(
+    project: ProjectConfig,
+    scope: Scope,
+    cached: Option<PrData>,
+    report: Report,
+) -> Result<(Overview, PrData), String> {
     let path = PathBuf::from(&project.path);
     if !git::is_git_repo(&path) {
         return Err(format!("{} is no longer a git repository", project.path));
@@ -303,10 +385,13 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
     let slug = git::origin_url(&path).ok().and_then(|u| git::origin_slug(&u));
 
     type GitSide = Result<(Vec<BranchInfo>, Vec<Workspace>, Vec<String>), String>;
-    type PrSide = Result<(HashMap<String, gh::PullRequest>, Option<String>), String>;
+    type PrSide = PrData;
 
-    let (git_side, pr_side): (GitSide, PrSide) = std::thread::scope(|scope| {
-        let pulls = scope.spawn(|| -> PrSide {
+    let (git_side, pr_side): (GitSide, PrSide) = std::thread::scope(|work| {
+        let pulls = work.spawn(|| -> PrSide {
+            if let Some(known) = cached {
+                return known;
+            }
             let Some(slug) = slug.as_deref() else {
                 return Err("No GitHub remote detected — pull request info is off.".into());
             };
@@ -321,9 +406,9 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
             result
         });
 
-        let git = scope.spawn(|| -> GitSide {
+        let git = work.spawn(|| -> GitSide {
             let mut warnings = Vec::new();
-            if fetch {
+            if scope.fetches() {
                 report("fetching", String::new(), true);
                 // Secondary clones too, alongside the main one. Each keeps its
                 // own `origin/*`, which only a fetch in that clone moves, and
@@ -368,7 +453,7 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
     });
 
     let (branches, workspaces, mut warnings) = git_side?;
-    let (pull_requests, viewer) = match pr_side {
+    let (pull_requests, viewer) = match pr_side.clone() {
         Ok(value) => value,
         Err(message) => {
             warnings.push(message);
@@ -376,7 +461,7 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
         }
     };
 
-    Ok(Overview {
+    let overview = Overview {
         project,
         base_branch,
         slug,
@@ -385,7 +470,8 @@ pub fn build_overview(project: ProjectConfig, fetch: bool, report: Report) -> Re
         pull_requests,
         viewer,
         warnings,
-    })
+    };
+    Ok((overview, pr_side))
 }
 
 /// Rows for branches that only a secondary clone has. A clone is an
@@ -1109,6 +1195,7 @@ pub fn run() {
                 tasks,
                 refreshes: Mutex::default(),
                 quit_confirmed: AtomicBool::new(false),
+                pull_requests: Arc::default(),
                 terminals: Arc::new(terminal::Terminals::new(Arc::new(move |event| {
                     let _ = match event {
                         terminal::TerminalEvent::Exit(info) => {
