@@ -32,7 +32,7 @@ export const GLYPHS = {
     '<path d="m9.6 10.7 4.8 4.8"/>' +
     '<path d="m14.4 10.7-4.8 4.8"/>',
   // the app icon's cascading frames (`src-tauri/icons/icon.svg`), stripped
-  // of its background and of the branch on the front one: the app itself,
+  // of its background and of the prompt on the front one: the app itself,
   // at rest. Filled, not stroked, at the icon's own opacities. Each frame is
   // a `logo-frame`, so a call site can light them one by one (`.logo-glow`).
   logo:
