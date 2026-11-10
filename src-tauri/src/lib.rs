@@ -8,6 +8,7 @@ pub mod status;
 pub mod tasks;
 pub mod terminal;
 pub mod transcript;
+pub mod watch;
 
 use workspace::{BranchConflict, CreateRequest, RemovalImpact};
 use config::{AppConfig, ProjectConfig};
@@ -68,6 +69,8 @@ struct AppState {
     /// The pull requests last loaded for each project, for refreshes that
     /// leave GitHub alone.
     pull_requests: Arc<Mutex<HashMap<String, PrData>>>,
+    /// Tells the webview when something under the selected project changed.
+    watcher: watch::Watcher,
     terminals: Arc<terminal::Terminals>,
     /// Set once the user has confirmed quitting with terminals running.
     quit_confirmed: AtomicBool,
@@ -287,6 +290,12 @@ async fn refresh(
     // The first to notice a workspace removed from inside its terminal,
     // perhaps, which may be all that terminal was waiting for.
     state.terminals.reap();
+    // Follow the workspaces as they are now: one added or removed by hand is
+    // watched, or dropped, from this refresh on.
+    state.watcher.watch(
+        &id,
+        overview.workspaces.iter().map(|w| PathBuf::from(&w.path)).collect(),
+    );
     Ok(overview)
 }
 
@@ -1180,6 +1189,7 @@ pub fn run() {
             });
             let handle = app.handle().clone();
             let terminal_handle = app.handle().clone();
+            let watch_handle = app.handle().clone();
             let tasks = Arc::new(Tasks::new(move |event| {
                 let _ = match event {
                     TaskEvent::Header(header) => handle.emit("task", header),
@@ -1196,6 +1206,9 @@ pub fn run() {
                 refreshes: Mutex::default(),
                 quit_confirmed: AtomicBool::new(false),
                 pull_requests: Arc::default(),
+                watcher: watch::Watcher::new(move |project| {
+                    let _ = watch_handle.emit("project-changed", project);
+                }),
                 terminals: Arc::new(terminal::Terminals::new(Arc::new(move |event| {
                     let _ = match event {
                         terminal::TerminalEvent::Exit(info) => {

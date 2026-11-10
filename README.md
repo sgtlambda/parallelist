@@ -74,7 +74,8 @@ disk.
   oldest on the left, with what Claude asked; then the ones still working.
   `⌘↵` goes to the one that has waited longest.
 - **Origin-first branch list**, kept fresh by a background fetch, with pull
-  request, review and CI state from `gh`.
+  request, review and CI state from `gh`. Commits, branch switches, saved files
+  and workspaces added or removed by hand are noticed as they happen.
 - **New workspaces in the background**, so you carry on while they're made: a
   worktree, or a clone when the branch already has a worktree. Optional setup
   steps copy env files, symlink dependencies or run an install.

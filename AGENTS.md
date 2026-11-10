@@ -367,6 +367,29 @@ redundant complexity and are not.
     refreshes, and the newest 20 of everything else. A failure asks for
     attention until dismissed; a newer refresh of the same project quiets an
     older refresh failure.
+- **Git's own state is watched; the network is polled.** `src-tauri/src/watch.rs`
+  watches the workspaces of the project on screen (FSEvents through `notify`,
+  re-pointed after every refresh, so a workspace added by hand is picked up)
+  and emits `project-changed` once per burst: after 1s of quiet, 10s at most,
+  then a 3s cool-down. The webview answers with `refresh({ local: true })`.
+  Fetching and pull requests cannot be watched and stay on their timers.
+  - **A local refresh is not a task and does not call `gh`.** It runs whenever
+    a file is saved, so a task in the box each time would be noise, and a
+    GitHub query each time would be rate limit. The backend keeps each
+    project's last pull requests (`AppState::pull_requests`) and reports
+    those, warning included. With none yet it falls back to a normal refresh.
+    `Scope` (`LOCAL < PULL_REQUESTS < FETCH`) is or-ed across requests that
+    share a run (`Coalesced` takes any flag type for this), so a poll
+    that overlaps a local refresh still gets its pull requests.
+  - **What counts is decided by `watch::relevant`**: the working tree except
+    `node_modules` and the like and `.DS_Store`, and inside `.git` only HEAD,
+    the index, refs, packed-refs, in-progress merge/rebase state and each
+    worktree's HEAD and index. `objects/`, `logs/`, `FETCH_HEAD` and `*.lock`
+    are written by nearly every git command and would never go quiet. The app's
+    own `git status` cannot feed itself, since `proc.rs` sets
+    `GIT_OPTIONAL_LOCKS=0` and so never rewrites the index.
+  - A fetch does move `refs/remotes`, so each fetching refresh is followed by
+    one local refresh. Accepted: it is cheap and ends there.
 - **A create outlives its dialog.** `CreateDialog` only builds the request
   and closes. The task is drawn as a pending card in `DetailPane` (keyed on
   project + branch, so it shows even for a branch no ref knows about yet —

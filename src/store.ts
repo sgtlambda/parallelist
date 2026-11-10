@@ -2,6 +2,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { computed, reactive, ref, watch } from 'vue'
 import {
   api,
+  onProjectChanged,
   type AheadBehind,
   type AppConfig,
   type BranchInfo,
@@ -460,7 +461,7 @@ function land(overview: Overview) {
   else if (!s.path || !shown.has(s.path)) s.path = workspaceOn(s.branch) ?? s.path
 }
 
-export async function refresh(options: { fetch?: boolean } = {}) {
+export async function refresh(options: { fetch?: boolean; local?: boolean } = {}) {
   const id = projectId.value
   if (!id) {
     state.overview = null
@@ -477,7 +478,7 @@ export async function refresh(options: { fetch?: boolean } = {}) {
     // One round-trip: the backend runs the git work and the GitHub queries
     // concurrently. A failed fetch comes back as a warning rather than an
     // error, so the list still renders from local refs.
-    const overview = await api.refresh(id, options.fetch === true)
+    const overview = await api.refresh(id, options.fetch === true, options.local === true)
     // Cached even if we've since switched away — that result is exactly what
     // makes switching back instant.
     const previous = cache.get(id)
@@ -654,8 +655,9 @@ export function knownOverview(id: string): { overview: Overview; at: number } | 
 
 const timers: number[] = []
 
-/** Background freshness: periodic fetch, a lighter PR-only poll, and a
- *  re-check whenever the window comes back to the front. */
+/** Background freshness: changes on disk as they happen, a periodic fetch, a
+ *  lighter PR-only poll, and a re-check whenever the window comes back to the
+ *  front. Only the network half is polled; git's own state is watched. */
 export function startBackgroundSync() {
   stopBackgroundSync()
   const cfg = state.config
@@ -673,7 +675,22 @@ export function startBackgroundSync() {
   if (cfg.fetchOnFocus) {
     window.addEventListener('focus', onFocus)
   }
+
+  const mine = generation
+  void onProjectChanged((changed) => {
+    // Nothing to patch before the first refresh has landed, and a project
+    // that is not on screen is read when it is selected.
+    if (changed === projectId.value && state.overview) void refresh({ local: true })
+  }).then((unlisten) => {
+    // Stopped, or restarted, while subscribing.
+    if (mine === generation) stopWatching = unlisten
+    else unlisten()
+  })
 }
+
+let stopWatching: (() => void) | null = null
+/** Bumped by every stop, so a subscription that resolves late can tell. */
+let generation = 0
 
 let lastFocusSync = 0
 function onFocus() {
@@ -684,6 +701,9 @@ function onFocus() {
 }
 
 export function stopBackgroundSync() {
+  generation++
+  stopWatching?.()
+  stopWatching = null
   timers.splice(0).forEach((t) => window.clearInterval(t))
   window.removeEventListener('focus', onFocus)
 }
