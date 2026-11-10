@@ -90,6 +90,18 @@ export function terminalActive(path: string): boolean {
   return running.has(normalizePath(path))
 }
 
+/**
+ * Whether a terminal waits for the user, and on what: blocked on an answer,
+ * which outweighs a turn that ended there unseen (`ready`). The one place
+ * that is decided, for the marks, the order of the lists and the attention
+ * queue alike. It is the backend's condition for `waitingSince` too
+ * (`Status::settle`), so a waiting terminal always has one.
+ */
+export function waitingOn(path: string): 'blocked' | 'ready' | null {
+  const s = statuses.get(normalizePath(path))
+  return s?.status === 'blocked' ? 'blocked' : s?.ready ? 'ready' : null
+}
+
 export interface TerminalMark {
   /** Blinking while Claude Code, or anything speaking OSC 7501, works. */
   icon: 'terminal' | 'terminal-working'
@@ -109,10 +121,10 @@ export interface TerminalMark {
 export function terminalMark(paths: string[]): TerminalMark | null {
   const keys = paths.map(normalizePath).filter((p) => running.has(p))
   if (!keys.length) return null
-  const reported = keys.map((k) => statuses.get(k))
-  const working = reported.some((r) => r?.status === 'working')
-  const blocked = reported.some((r) => r?.status === 'blocked')
-  const ready = reported.some((r) => r?.ready)
+  const working = keys.some((k) => statuses.get(k)?.status === 'working')
+  const waiting = keys.map(waitingOn)
+  const blocked = waiting.includes('blocked')
+  const ready = waiting.includes('ready')
   const title = [
     blocked && 'Blocked — waiting for your answer',
     ready && 'Ready — finished, waiting for your reply',
@@ -144,8 +156,8 @@ export type Tier = (typeof TIER)[keyof typeof TIER]
 const tiers = computed<Map<string, Tier>>((previous) => {
   const next = new Map<string, Tier>()
   for (const path of running.keys()) {
-    const s = statuses.get(path)
-    next.set(path, s?.status === 'blocked' ? TIER.blocked : s?.ready ? TIER.ready : TIER.running)
+    const waiting = waitingOn(path)
+    next.set(path, waiting ? TIER[waiting] : TIER.running)
   }
   const same =
     previous?.size === next.size && [...next].every(([path, tier]) => previous.get(path) === tier)

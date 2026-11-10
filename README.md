@@ -64,8 +64,9 @@ disk.
   elsewhere. Claude Code running in one reports whether it is working, blocked
   or finished, and the app marks it. Double-clicking a branch goes into its
   shell: the one already running there, or a new one.
-- **`⌘P` jumps to any branch of any project**, with what's waiting first.
-  `⌘↵` there goes into the branch's shell, as double-clicking it does.
+- **`⌘P` jumps to any branch of any project**, with what's waiting first. A
+  branch with a terminal waiting on you opens on that terminal. `⌘↵` there
+  goes into the branch's shell, as double-clicking it does.
 - **A folder dropped on the window** goes to the branch it holds, or is
   added as a project. A worktree of a clone that isn't a project yet brings
   in the clone. Dropped on a terminal, a file or folder is pasted there as
