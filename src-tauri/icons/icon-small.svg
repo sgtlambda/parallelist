@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- parallelist at 16 and 32 px: icon.svg simplified to two windows and a heavier branch, which at those sizes would otherwise be a smudge. -->
+  <!-- parallelist at 16 and 32 px: icon.svg simplified to two windows and a heavier prompt, which at those sizes would otherwise be a smudge. -->
   <defs>
     <linearGradient id="body" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#7189FF"/>
@@ -18,11 +18,6 @@
   <g transform="translate(20 -16)">
     <rect x="330" y="250" width="470" height="380" rx="56" fill="#FFFFFF" fill-opacity="0.45"/>
     <rect x="224" y="360" width="470" height="400" rx="56" fill="#FFFFFF"/>
-    <path d="M350 680V460M350 610C350 540 390 520 450 520H580" fill="none" stroke="#4F46E5" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
-    <g fill="#4F46E5">
-      <circle cx="350" cy="680" r="52"/>
-      <circle cx="350" cy="460" r="52"/>
-      <circle cx="580" cy="520" r="52"/>
-    </g>
+    <path d="M322 646L418 550L322 438M450 678H578" fill="none" stroke="#4F46E5" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>

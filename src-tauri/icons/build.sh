@@ -1,7 +1,7 @@
 #!/bin/sh
 # Renders every icon file the bundle ships from icon.svg and icon-small.svg.
 # Sizes up to 32 px come from icon-small.svg, which is drawn for them; scaling
-# icon.svg down that far turns the branch into a smudge.
+# icon.svg down that far turns the prompt into a smudge.
 #
 # Needs rsvg-convert and magick (brew install librsvg imagemagick) and
 # iconutil, which ships with macOS.

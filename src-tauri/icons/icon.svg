@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- parallelist: workspaces cascading back, the front one showing its branch. 64 px and up; icon-small.svg is drawn for 16 and 32. -->
+  <!-- parallelist: workspaces cascading back, the front one holding a terminal prompt. 64 px and up; icon-small.svg is drawn for 16 and 32. -->
   <defs>
     <linearGradient id="body" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#7189FF"/>
@@ -27,16 +27,7 @@
     <rect x="350" y="250" width="444" height="340" rx="40" fill="#FFFFFF" fill-opacity="0.28"/>
     <rect x="290" y="310" width="444" height="340" rx="40" fill="#FFFFFF" fill-opacity="0.5"/>
     <rect x="230" y="370" width="444" height="340" rx="40" fill="#FFFFFF" filter="url(#lift)"/>
-    <g fill="#4636D8" fill-opacity="0.35">
-      <circle cx="276" cy="412" r="11"/>
-      <circle cx="310" cy="412" r="11"/>
-      <circle cx="344" cy="412" r="11"/>
-    </g>
-    <path d="M330 660V470M330 600C330 540 380 530 440 530H560" fill="none" stroke="#4F46E5" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
-    <g fill="#4F46E5">
-      <circle cx="330" cy="660" r="28"/>
-      <circle cx="330" cy="470" r="28"/>
-      <circle cx="560" cy="530" r="28"/>
-    </g>
+    <!-- Icon.vue's `terminal` glyph: a prompt and its cursor. -->
+    <path d="M348 607.5L417 538.5L348 469.5M440 630.5H532" fill="none" stroke="#4F46E5" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>
