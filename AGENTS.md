@@ -122,9 +122,9 @@ against them before anything else:
   cost: output alone never counts as activity, and a stray `.DS_Store` is
   not uncommitted work.
 - **Getting there is one keystroke.** ⌘P reaches any branch of any project
-  with what's waiting ranked first, and ⌘↵ goes straight to whatever has
-  waited longest. A shown terminal takes the keyboard without needing a
-  click first.
+  with what's waiting ranked first, and lands on the terminal that waits
+  there; ⌘↵ goes straight to whatever has waited longest. A shown terminal
+  takes the keyboard without needing a click first.
 - **Never steal attention.** Work the user started carries on without them
   (dialogs close at once and become tasks), and when it finishes it doesn't
   pull them back. A terminal target for a branch they have left starts
@@ -513,7 +513,10 @@ redundant complexity and are not.
     A project or row with several terminals combines them part by part:
     blinks if any works, orange if any is blocked, else blue if any is
     ready (`terminalMark`, the one place that is decided, drawn by
-    `TerminalMark.vue`).
+    `TerminalMark.vue`). Whether one terminal waits, and on what, is
+    `waitingOn` in `terminalState.ts`: the mark, the sort tiers and the
+    attention queue all ask it, so a terminal ranked as waiting in the
+    palette is always the one with a card in the queue.
   - **Running terminals sort first**, in the palette and in the branch
     list (after the pinned main workspace) alike: blocked, then ready, then
     the rest, and within each the one **active** most recently
@@ -567,7 +570,10 @@ redundant complexity and are not.
   queries and barely touch long ones, and an empty query opens on running
   terminals first. Recency only breaks ties, so it never beats a better
   match. Going to a branch clears a search or switches to All when the
-  list would otherwise hide it.
+  list would otherwise hide it. A branch with a terminal waiting on the
+  user goes to that terminal, the one its queue card would go to
+  (`goToEntry` in `src/attention.ts`): it was ranked first for what waits
+  there, and landing on the overview meant a second step.
 - **The attention queue** (the AQ; `src/attention.ts`, `AttentionQueue.vue`) is a
   strip under all three columns with one card per terminal waiting for the
   user — blocked, or ready — in the order they started waiting: oldest on

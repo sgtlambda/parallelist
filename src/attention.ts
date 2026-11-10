@@ -1,9 +1,9 @@
 import { computed, shallowRef, watch } from 'vue'
 import { api, type TerminalMarkKind } from './api'
 import { entryOf, type Entry } from './palette'
-import { selectedTerminal } from './store'
+import { goToBranch, selectedTerminal } from './store'
 import { enterTerminal } from './terminal'
-import { running, statuses } from './terminalState'
+import { running, statuses, waitingOn } from './terminalState'
 
 /**
  * The attention queue: every terminal waiting for the user, blocked on an
@@ -80,9 +80,8 @@ const items = computed(() => {
     if (!entry || (!s && !place)) continue
     const item = { path, message: s?.message ?? null, entry, here: path === here }
     const workingSince = s?.status === 'working' ? s.workingSince : null
-    if (s?.waitingSince) {
-      // Blocked outweighs ready, as in the terminal mark.
-      const kind = s.status === 'blocked' ? 'blocked' : 'ready'
+    const kind = waitingOn(path)
+    if (kind && s?.waitingSince) {
       waiting.push({ ...item, kind, since: s.waitingSince, place: place ?? s.waitingSince })
     } else if (place) {
       const since = workingSince ?? place
@@ -107,6 +106,22 @@ export const nextWaiting = computed(() => queue.value.find((w) => !w.here) ?? nu
 /** Show a terminal on its branch, and give it the keyboard. */
 export function goToItem(item: QueueItem) {
   enterTerminal(item.entry.projectId, item.entry.branch.name, item.path)
+}
+
+/**
+ * Go to a branch, as the palette does: to its terminal that has waited
+ * longest, the one its card in the queue would go to, else to the branch.
+ * Ranked first for what is waiting there, it should land on that too.
+ */
+export function goToEntry(entry: Entry) {
+  const item = queue.value.find(
+    (w) =>
+      (w.kind === 'blocked' || w.kind === 'ready') &&
+      w.entry.projectId === entry.projectId &&
+      w.entry.branch.name === entry.branch.name,
+  )
+  if (item) goToItem(item)
+  else goToBranch(entry.projectId, entry.branch.name)
 }
 
 /** ⌘↵. */

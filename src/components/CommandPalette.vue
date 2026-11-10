@@ -5,8 +5,8 @@ import TerminalMark from './TerminalMark.vue'
 import { WORKSPACE_LABELS, basename, relativeTime } from '../format'
 import { highlight } from '../fuzzy'
 import { paletteLoading, paletteOpen, refreshPalette, searchPalette, type Result } from '../palette'
+import { goToEntry } from '../attention'
 import { enterShellOf } from '../enterShell'
-import { goToBranch } from '../store'
 import { useEscape } from '../useEscape'
 
 /** Rendered at most; the query narrows it long before anyone scrolls that
@@ -48,11 +48,14 @@ function close() {
 
 useEscape(() => paletteOpen.value, close)
 
-function choose(result: Result | undefined) {
+async function choose(result: Result | undefined) {
   if (!result) return
   returnFocus = null
   paletteOpen.value = false
-  goToBranch(result.entry.projectId, result.entry.branch.name)
+  // Once the palette is gone: a terminal shown while its scrim is up
+  // doesn't take the keyboard (`mayTakeFocus`).
+  await nextTick()
+  goToEntry(result.entry)
 }
 
 /** Straight into the branch's shell, as double-clicking it in the list does. */
