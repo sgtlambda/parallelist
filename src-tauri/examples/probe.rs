@@ -7,9 +7,17 @@ fn main() {
     let base = git::detect_base_branch(&path);
     println!("base branch: {base}");
 
-    let url = git::origin_url(&path).unwrap();
-    let slug = git::origin_slug(&url).unwrap();
-    println!("origin: {url} -> {slug}");
+    let slug = match git::origin_url(&path) {
+        Ok(url) => {
+            let slug = git::origin_slug(&url);
+            println!("origin: {url} -> {slug:?}");
+            slug
+        }
+        Err(e) => {
+            println!("origin: none ({e})");
+            None
+        }
+    };
 
     let t = Instant::now();
     let branches = git::branches(&path, &base).unwrap();
@@ -69,9 +77,9 @@ fn main() {
         println!("  ahead/behind: {:?}", git::ahead_behind(&path, &base, &b.name));
     }
 
-    if gh::is_available() {
+    if let (true, Some(slug)) = (gh::is_available(), &slug) {
         let t = Instant::now();
-        match gh::pull_requests(&path, &slug) {
+        match gh::pull_requests(&path, slug) {
             Ok(prs) => {
                 let open: Vec<_> = prs.values().filter(|p| p.state == "open").collect();
                 println!(
@@ -91,9 +99,9 @@ fn main() {
         }
     }
 
-    if gh::is_available() {
+    if let (true, Some(slug)) = (gh::is_available(), &slug) {
         let t = Instant::now();
-        match gh::open_issues(&path, &slug) {
+        match gh::open_issues(&path, slug) {
             Ok(issues) => {
                 println!("\n{} open issues (gh took {:?}). First 5:", issues.len(), t.elapsed());
                 for i in issues.iter().take(5) {
