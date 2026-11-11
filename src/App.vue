@@ -16,7 +16,7 @@ import SettingsDialog from './components/SettingsDialog.vue'
 import TaskBox from './components/TaskBox.vue'
 import TasksDialog from './components/TasksDialog.vue'
 import { api, onConfirmQuit, onOpenCreate, onOpenSettings } from './api'
-import { goToNextWaiting } from './attention'
+import { goToNextWaiting, snoozeShown } from './attention'
 import { setHomeDirectory } from './format'
 import { runCreateTargets } from './openIn'
 import { paletteOpen } from './palette'
@@ -193,6 +193,14 @@ function onKey(event: KeyboardEvent) {
     case 'N':
       event.preventDefault()
       newFromShortcut(event.shiftKey)
+      break
+    // ⌘⇧S: snooze the terminal on screen, sending its card to the back of
+    // the attention queue. Passed through by xterm, as ⌘↵ is.
+    case 's':
+    case 'S':
+      if (!event.shiftKey || document.querySelector('.scrim')) break
+      event.preventDefault()
+      snoozeShown()
       break
   }
 }

@@ -13,6 +13,8 @@ export interface MenuItem {
   separator?: boolean
   /** Shown but not choosable. */
   disabled?: boolean
+  /** The shortcut that does the same, shown beside the label. */
+  accelerator?: string
   /** Turns the entry into a submenu rather than an action. */
   children?: MenuItem[]
 }
@@ -58,7 +60,7 @@ function build(items: MenuItem[], onSelect: (id: string) => void): Options[] {
     if (item.children) {
       built.push({ ...common, items: build(item.children, onSelect) })
     } else {
-      built.push({ ...common, action: () => onSelect(item.id) })
+      built.push({ ...common, accelerator: item.accelerator, action: () => onSelect(item.id) })
     }
   }
   return built

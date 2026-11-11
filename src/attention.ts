@@ -1,4 +1,5 @@
 import { computed, shallowRef, watch } from 'vue'
+import { api, type TerminalMarkKind } from './api'
 import { entryOf, type Entry } from './palette'
 import { selectedTerminal } from './store'
 import { enterTerminal } from './terminal'
@@ -19,6 +20,10 @@ import { running, statuses } from './terminalState'
  * user, so never where ⌘↵ goes, but what will join the queue next. They
  * are in the order they started working, so one finishing moves from the
  * head of that line to the back of the queue, right beside it.
+ *
+ * Snoozing a card sends it to the back, as if its wait had only just begun
+ * (the backend restarts `waitingSince`). It is still waiting, and still
+ * marked; it has only given up its place.
  *
  * The terminal on screen keeps its place for as long as it is on screen, even
  * once it has had its reply and is working again, so a card doesn't leave
@@ -107,4 +112,35 @@ export function goToItem(item: QueueItem) {
 /** ⌘↵. */
 export function goToNextWaiting() {
   if (nextWaiting.value) goToItem(nextWaiting.value)
+}
+
+/** What a terminal can be marked as by hand, from its row's menu or its
+ *  card's: the first two as if its program had said so. */
+export const MARKS: readonly { mark: TerminalMarkKind; label: string }[] = [
+  { mark: 'unread', label: 'Mark unread' },
+  { mark: 'blocked', label: 'Mark blocked' },
+  { mark: 'snooze', label: 'Snooze' },
+]
+
+/** ⌘⇧S, shown beside "Snooze" where it would snooze that terminal. */
+export const SNOOZE_ACCELERATOR = 'Shift+CmdOrCtrl+S'
+
+/** Whether marking does anything: only a waiting terminal can be snoozed. */
+export function canMark(path: string, mark: TerminalMarkKind): boolean {
+  return mark !== 'snooze' || !!statuses.get(path)?.waitingSince
+}
+
+export async function markTerminal(path: string, mark: TerminalMarkKind) {
+  if (!canMark(path, mark)) return
+  // The terminal on screen holds the place its wait gave it; letting go of
+  // that lets the restarted wait place it, and the watch above keeps it
+  // there once the new `waitingSince` arrives.
+  if (mark === 'snooze' && kept.value?.path === path) kept.value = null
+  await api.terminalMark(path, mark).catch(() => {})
+}
+
+/** ⌘⇧S: snooze the terminal on screen, if it is waiting. */
+export function snoozeShown() {
+  const path = selectedTerminal.value
+  if (path) void markTerminal(path, 'snooze')
 }

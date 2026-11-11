@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import TerminalMark from './TerminalMark.vue'
-import { api, type Workspace, type WorkspaceKind } from '../api'
+import { type Workspace, type WorkspaceKind } from '../api'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { WORKSPACE_LABELS, basename } from '../format'
 import type { Row } from '../store'
@@ -18,6 +18,7 @@ import {
   refresh,
   selectBranch,
   selectedBranch,
+  selectedTerminal,
   staleWorkspacePaths,
   state,
   viewer,
@@ -29,6 +30,7 @@ import { enterShell } from '../enterShell'
 import { openIn, targetBusy } from '../openIn'
 import { terminalActive } from '../terminalState'
 import { popupMenu, type MenuItem } from '../menu'
+import { MARKS, SNOOZE_ACCELERATOR, canMark, markTerminal } from '../attention'
 import { animateReorder } from '../reorder'
 
 const emit = defineEmits<{ (e: 'create'): void }>()
@@ -156,20 +158,19 @@ function menuItems(row: Row): MenuItem[] {
   })
 
   // Marks for the branch's running terminals, as if Claude Code had sent
-  // them; shown but disabled when it has none, so they can be found.
+  // them, and snoozing one's wait; shown but disabled when it has none, so
+  // they can be found.
   const terminals = menuTerminals(row)
-  const marks = [
-    { mark: 'unread', label: 'Mark unread' },
-    { mark: 'blocked', label: 'Mark blocked' },
-  ] as const
   const slots = terminals.length ? terminals : [null]
   slots.forEach((path, i) => {
-    marks.forEach((m, j) => {
+    MARKS.forEach((m, j) => {
       items.push({
         id: `mark:${m.mark}:${i}`,
         label: terminals.length > 1 ? `${m.label} — ${basename(path!)}` : m.label,
         separator: i === 0 && j === 0,
-        disabled: !path,
+        disabled: !path || !canMark(path, m.mark),
+        accelerator:
+          m.mark === 'snooze' && path && path === selectedTerminal.value ? SNOOZE_ACCELERATOR : undefined,
       })
     })
   })
@@ -211,9 +212,8 @@ async function onMenuSelect(row: Row, id: string) {
   } else if (id.startsWith('mark:')) {
     const [, mark, index] = id.split(':')
     const path = menuTerminals(row)[Number(index)]
-    if (path && (mark === 'unread' || mark === 'blocked')) {
-      await api.terminalMark(path, mark).catch(() => {})
-    }
+    const known = MARKS.find((m) => m.mark === mark)
+    if (path && known) await markTerminal(path, known.mark)
   } else if (id.startsWith('open:')) {
     const [, index, targetId] = id.split(':')
     const workspace = row.workspaces[Number(index)]

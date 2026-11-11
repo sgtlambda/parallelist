@@ -281,10 +281,13 @@ export const api = {
   /** What the Claude Code in a workspace's terminal last asked, read from
    *  its transcript, or null. */
   terminalQuestion: (path: string) => invoke<string | null>('terminal_question', { path }),
-  /** Mark a terminal by hand, as if its program had reported it. */
-  terminalMark: (path: string, mark: 'unread' | 'blocked') =>
+  /** Mark a terminal by hand, as if its program had reported it, or snooze
+   *  its wait: still waiting, but from now, so at the back of the queue. */
+  terminalMark: (path: string, mark: TerminalMarkKind) =>
     invoke<void>('terminal_mark', { path, mark }),
 }
+
+export type TerminalMarkKind = 'unread' | 'blocked' | 'snooze'
 
 /** Output as raw bytes, then the exit code once the shell is gone. */
 export type TerminalMessage = ArrayBuffer | { exit: number }

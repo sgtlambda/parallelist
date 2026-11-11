@@ -72,7 +72,8 @@ disk.
   its path.
 - **An attention queue** along the bottom: every terminal waiting for you,
   oldest on the left, with what Claude asked; then the ones still working.
-  `⌘↵` goes to the one that has waited longest.
+  `⌘↵` goes to the one that has waited longest, and `⌘⇧S` snoozes the one
+  on screen, sending it to the back.
 - **Origin-first branch list**, kept fresh by a background fetch, with pull
   request, review and CI state from `gh`.
 - **New workspaces in the background**, so you carry on while they're made: a

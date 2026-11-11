@@ -580,13 +580,19 @@ redundant complexity and are not.
   is on screen, even after its reply and while its program works again
   (`kept` in `src/attention.ts`), and ⌘↵ goes to the first card past it.
   Showing another terminal lets go: one still waiting takes its real place,
-  any other leaves the queue. The strip is there
+  any other leaves the queue. **Snoozing** a card (⌘⇧S for the terminal
+  on screen, or "Snooze" in its card's or its row's menu) sends it to the
+  back: the backend restarts its `waitingSince` (`Mark::Snooze`), so it is
+  still waiting and still marked, and a reload keeps the new place. On the
+  terminal on screen it also drops `kept`, which would otherwise hold the
+  old place. A card's menu has the row menu's marks (`MARKS` in
+  `src/attention.ts`, which both read). The strip is there
   even when empty, so the panes above never change height and the terminal
   in them never reflows as cards come and go. Its cards find their branch
   through the palette's entries, placed as the list places them (above).
   xterm sends ⌘↵ as a plain Return — it would submit a Claude Code prompt —
   so each terminal's `attachCustomKeyEventHandler` lets it through to the
-  window's handler instead. Over a dialog ⌘↵ is left alone.
+  window's handler instead, and ⌘⇧S with it. Over a dialog ⌘↵ is left alone.
   Behind the queue, past a divider, are the terminals that are *working*,
   oldest first: never where ⌘↵ goes, but what joins the queue next. The two
   are one keyed list, so a turn ending unseen slides its card from the head
