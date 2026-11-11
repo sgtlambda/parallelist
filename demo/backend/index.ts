@@ -209,7 +209,7 @@ const handlers: Record<string, Handler> = {
     await delay(80)
     return terminals.question(path)
   },
-  terminal_mark: ({ path, mark }: { path: string; mark: 'unread' | 'blocked' | 'snooze' }) =>
+  terminal_mark: ({ path, mark }: { path: string; mark: 'unread' | 'blocked' | 'clear' | 'snooze' }) =>
     terminals.mark(path, mark),
 }
 

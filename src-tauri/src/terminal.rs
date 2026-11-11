@@ -130,10 +130,14 @@ pub struct Opened {
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Mark {
-    /// A turn ended: `ready`, until the terminal is typed into.
+    /// A turn ended: `ready`, until the terminal is typed into. Takes the
+    /// place of a block, since only one of the two is shown.
     Unread,
     /// Waiting for an answer, until the program reports something else.
     Blocked,
+    /// Nothing waits there any more: neither blocked nor ready. What the
+    /// program reports next is taken as usual.
+    Clear,
     /// Still waiting, but as if the wait had only just begun, so it goes to
     /// the back of the attention queue. Nothing to do if it isn't waiting.
     Snooze,
@@ -247,17 +251,30 @@ impl Terminal {
         true
     }
 
-    /// `Unread` sets only the flag, leaving what the program reported alone,
-    /// so a terminal that is working still blinks. `Blocked` is the status
-    /// itself, and goes like one: at the program's next report, or, in a
-    /// plain shell, at its next output.
+    /// `Unread` sets the flag and lifts a block, leaving any other status
+    /// alone, so a terminal that is working still blinks. `Blocked` is the
+    /// status itself, and goes like one: at the program's next report, or,
+    /// in a plain shell, at its next output. `Clear` lifts both.
     fn mark(&self, mark: Mark) {
         let mut status = self.status.lock().unwrap();
+        let unblock = |status: &mut Status| {
+            if status.state.as_deref() == Some("blocked") {
+                status.state = None;
+                status.message = None;
+            }
+        };
         match mark {
-            Mark::Unread => status.ready = true,
+            Mark::Unread => {
+                unblock(&mut status);
+                status.ready = true;
+            }
             Mark::Blocked => {
                 status.state = Some("blocked".into());
                 status.message = None;
+                status.ready = false;
+            }
+            Mark::Clear => {
+                unblock(&mut status);
                 status.ready = false;
             }
             Mark::Snooze => {
@@ -1113,11 +1130,26 @@ mod tests {
         assert_eq!(terminals.waiting(), 1);
         let since = terminals.list()[0].waiting_since.expect("waiting");
         terminals.mark(&path, Mark::Unread).unwrap();
-        assert_eq!(next(), (Some("blocked".into()), true));
+        assert_eq!(next(), (None, true), "unread instead of blocked");
         assert_eq!(terminals.list()[0].waiting_since, Some(since), "still the same wait");
         program.report("working");
         assert_eq!(next(), (Some("working".into()), false), "the program's word wins");
         assert_eq!(terminals.list()[0].waiting_since, None);
+
+        terminals.mark(&path, Mark::Blocked).unwrap();
+        assert_eq!(next(), (Some("blocked".into()), false));
+        terminals.mark(&path, Mark::Clear).unwrap();
+        assert_eq!(next(), (None, false), "cleared");
+        assert_eq!(terminals.list()[0].waiting_since, None);
+        terminals.mark(&path, Mark::Unread).unwrap();
+        assert_eq!(next(), (None, true));
+        terminals.mark(&path, Mark::Clear).unwrap();
+        assert_eq!(next(), (None, false), "cleared");
+        assert_eq!(terminals.list()[0].waiting_since, None);
+        program.report("working");
+        assert_eq!(next(), (Some("working".into()), false));
+        terminals.mark(&path, Mark::Clear).unwrap();
+        assert_eq!(next(), (Some("working".into()), false), "still working");
 
         terminals.mark(&path, Mark::Snooze).unwrap();
         assert_eq!(next(), (Some("working".into()), false));

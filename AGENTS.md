@@ -509,7 +509,11 @@ redundant complexity and are not.
     frontend still reports which terminal is on screen
     (`terminal_viewing`), but only so a removed workspace's terminal can be
     reaped on leaving it; window focus is no longer reported at all. The
-    row menu's "Mark unread" sets the flag by hand.
+    row menu's "Mark unread" sets the flag by hand, and lifts a block,
+    since only one of the two is shown; "Mark blocked" sets the status as if
+    the program had sent `blocked`, and lifts the flag. "Clear" lifts both,
+    which is the only way to undo a block typing doesn't reach: a program in
+    the foreground that never reports a status keeps one until it exits.
     A project or row with several terminals combines them part by part:
     blinks if any works, orange if any is blocked, else blue if any is
     ready (`terminalMark`, the one place that is decided, drawn by

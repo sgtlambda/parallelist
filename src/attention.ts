@@ -130,19 +130,37 @@ export function goToNextWaiting() {
 }
 
 /** What a terminal can be marked as by hand, from its row's menu or its
- *  card's: the first two as if its program had said so. */
+ *  card's: the first two as if its program had said so, each taking the
+ *  other's place, and "Clear" lifting both. */
 export const MARKS: readonly { mark: TerminalMarkKind; label: string }[] = [
   { mark: 'unread', label: 'Mark unread' },
   { mark: 'blocked', label: 'Mark blocked' },
+  { mark: 'clear', label: 'Clear' },
   { mark: 'snooze', label: 'Snooze' },
 ]
 
 /** ⌘⇧S, shown beside "Snooze" where it would snooze that terminal. */
-export const SNOOZE_ACCELERATOR = 'Shift+CmdOrCtrl+S'
+const SNOOZE_ACCELERATOR = 'Shift+CmdOrCtrl+S'
 
-/** Whether marking does anything: only a waiting terminal can be snoozed. */
-export function canMark(path: string, mark: TerminalMarkKind): boolean {
-  return mark !== 'snooze' || !!statuses.get(path)?.waitingSince
+/** Whether marking does anything: only a waiting terminal can be cleared
+ *  or snoozed. */
+function canMark(path: string, mark: TerminalMarkKind): boolean {
+  return (mark !== 'snooze' && mark !== 'clear') || !!statuses.get(path)?.waitingSince
+}
+
+/** A mark as an item of a terminal's menu, its card's or its row's, which
+ *  add their own id, separator and label suffix. `null` is a row with no
+ *  terminal, whose marks are shown disabled so they can be found. ⌘⇧S is
+ *  shown beside "Snooze" on the terminal on screen, the one it snoozes. */
+export function markItem(path: string | null, m: (typeof MARKS)[number]) {
+  return {
+    label: m.label,
+    disabled: !path || !canMark(path, m.mark),
+    accelerator:
+      m.mark === 'snooze' && path !== null && path === selectedTerminal.value
+        ? SNOOZE_ACCELERATOR
+        : undefined,
+  }
 }
 
 export async function markTerminal(path: string, mark: TerminalMarkKind) {
