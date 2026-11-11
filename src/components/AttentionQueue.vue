@@ -3,9 +3,20 @@ import { AnimatePresence, MotionConfig, motion } from 'motion-v'
 import { computed, reactive, watch } from 'vue'
 import Icon from './Icon.vue'
 import TerminalMark from './TerminalMark.vue'
-import { goToItem, nextWaiting, queue, working, type QueueItem } from '../attention'
+import {
+  MARKS,
+  SNOOZE_ACCELERATOR,
+  canMark,
+  goToItem,
+  markTerminal,
+  nextWaiting,
+  queue,
+  working,
+  type QueueItem,
+} from '../attention'
 import { api } from '../api'
 import { basename, splitWorkspaceName } from '../format'
+import { popupMenu } from '../menu'
 import { state } from '../store'
 import { boxTasks } from '../tasks'
 
@@ -47,11 +58,18 @@ watch(
     // A card kept in the queue while its program works again asks nothing.
     const waits = items.filter((item) => item.kind !== 'working')
     const current = new Set(waits.map(waitKey))
-    for (const key of questions.keys()) if (!current.has(key)) questions.delete(key)
+    const before = new Map<string, string | null>()
+    for (const [key, q] of questions) {
+      if (current.has(key)) continue
+      if (q) before.set(key.slice(0, key.indexOf('\0')), q)
+      questions.delete(key)
+    }
     for (const item of waits) {
       const key = waitKey(item)
       if (questions.has(key)) continue
-      questions.set(key, null)
+      // A snoozed wait starts over under a new key; what it asked is shown
+      // meanwhile rather than a blank line, and asked again as for any wait.
+      questions.set(key, before.get(item.path) ?? null)
       for (const delay of ASK_AFTER_MS) {
         window.setTimeout(() => {
           if (!questions.has(key)) return
@@ -105,6 +123,20 @@ function title(item: QueueItem): string {
   return [TITLES[item.kind], text, where].filter(Boolean).join('\n\n')
 }
 
+/** The same marks as the branch's row menu, for this card's terminal alone. */
+function openMenu(item: QueueItem) {
+  const items = MARKS.map((m) => ({
+    id: `mark:${m.mark}`,
+    label: m.label,
+    disabled: !canMark(item.path, m.mark),
+    accelerator: m.mark === 'snooze' && item.here ? SNOOZE_ACCELERATOR : undefined,
+  }))
+  void popupMenu(items, (id) => {
+    const mark = MARKS.find((m) => `mark:${m.mark}` === id)
+    if (mark) void markTerminal(item.path, mark.mark)
+  })
+}
+
 /** Joining: in from the right. Leaving: down out of the strip, while the
  *  cards behind close the gap (`popLayout`). */
 const arriving = { opacity: 0, x: 24 }
@@ -143,6 +175,7 @@ const leaving = { opacity: 0, y: 10, transition: { duration: 0.18, ease: [0.4, 0
             :exit="leaving"
             :transition="spring"
             @click="goToItem(item)"
+            @contextmenu.prevent="openMenu(item)"
             @keydown.enter.prevent="goToItem(item)"
             @keydown.space.prevent="goToItem(item)"
           >

@@ -134,6 +134,9 @@ pub enum Mark {
     Unread,
     /// Waiting for an answer, until the program reports something else.
     Blocked,
+    /// Still waiting, but as if the wait had only just begun, so it goes to
+    /// the back of the attention queue. Nothing to do if it isn't waiting.
+    Snooze,
 }
 
 /// What the registry reports about terminals, attached or not.
@@ -256,6 +259,11 @@ impl Terminal {
                 status.state = Some("blocked".into());
                 status.message = None;
                 status.ready = false;
+            }
+            Mark::Snooze => {
+                if status.waiting_since.is_some() {
+                    status.waiting_since = Some(now_ms());
+                }
             }
         }
         status.settle();
@@ -1110,6 +1118,18 @@ mod tests {
         program.report("working");
         assert_eq!(next(), (Some("working".into()), false), "the program's word wins");
         assert_eq!(terminals.list()[0].waiting_since, None);
+
+        terminals.mark(&path, Mark::Snooze).unwrap();
+        assert_eq!(next(), (Some("working".into()), false));
+        assert_eq!(terminals.list()[0].waiting_since, None, "snoozing starts no wait");
+        terminals.mark(&path, Mark::Blocked).unwrap();
+        assert_eq!(next(), (Some("blocked".into()), false));
+        let since = terminals.list()[0].waiting_since.expect("waiting");
+        std::thread::sleep(Duration::from_millis(5));
+        terminals.mark(&path, Mark::Snooze).unwrap();
+        assert_eq!(next(), (Some("blocked".into()), false), "still blocked");
+        let snoozed = terminals.list()[0].waiting_since.expect("still waiting");
+        assert!(snoozed > since, "waits as if it had only just started");
 
         assert!(terminals.mark("/nowhere", Mark::Blocked).is_err());
         assert!(terminals.close(&path));

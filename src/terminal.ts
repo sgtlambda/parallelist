@@ -192,7 +192,11 @@ function session(path: string): Session {
   })
   // ⌘↵ is the app's (the attention queue). xterm would send it as a plain
   // Return, so in a Claude Code prompt it would also submit what was typed.
-  term.attachCustomKeyEventHandler((event) => !(event.metaKey && event.key === 'Enter'))
+  // ⌘⇧S (snooze) is the app's too.
+  term.attachCustomKeyEventHandler(
+    (event) =>
+      !(event.metaKey && (event.key === 'Enter' || (event.shiftKey && event.key.toLowerCase() === 's'))),
+  )
   const fit = new FitAddon()
   term.loadAddon(fit)
   term.loadAddon(new WebLinksAddon(link.activate, link))

@@ -870,7 +870,8 @@ fn terminal_close(state: State<AppState>, path: String) {
     state.terminals.close(&path);
 }
 
-/// Mark a terminal unread or blocked by hand, from its branch's menu.
+/// Mark a terminal unread or blocked by hand, or snooze its wait, from its
+/// branch's menu or its card in the attention queue.
 #[tauri::command]
 fn terminal_mark(state: State<AppState>, path: String, mark: terminal::Mark) -> Result<(), String> {
     state.terminals.mark(&path, mark)
