@@ -28,6 +28,12 @@
   /* The line the build's branch name takes under the title bar (App.vue). */
   --build-h: 0px;
   --queue-h: 64px;
+  /* The space around and between the attention queue's cards, the same on
+     every side. */
+  --queue-space: 6px;
+  /* The hairline macOS draws over the window's outermost pixel, which eats
+     into whatever space is laid out against the window's edge. */
+  --window-edge: 1px;
   --sidebar-w: 216px;
   color-scheme: light;
 }
@@ -382,13 +388,15 @@ code,
   grid-column: 1 / -1;
   grid-row: 2;
   display: flex;
-  align-items: center;
-  /* Cards are 51px tall in the strip's 63px (--queue-h less its top rule),
-     which leaves 6px above and below; the sides and the space between
-     cards get a little more, since nothing outlines a card. */
-  gap: 8px;
+  /* The cards fill the strip less its padding, so the space above and below
+     them is the padding whatever they hold, and matches the space beside
+     and between them. The window's hairline covers the strip's outer edges,
+     so those get its pixel back. */
+  align-items: stretch;
+  gap: var(--queue-space);
   min-width: 0;
-  padding: 0 8px;
+  padding: var(--queue-space) calc(var(--queue-space) + var(--window-edge))
+    calc(var(--queue-space) + var(--window-edge));
   border-top: 1px solid var(--border);
   background: var(--bg-sidebar);
   overflow-x: auto;
@@ -407,7 +415,7 @@ code,
   flex: none;
   align-self: stretch;
   width: var(--task-reserve, 0px);
-  margin-left: -8px;
+  margin-left: calc(-1 * var(--queue-space));
 }
 
 .attention-card {
@@ -415,10 +423,11 @@ code,
   flex: none;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 3px;
   width: 260px;
   min-width: 0;
-  padding: 7px 10px 8px;
+  padding: 0 10px;
   border-radius: 9px;
   text-align: left;
   cursor: pointer;
@@ -472,7 +481,7 @@ code,
 .attention-card:is(.working, .here) + .attention-card:is(.working, .here)::before {
   content: '';
   position: absolute;
-  left: -4.5px;
+  left: calc(var(--queue-space) / -2 - 0.5px);
   top: 14px;
   bottom: 14px;
   width: 1px;
@@ -480,13 +489,11 @@ code,
 }
 
 /* Between the cards that wait for the user and the ones still working. The
-   space on either side is the strip's 6px gap, the same as around the
-   cards. */
+   space on either side is the strip's gap, the same as around the cards. */
 .attention-divider {
   flex: none;
-  align-self: stretch;
   width: 1px;
-  margin: 16px 0;
+  margin: 10px 0;
   background: var(--border);
 }
 
@@ -561,6 +568,7 @@ code,
 
 .attention-empty {
   display: flex;
+  align-self: center;
   margin: 0 auto;
 }
 
