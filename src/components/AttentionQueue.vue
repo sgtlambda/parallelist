@@ -5,9 +5,8 @@ import Icon from './Icon.vue'
 import TerminalMark from './TerminalMark.vue'
 import {
   MARKS,
-  SNOOZE_ACCELERATOR,
-  canMark,
   goToItem,
+  markItem,
   markTerminal,
   nextWaiting,
   queue,
@@ -125,12 +124,7 @@ function title(item: QueueItem): string {
 
 /** The same marks as the branch's row menu, for this card's terminal alone. */
 function openMenu(item: QueueItem) {
-  const items = MARKS.map((m) => ({
-    id: `mark:${m.mark}`,
-    label: m.label,
-    disabled: !canMark(item.path, m.mark),
-    accelerator: m.mark === 'snooze' && item.here ? SNOOZE_ACCELERATOR : undefined,
-  }))
+  const items = MARKS.map((m) => ({ id: `mark:${m.mark}`, ...markItem(item.path, m) }))
   void popupMenu(items, (id) => {
     const mark = MARKS.find((m) => `mark:${m.mark}` === id)
     if (mark) void markTerminal(item.path, mark.mark)

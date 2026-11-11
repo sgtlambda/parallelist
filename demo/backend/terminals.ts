@@ -311,18 +311,26 @@ export function list(): TerminalInfo[] {
 export const question = (path: string) => sessions.get(path)?.question ?? null
 
 /** "Mark unread" and "Mark blocked" in a row's menu, as if the program had
- *  reported them, and "Snooze", which starts a wait over from now. */
-export function mark(path: string, what: 'unread' | 'blocked' | 'snooze') {
+ *  reported them, each taking the other's place, "Clear", which lifts both,
+ *  and "Snooze", which starts a wait over from now. */
+export function mark(path: string, what: 'unread' | 'blocked' | 'clear' | 'snooze') {
   const s = sessions.get(path)
   if (!s) return
   if (what === 'snooze') {
     if (s.waitingSince === null) return
     s.waitingSince = Date.now()
     publish(s)
-  } else if (what === 'blocked') setStatus(s, 'blocked', s.message)
-  else {
-    s.ready = true
-    s.waitingSince ??= Date.now()
+  } else if (what === 'blocked') {
+    s.ready = false
+    setStatus(s, 'blocked', s.message)
+  } else {
+    if (s.status === 'blocked') {
+      s.status = null
+      s.message = null
+    }
+    s.ready = what === 'unread'
+    if (s.ready) s.waitingSince ??= Date.now()
+    else s.waitingSince = null
     publish(s)
   }
 }

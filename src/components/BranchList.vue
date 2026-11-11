@@ -18,7 +18,6 @@ import {
   refresh,
   selectBranch,
   selectedBranch,
-  selectedTerminal,
   staleWorkspacePaths,
   state,
   viewer,
@@ -30,7 +29,7 @@ import { enterShell } from '../enterShell'
 import { openIn, targetBusy } from '../openIn'
 import { terminalActive } from '../terminalState'
 import { popupMenu, type MenuItem } from '../menu'
-import { MARKS, SNOOZE_ACCELERATOR, canMark, markTerminal } from '../attention'
+import { MARKS, markItem, markTerminal } from '../attention'
 import { animateReorder } from '../reorder'
 
 const emit = defineEmits<{ (e: 'create'): void }>()
@@ -164,13 +163,12 @@ function menuItems(row: Row): MenuItem[] {
   const slots = terminals.length ? terminals : [null]
   slots.forEach((path, i) => {
     MARKS.forEach((m, j) => {
+      const item = markItem(path, m)
       items.push({
+        ...item,
         id: `mark:${m.mark}:${i}`,
-        label: terminals.length > 1 ? `${m.label} — ${basename(path!)}` : m.label,
+        label: terminals.length > 1 ? `${item.label} — ${basename(path!)}` : item.label,
         separator: i === 0 && j === 0,
-        disabled: !path || !canMark(path, m.mark),
-        accelerator:
-          m.mark === 'snooze' && path && path === selectedTerminal.value ? SNOOZE_ACCELERATOR : undefined,
       })
     })
   })
