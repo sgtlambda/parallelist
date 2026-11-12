@@ -365,6 +365,8 @@ code,
    on over it. */
 :root {
   --task-fade: 56px;
+  /* The widest the task box gets; past it, its title and line truncate. */
+  --task-max: 320px;
 }
 
 .task-backdrop {
@@ -404,17 +406,18 @@ code,
   scrollbar-width: none;
 }
 
-/* The room the task box takes over the strip's right end (`--task-reserve`,
-   set by `TaskBox.vue`), as the strip's last item, so scrolled to the end
-   the last card sits clear of the box and its fade. An item rather than
-   padding: a scrolling flex container may leave its end padding out. It
-   takes back the gap before it, so with no box it adds nothing, and with
-   one the strip's end padding is the margin between the box and the card. */
+/* The room the task box takes over the strip's right end, as the strip's
+   last item, so scrolled to the end the last card sits clear of the box and
+   its fade. Always the box at its widest, box or no box: a spacer that
+   followed the box's width moved the end of the strip while it was being
+   scrolled. An item rather than padding: a scrolling flex container may
+   leave its end padding out. It takes back the gap before it, so the
+   strip's end padding is the margin between the box and the card. */
 .attention-queue::after {
   content: '';
   flex: none;
   align-self: stretch;
-  width: var(--task-reserve, 0px);
+  width: calc(min(var(--task-max), 100vw) + var(--task-fade));
   margin-left: calc(-1 * var(--queue-space));
 }
 
@@ -1378,7 +1381,7 @@ code,
   right: 0;
   z-index: 35;
   width: fit-content;
-  max-width: min(320px, 100vw);
+  max-width: min(var(--task-max), 100vw);
   height: calc(var(--queue-h) - 1px);
 }
 
