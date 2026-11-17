@@ -428,12 +428,18 @@ redundant complexity and are not.
   - Closing sends SIGHUP to the shell; the kernel hangs up on its foreground
     job when it exits (tested — an explicit `killpg` made no difference).
     Removing a workspace closes its terminal first.
-  - **Quitting with shells running asks first.** ⌘Q and closing the last
-    window both reach `RunEvent::ExitRequested`; with any terminal in the
-    registry the backend calls `prevent_exit` and emits `confirm-quit` (shells
+  - **Quitting with shells running asks first.** ⌘Q reaches
+    `RunEvent::ExitRequested`; with any terminal in the registry the backend
+    calls `prevent_exit`, shows the window and emits `confirm-quit` (shells
     running, and how many of them wait), and `ConfirmQuitDialog` offers Cancel
     or Quit. Quit invokes `quit_app`, which sets `quit_confirmed` and exits,
     so the second request goes through. With no shell the app quits at once.
+  - **Closing the window hides it** (`on_window_event` in `lib.rs`), and
+    the Dock icon shows it again (`RunEvent::Reopen`). It used to destroy
+    the window: the shells lived on in the backend, but nothing could make
+    a window again, so a stray ⌘W left a dozen running sessions out of
+    reach until the app was killed. Don't let the window be destroyed
+    while the app runs.
   - **A workspace removed from inside its own terminal** — Claude Code
     does this routinely once it has merged its branch — keeps the
     terminal until nothing in it needs the user: not while its program

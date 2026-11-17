@@ -1063,6 +1063,17 @@ fn set_create_menu(app: tauri::AppHandle, add_branch: bool, new_workspace: bool)
     }
 }
 
+/// Brings the window back from wherever closing it put it: hidden, or
+/// minimised. The window is never destroyed (see `on_window_event`), so this
+/// is the way back from ⌘W.
+fn show_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 /// Quit after the confirmation dialog was accepted.
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle, state: State<AppState>) {
@@ -1076,6 +1087,16 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .menu(app_menu)
+        // Closing the window hides it. Destroying it took the webview with
+        // it while the shells lived on in the backend, and nothing could
+        // make a window again: ⌘W left every terminal running out of reach.
+        // The Dock icon brings it back (`RunEvent::Reopen` below).
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        })
         .on_menu_event(|app, event| {
             if event.id() == SETTINGS_MENU_ID {
                 let _ = app.emit("open-settings", ());
@@ -1161,11 +1182,13 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building parallelist")
-        .run(|app, event| {
-            // ⌘Q and closing the last window both land here. With shells
+        .run(|app, event| match event {
+            // ⌘Q lands here (closing the window only hides it). With shells
             // running, the webview is asked to confirm first, since quitting
-            // hangs up on every one of them.
-            if let tauri::RunEvent::ExitRequested { api, code: None, .. } = event {
+            // hangs up on every one of them. The window is shown for that,
+            // or the dialog would open in a hidden window and the quit would
+            // silently do nothing.
+            tauri::RunEvent::ExitRequested { api, code: None, .. } => {
                 let state = app.state::<AppState>();
                 if state.quit_confirmed.load(Ordering::SeqCst) {
                     return;
@@ -1173,10 +1196,15 @@ pub fn run() {
                 let terminals = state.terminals.list();
                 if !terminals.is_empty() {
                     api.prevent_exit();
+                    show_window(app);
                     let waiting = terminals.iter().filter(|t| t.waiting_since.is_some()).count();
                     let _ = app.emit("confirm-quit", (terminals.len(), waiting));
                 }
             }
+            // Clicking the Dock icon.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => show_window(app),
+            _ => {}
         });
 }
 
