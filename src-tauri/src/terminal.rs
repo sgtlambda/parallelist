@@ -678,6 +678,14 @@ impl Terminals {
             .filter(|info| info.waiting_since.is_some())
             .count()
     }
+
+    /// Whether a program in any terminal reports `working`: what blinks the
+    /// terminal glyph in the app, and the Dock icon's cursor (`dock.rs`).
+    pub fn any_working(&self) -> bool {
+        self.list()
+            .iter()
+            .any(|info| info.status.as_deref() == Some("working"))
+    }
 }
 
 const STATUS_OPENER: &[u8] = b"\x1b]7501;";

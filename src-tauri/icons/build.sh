@@ -22,6 +22,14 @@ render 128 128x128.png
 render 256 128x128@2x.png
 render 512 icon.png
 
+# The Dock icon with its cursor blinked off (src/dock.rs swaps it with
+# icon.png): icon.svg without the cursor's subpath, at icon.png's size, so
+# nothing but the cursor moves.
+cursor='M440 630.5H532'
+grep -q "$cursor" icon.svg || { echo "icon.svg: no cursor subpath '$cursor'" >&2; exit 1; }
+sed "s/$cursor//" icon.svg >"$tmp/cursor-off.svg"
+rsvg-convert -w 512 -h 512 "$tmp/cursor-off.svg" -o dock-cursor-off.png
+
 set_=$tmp/icon.iconset
 mkdir "$set_"
 for size in 16 32 128 256 512; do

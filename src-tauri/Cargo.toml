@@ -24,6 +24,12 @@ libc = "0.2"
 portable-pty = "0.9.0"
 base64 = "0.22"
 
+# The Dock icon's blinking cursor (`dock.rs`). Tauri already builds these.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSImage", "NSResponder"] }
+
 [profile.release]
 codegen-units = 1
 lto = true
