@@ -563,6 +563,15 @@ redundant complexity and are not.
     dropped: Claude Code draws only mod images inline, by kitty graphics
     with Unicode placeholders, and only for kitty or Ghostty, which
     xterm's image addon can't render anyway.
+  - **The Dock icon says the same** (`update_dock` in `lib.rs`, from the
+    backend so it holds through a webview reload and counts terminals never
+    shown): its badge is the count `waiting`, and the cursor in the icon's
+    prompt blinks while any terminal is `working`, at the glyph's 1.1 s. The Dock can't animate an icon, so
+    `dock.rs` swaps two pre-rendered images, `icon.png` and
+    `dock-cursor-off.png` (made by `icons/build.sh`), every 550 ms on a
+    thread that sleeps while nothing works, and puts back the icon the app
+    started with when the last one stops. A smooth fade was looked at and
+    dropped: each frame is a Dock redraw, for as long as anything works.
   - Zoom is one font size for every terminal, saved as `terminalFontSize`:
     ⌘+/⌘−/⌘0 while a terminal is on screen, or the header's − 100% +.
   - A terminal takes the keyboard whenever it is shown, including by

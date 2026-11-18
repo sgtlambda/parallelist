@@ -1,5 +1,6 @@
 pub mod workspace;
 pub mod config;
+mod dock;
 pub mod gh;
 pub mod git;
 pub mod link;
@@ -989,16 +990,20 @@ fn shellexpand_home(path: &str) -> String {
 }
 
 /// Badge the Dock icon with how many terminals wait for the user
-/// (`Terminals::waiting`), from the backend so it holds while the webview
-/// reloads and counts terminals never shown. Zero clears it: macOS would
-/// draw `Some(0)` as a "0".
-fn badge_waiting(app: &tauri::AppHandle) {
+/// (`Terminals::waiting`), and blink its cursor while any is working
+/// (`dock.rs`). From the backend, so both hold while the webview reloads and
+/// count terminals never shown. Zero clears the badge: macOS would draw
+/// `Some(0)` as a "0".
+fn update_dock(app: &tauri::AppHandle) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
     let waiting = state.terminals.waiting() as i64;
     if let Some(window) = app.webview_windows().into_values().next() {
         let _ = window.set_badge_count((waiting > 0).then_some(waiting));
+    }
+    if let Some(blink) = app.try_state::<dock::Blink>() {
+        blink.set_working(state.terminals.any_working());
     }
 }
 
@@ -1116,6 +1121,7 @@ pub fn run() {
             });
             let handle = app.handle().clone();
             let terminal_handle = app.handle().clone();
+            app.manage(dock::Blink::start(app.handle().clone()));
             let tasks = Arc::new(Tasks::new(move |event| {
                 let _ = match event {
                     TaskEvent::Header(header) => handle.emit("task", header),
@@ -1140,7 +1146,7 @@ pub fn run() {
                             terminal_handle.emit("terminal-status", info)
                         }
                     };
-                    badge_waiting(&terminal_handle);
+                    update_dock(&terminal_handle);
                 }))),
             });
             Ok(())
