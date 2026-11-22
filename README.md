@@ -63,7 +63,9 @@ disk.
 - **A terminal per workspace**, built in, that keeps running while you look
   elsewhere. Claude Code running in one reports whether it is working, blocked
   or finished, and the app marks it. Double-clicking a branch goes into its
-  shell: the one already running there, or a new one.
+  shell: the one already running there, or a new one. File › Manage
+  Terminals lists every running terminal across projects, with the program
+  in each, to end any number of them at once.
 - **The Dock icon** carries the count of terminals waiting for you on its
   badge, and the cursor in it blinks while any is working.
 - **`⌘P` jumps to any branch of any project**, with what's waiting first. A

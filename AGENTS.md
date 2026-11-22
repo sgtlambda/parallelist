@@ -428,6 +428,14 @@ redundant complexity and are not.
   - Closing sends SIGHUP to the shell; the kernel hangs up on its foreground
     job when it exits (tested — an explicit `killpg` made no difference).
     Removing a workspace closes its terminal first.
+  - **File › Manage Terminals… lists every running terminal**
+    (`TerminalsDialog.vue`, opened by `terminalsOpen` in the store so the
+    palette can open it too): grouped by project in the sidebar's order,
+    each project's ranked as the branch list ranks them, with the program in
+    its foreground (`terminal_programs`, one `ps` for all of them, asked
+    every 3 s while open) so a dev server reads apart from an idle shell.
+    Any number can be ticked, a project's at once or all with ⌘A, and
+    ending them is `closeTerminal` on each. Nothing starts ticked.
   - **Quitting with shells running asks first.** ⌘Q reaches
     `RunEvent::ExitRequested`; with any terminal in the registry the backend
     calls `prevent_exit`, shows the window and emits `confirm-quit` (shells

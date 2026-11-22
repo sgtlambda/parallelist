@@ -281,6 +281,10 @@ export const api = {
   /** What the Claude Code in a workspace's terminal last asked, read from
    *  its transcript, or null. */
   terminalQuestion: (path: string) => invoke<string | null>('terminal_question', { path }),
+  /** What runs in the foreground of each terminal, by path: the command line
+   *  of the program there (`npm run dev`, `claude`). A terminal with only its
+   *  shell running is left out. */
+  terminalPrograms: () => invoke<Record<string, string>>('terminal_programs'),
   /** Mark a terminal by hand, as if its program had reported it, clear what
    *  waits there, or snooze its wait: still waiting, but from now, so at the
    *  back of the queue. */
@@ -338,6 +342,11 @@ export function onOpenSettings(handler: () => void) {
  *  "New Workspace…" (⌘⇧N) was chosen. */
 export function onOpenCreate(handler: (forSelected: boolean) => void) {
   return listen<boolean>('open-create', (e) => handler(e.payload))
+}
+
+/** The File menu's "Manage Terminals…" was chosen. */
+export function onOpenTerminals(handler: () => void) {
+  return listen('open-terminals', () => handler())
 }
 
 /** Something is dragged from Finder over the window, or dropped on it.

@@ -892,6 +892,16 @@ fn terminal_list(state: State<AppState>) -> Vec<terminal::TerminalInfo> {
     state.terminals.list()
 }
 
+/// What runs in the foreground of each terminal, by path, for those running
+/// something other than their shell (`Terminals::programs`).
+#[tauri::command]
+async fn terminal_programs(state: State<'_, AppState>) -> Result<HashMap<String, String>, String> {
+    let terminals = state.terminals.clone();
+    tauri::async_runtime::spawn_blocking(move || terminals.programs())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// The terminal on screen, if any.
 #[tauri::command]
 fn terminal_viewing(state: State<AppState>, path: Option<String>) {
@@ -1010,6 +1020,7 @@ fn update_dock(app: &tauri::AppHandle) {
 const SETTINGS_MENU_ID: &str = "settings";
 const ADD_BRANCH_MENU_ID: &str = "add-branch";
 const NEW_WORKSPACE_MENU_ID: &str = "new-workspace";
+const TERMINALS_MENU_ID: &str = "terminals";
 
 /// The File menu's two ways into the New workspace dialog, kept so the
 /// webview can enable them as the selection changes.
@@ -1024,6 +1035,8 @@ struct CreateMenu {
 /// gets "Add Branch…" (⌘N) and "New Workspace…" (⌘⇧N) above "Close Window",
 /// the same pair as the branch list's "+ Add branch" and a branch's
 /// "+ New workspace"; both start disabled until the webview says otherwise.
+/// Under them, "Manage Terminals…" opens the list of every running terminal,
+/// to end any of them.
 fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let menu = Menu::default(app)?;
     let items = menu.items()?;
@@ -1049,8 +1062,16 @@ fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             false,
             Some("CmdOrCtrl+Shift+N"),
         )?;
+        let terminals =
+            MenuItem::with_id(app, TERMINALS_MENU_ID, "Manage Terminals…", true, None::<&str>)?;
         file_menu.insert_items(
-            &[&add_branch, &new_workspace, &PredefinedMenuItem::separator(app)?],
+            &[
+                &add_branch,
+                &new_workspace,
+                &PredefinedMenuItem::separator(app)?,
+                &terminals,
+                &PredefinedMenuItem::separator(app)?,
+            ],
             0,
         )?;
         app.manage(CreateMenu { add_branch, new_workspace });
@@ -1109,6 +1130,8 @@ pub fn run() {
                 let _ = app.emit("open-create", false);
             } else if event.id() == NEW_WORKSPACE_MENU_ID {
                 let _ = app.emit("open-create", true);
+            } else if event.id() == TERMINALS_MENU_ID {
+                let _ = app.emit("open-terminals", ());
             }
         })
         .setup(|app| {
@@ -1184,6 +1207,7 @@ pub fn run() {
             terminal_viewing,
             terminal_mark,
             terminal_question,
+            terminal_programs,
             quit_app,
         ])
         .build(tauri::generate_context!())

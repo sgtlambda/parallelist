@@ -325,6 +325,12 @@ impl Terminal {
     /// (`closing_hangs_up_on_the_foreground_job`; an explicit `killpg` of
     /// that group was tried and made no difference). Jobs the user put in
     /// the background are the shell's to hang up, as in any terminal.
+    /// The process leading the foreground, unless that is the shell itself.
+    fn foreground(&self) -> Option<i32> {
+        let leader = self.master.lock().unwrap().process_group_leader()?;
+        (Some(leader) != self.shell_pid).then_some(leader)
+    }
+
     fn hang_up(&self) {
         let _ = self.killer.lock().unwrap().kill();
     }
@@ -645,9 +651,40 @@ impl Terminals {
     /// The process leading the terminal's foreground, other than its shell:
     /// whatever program is running in it, such as Claude Code.
     pub fn foreground(&self, path: &str) -> Option<i32> {
-        let term = self.get(path).ok()?;
-        let leader = term.master.lock().unwrap().process_group_leader()?;
-        (Some(leader) != term.shell_pid).then_some(leader)
+        self.get(path).ok()?.foreground()
+    }
+
+    /// What runs in the foreground of each terminal that has something
+    /// other than its shell there, by path: the command line `ps` shows for
+    /// it, which is the program's own title where it sets one (`npm run dev`,
+    /// `claude`). What the Terminals dialog lists, so the user can tell a dev
+    /// server from an idle shell before ending either.
+    pub fn programs(&self) -> HashMap<String, String> {
+        let pids: Vec<(String, i32)> = self
+            .by_path
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|term| Some((term.info.path.clone(), term.foreground()?)))
+            .collect();
+        if pids.is_empty() {
+            return HashMap::new();
+        }
+        let list = pids.iter().map(|(_, pid)| pid.to_string()).collect::<Vec<_>>().join(",");
+        let Ok(out) = crate::proc::run_timeout(
+            "ps",
+            &["-o", "pid=,args=", "-p", &list],
+            None,
+            Duration::from_secs(5),
+        ) else {
+            return HashMap::new();
+        };
+        // `ps` exits 1 when one of the pids has gone meanwhile, and still
+        // lists the others.
+        let commands = parse_ps(&out.stdout);
+        pids.into_iter()
+            .filter_map(|(path, pid)| Some((path, commands.get(&pid)?.clone())))
+            .collect()
     }
 
     /// Mark a terminal by hand, reported like any status change.
@@ -809,6 +846,22 @@ fn parse_status(payload: &str) -> Option<Report> {
 
 /// Keep the newest `BACKLOG` bytes, cut at a line break so a replay doesn't
 /// start in the middle of an escape sequence.
+/// `ps -o pid=,args=` as pid → command line, with the program named by its
+/// file name rather than the path it was started by.
+fn parse_ps(stdout: &str) -> HashMap<i32, String> {
+    stdout
+        .lines()
+        .filter_map(|line| {
+            let (pid, args) = line.trim_start().split_once(char::is_whitespace)?;
+            let args = args.trim();
+            let (program, rest) = args.split_once(' ').unwrap_or((args, ""));
+            let program = program.rsplit('/').next().unwrap_or(program);
+            let command = if rest.is_empty() { program.to_string() } else { format!("{program} {rest}") };
+            Some((pid.parse().ok()?, command))
+        })
+        .collect()
+}
+
 fn append_backlog(backlog: &mut Vec<u8>, data: &[u8]) {
     backlog.extend_from_slice(data);
     if backlog.len() > BACKLOG {
@@ -967,6 +1020,36 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         assert_ne!(unsafe { libc::kill(sleeper, 0) }, 0, "sleep {sleeper} survived");
+    }
+
+    #[test]
+    fn names_the_program_in_the_foreground_and_not_the_shell() {
+        let dir = temp_dir("programs");
+        let path = dir.to_string_lossy().to_string();
+        let terminals = Terminals::default();
+        let (tx, rx) = sink();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.write(&path, b"echo ready\n").unwrap();
+        read_until(&rx, "\nready");
+        assert!(terminals.programs().is_empty(), "only the shell is running");
+
+        terminals.write(&path, b"sleep 300\n").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut programs = terminals.programs();
+        while programs.is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+            programs = terminals.programs();
+        }
+        assert_eq!(programs.get(&path).map(String::as_str), Some("sleep 300"));
+        terminals.close(&path);
+    }
+
+    #[test]
+    fn ps_output_names_programs_by_file_name() {
+        let parsed = parse_ps("  412 /opt/homebrew/bin/node /tmp/vite.js --port 5173\n9001 claude\n  77 -zsh\n");
+        assert_eq!(parsed[&412], "node /tmp/vite.js --port 5173");
+        assert_eq!(parsed[&9001], "claude");
+        assert_eq!(parsed[&77], "-zsh");
     }
 
     #[test]

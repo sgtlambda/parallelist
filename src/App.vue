@@ -15,7 +15,8 @@ import ProjectSidebar from './components/ProjectSidebar.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import TaskBox from './components/TaskBox.vue'
 import TasksDialog from './components/TasksDialog.vue'
-import { api, onConfirmQuit, onOpenCreate, onOpenSettings } from './api'
+import TerminalsDialog from './components/TerminalsDialog.vue'
+import { api, onConfirmQuit, onOpenCreate, onOpenSettings, onOpenTerminals } from './api'
 import { goToNextWaiting, snoozeShown } from './attention'
 import { setHomeDirectory } from './format'
 import { runCreateTargets } from './openIn'
@@ -43,6 +44,7 @@ import {
   startBackgroundSync,
   state,
   stopBackgroundSync,
+  terminalsOpen,
 } from './store'
 
 /** No project yet: an introduction takes the place of the three columns and
@@ -209,6 +211,7 @@ let stopTaskSync: (() => void) | null = null
 let stopTerminalSync: (() => void) | null = null
 let stopSettingsMenu: (() => void) | null = null
 let stopCreateMenu: (() => void) | null = null
+let stopTerminalsMenu: (() => void) | null = null
 let stopConfirmQuit: (() => void) | null = null
 const quitAsk = ref<{ running: number; waiting: number } | null>(null)
 
@@ -232,6 +235,9 @@ onMounted(async () => {
     settingsOpen.value = true
   })
   stopCreateMenu = await onOpenCreate(newFromShortcut)
+  stopTerminalsMenu = await onOpenTerminals(() => {
+    terminalsOpen.value = true
+  })
   stopConfirmQuit = await onConfirmQuit((running, waiting) => {
     quitAsk.value = { running, waiting }
   })
@@ -245,6 +251,7 @@ onUnmounted(() => {
   stopTerminalSync?.()
   stopSettingsMenu?.()
   stopCreateMenu?.()
+  stopTerminalsMenu?.()
   stopConfirmQuit?.()
   stopBackgroundSync()
   window.removeEventListener('keydown', onKey)
@@ -317,6 +324,7 @@ onUnmounted(() => {
       @close="cleanupOpen = false"
     />
     <SettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
+    <TerminalsDialog :open="terminalsOpen" @close="terminalsOpen = false" />
     <ConfirmQuitDialog :ask="quitAsk" @close="quitAsk = null" />
     <TasksDialog @error="state.error = $event" />
     <CommandPalette />
