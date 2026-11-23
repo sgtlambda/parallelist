@@ -119,7 +119,7 @@ project can commit a `.parallelist.json` at its root to override `baseBranch`,
 
 Setup steps and "Open in" targets are shell templates run through your login
 shell, with `{path}`, `{primary}` (the main workspace) and `{branch}`
-substituted and shell-quoted, plus `{prUrl}` in "Open in" targets:
+substituted and shell-quoted:
 
 ```
 open -na Ghostty --args --working-directory={path}

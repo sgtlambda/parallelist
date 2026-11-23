@@ -269,7 +269,6 @@ const TARGETS: OpenTarget[] = [
     command: 'agent',
     kind: 'terminal',
     primary: true,
-    requiresPr: false,
     runOnCreate: true,
   },
   {
@@ -279,7 +278,6 @@ const TARGETS: OpenTarget[] = [
     command: 'pnpm dev',
     kind: 'terminal',
     primary: true,
-    requiresPr: false,
     runOnCreate: false,
   },
 ]

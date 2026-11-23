@@ -188,6 +188,18 @@ async fn open_folder(state: State<'_, AppState>, path: String) -> Result<Landing
     Ok(Landing { project_id, branch, added: true })
 }
 
+/// What each project's committed `.parallelist.json` sets, keyed by
+/// project id; projects without one are left out.
+#[tauri::command]
+fn project_files(state: State<AppState>) -> HashMap<String, config::Committed> {
+    state
+        .config()
+        .projects
+        .iter()
+        .filter_map(|p| Some((p.id.clone(), p.committed()?)))
+        .collect()
+}
+
 #[tauri::command]
 fn remove_project(state: State<AppState>, id: String) -> Result<(), String> {
     let mut cfg = state.config();
@@ -969,6 +981,9 @@ fn open_in(
         .replace("{path}", &proc::sh_quote(&ctx.path))
         .replace("{branch}", &proc::sh_quote(&ctx.branch))
         .replace("{primary}", &proc::sh_quote(&ctx.primary))
+        // No longer offered, since a target can't ask for a pull request any
+        // more, but still filled in so a saved one doesn't reach the shell as
+        // literal text.
         .replace("{prUrl}", &proc::sh_quote(&ctx.pr_url));
     if target.kind == config::OpenKind::Terminal {
         return Ok(Some(script));
@@ -1129,6 +1144,7 @@ pub fn run() {
             save_config,
             open_folder,
             are_folders,
+            project_files,
             remove_project,
             select_project,
             refresh,

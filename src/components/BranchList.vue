@@ -141,7 +141,7 @@ function menuItems(row: Row): MenuItem[] {
 
   // One flyout per workspace, so a branch with two of them can send each
   // somewhere different.
-  const targets = openTargets.value.filter((t) => !t.requiresPr || row.pr)
+  const targets = openTargets.value
   row.workspaces.forEach((c: Workspace, i: number) => {
     items.push({
       id: `open:${i}`,
