@@ -112,6 +112,21 @@ pub fn sh_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', r"'\''"))
 }
 
+/// As [`sh_quote`], but leaves a value alone that the shell would read as
+/// one word anyway, for commands a person reads and edits: `open -a Zed`,
+/// `open -a 'Visual Studio Code'`.
+pub fn sh_word(value: &str) -> String {
+    let plain = !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_-./+:@%,=".contains(c));
+    if plain {
+        value.to_string()
+    } else {
+        sh_quote(value)
+    }
+}
+
 /// Run a program to completion, capturing both streams.
 pub fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> Result<Output, String> {
     run_timeout(program, args, cwd, DEFAULT_TIMEOUT)

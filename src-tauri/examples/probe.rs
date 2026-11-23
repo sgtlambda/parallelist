@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::time::Instant;
-use parallelist_lib::{build_overview, peek_overview, workspace, config::ProjectConfig, gh, git};
+use parallelist_lib::{build_overview, peek_overview, workspace, config::ProjectConfig, gh, git, targets};
 
 fn main() {
     let path = PathBuf::from(std::env::args().nth(1).expect("usage: probe <repo path> [overview.json]"));
@@ -34,6 +34,20 @@ fn main() {
     println!("\nsniffed setup steps:");
     for s in &repo.setup_steps {
         println!("  [{}] {}", if s.default_enabled { "x" } else { " " }, s.label);
+    }
+
+    // The machine's, not the project's: what a first run would offer.
+    let t = Instant::now();
+    let probe = targets::Probe::system();
+    println!("\nsuggested open targets (probed in {:?}):", t.elapsed());
+    for s in targets::suggest(&probe, &[]).iter().filter(|s| s.found.is_some()) {
+        println!(
+            "  [{}] {:<14} {:<52} {}",
+            if s.recommended { "x" } else { " " },
+            s.target.label,
+            s.target.command,
+            s.found.as_deref().unwrap_or_default()
+        );
     }
 
     let t = Instant::now();

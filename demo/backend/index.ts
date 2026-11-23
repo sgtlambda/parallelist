@@ -2,7 +2,9 @@ import type {
   AppConfig,
   BranchImpact,
   CreateRequest,
+  OpenTarget,
   RemovalImpact,
+  TargetSuggestion,
   WorkspaceKind,
 } from '../../src/api'
 import { emit } from '../shims/event'
@@ -48,6 +50,25 @@ const handlers: Record<string, Handler> = {
   get_config: () => copy(config),
   save_config: ({ config: next }: { config: AppConfig }) => {
     Object.assign(config, copy(next))
+  },
+  // The made-up machine has its targets chosen already; this is what it
+  // would offer if asked again.
+  suggest_targets: (): TargetSuggestion[] =>
+    config.openTargets.map((target) => ({
+      target: copy(target),
+      category: target.kind === 'terminal' ? 'agent' : 'other',
+      found: null,
+      configured: true,
+      recommended: false,
+    })),
+  adopt_targets: ({ targets }: { targets: OpenTarget[] }) => {
+    for (const target of copy(targets)) {
+      const i = config.openTargets.findIndex((t) => t.id === target.id)
+      if (i >= 0) config.openTargets[i] = target
+      else config.openTargets.push(target)
+    }
+    config.targetsChosen = true
+    return copy(config)
   },
   are_folders: ({ paths }: { paths: string[] }) => paths.map(() => false),
   open_folder: () => {

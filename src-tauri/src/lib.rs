@@ -6,6 +6,7 @@ pub mod git;
 pub mod link;
 pub mod proc;
 pub mod status;
+pub mod targets;
 pub mod tasks;
 pub mod terminal;
 pub mod transcript;
@@ -90,6 +91,35 @@ fn get_config(state: State<AppState>) -> AppConfig {
 #[tauri::command]
 fn save_config(state: State<AppState>, config: AppConfig) -> Result<(), String> {
     state.persist(config)
+}
+
+/// The "Open in" targets the app can suggest, each resolved against what
+/// this machine has installed (`targets.rs`), for the first-run choice and
+/// for Settings. Starts an interactive shell to learn its `PATH`, so it can
+/// take a second.
+#[tauri::command]
+async fn suggest_targets(state: State<'_, AppState>) -> Result<Vec<targets::Suggestion>, String> {
+    let configured = state.config().open_targets;
+    tauri::async_runtime::spawn_blocking(move || {
+        targets::suggest(&targets::Probe::system(), &configured)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Add the targets chosen on first run, and mark the choice made, so it is
+/// not offered again; skipping it adopts none. Returns the config saved, for
+/// the frontend to take in place of its own copy, which a later
+/// `save_config` would otherwise write back over this.
+#[tauri::command]
+fn adopt_targets(
+    state: State<AppState>,
+    targets: Vec<config::OpenTarget>,
+) -> Result<AppConfig, String> {
+    let mut next = state.config();
+    next.adopt_targets(targets);
+    state.persist(next.clone())?;
+    Ok(next)
 }
 
 /// Which of the paths dragged onto the window are folders. Asked as the drag
@@ -1154,6 +1184,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_config,
             save_config,
+            suggest_targets,
+            adopt_targets,
             open_folder,
             are_folders,
             remove_project,

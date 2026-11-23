@@ -304,6 +304,7 @@ export const config: AppConfig = {
     }),
   ),
   openTargets: TARGETS,
+  targetsChosen: true,
   fetchIntervalSecs: 180,
   fetchOnFocus: true,
   prRefreshSecs: 120,

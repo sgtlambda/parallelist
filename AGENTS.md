@@ -924,6 +924,32 @@ access and fails without it. The `.app` is the deliverable.
   workspace already has a shell running, since the command would land in
   whatever it is doing; that rule lives in the frontend (`src/openIn.ts`),
   so a config only says `claude`.
+- **No targets are shipped.** The old defaults (Ghostty, PhpStorm, Claude
+  Code) were one machine's, and gave most users buttons that ran nothing.
+  A new config starts with no targets and `targetsChosen: false`, and the
+  first run offers `suggest_targets`: the catalog in `src-tauri/src/targets.rs`
+  (agents, editors, terminal apps, git clients, Finder, the pull request),
+  each resolved against what is installed and ticked if found. Only the
+  first terminal app found is ticked. `adopt_targets` adds the chosen ones
+  (replacing by id), sets the flag, and returns the config, which the
+  frontend must take in place of its own copy, or its next `save_config`
+  writes the old one back. A config.json without the field predates it and
+  reads as `true`: its user already had targets.
+  - A program is looked for the way its command will run. `command`
+    targets go through `$SHELL -lc`, which skips `.zshrc`, so a program
+    only on the interactive `PATH` (nvm, most agent installers) is written
+    by its full path; a `terminal` target is typed into an interactive
+    shell and names it bare. Getting that `PATH` starts an interactive
+    shell, so `suggest_targets` takes up to a second.
+  - Apps are found by `<name>.app` in the usual folders, not through Launch
+    Services (`open -Ra` reveals the app in Finder) or Spotlight (off on
+    some machines). An editor opens through `open -a` when its app is
+    found, before its own launcher.
+  - A suggestion counts as `configured` by id or by command, so the old
+    shipped targets, saved under ids like `editor`, are recognised. The
+    Terminal.app entry is `terminal-app` for that reason: `terminal` was
+    the old Ghostty target's id.
+  - `probe` prints what this machine would be offered.
 
 ## Open items
 
