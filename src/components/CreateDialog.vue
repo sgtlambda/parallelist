@@ -10,14 +10,13 @@ import {
   defaultSteps,
   defaultTargets,
   isNewBranch as isNew,
-  offeredTargets,
   planWorkspace,
   rowFor,
   startCreate,
   targetsClash,
 } from '../newWorkspace'
 import { isActive, normalizePath, tasks } from '../tasks'
-import { project, projectId } from '../store'
+import { openTargetsFor, project, projectId } from '../store'
 import { useEscape } from '../useEscape'
 
 /** `initialBranch` fills the branch field: the selected branch from its
@@ -49,7 +48,7 @@ const row = computed(() => rowFor(name.value))
 const setupSteps = computed(() => project.value?.setupSteps ?? [])
 
 /** "Open in" targets to run once the workspace is set up. */
-const targets = computed(() => offeredTargets(projectId.value, row.value))
+const targets = computed(() => openTargetsFor(projectId.value))
 const base = computed(() => baseBranch())
 
 const isNewBranch = computed(() => isNew(name.value))

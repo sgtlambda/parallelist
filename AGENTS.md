@@ -332,7 +332,8 @@ redundant complexity and are not.
   committed inside repos, which the app can never rewrite. Renaming it without
   an alias fails *silently* — `.replace("{primary}", …)` stops matching and the
   literal text reaches the shell. Same rule as above: don't "fix" it unasked.
-  Note `OpenTarget.primary` is a third, unrelated meaning ("show as a button").
+  Note `OpenTarget.primary` is a third, unrelated meaning: a target shown as
+  a button on the workspace card, which Settings calls "Primary".
 - **Slow work is a task, and tasks live in the backend.** Refreshing,
   creating a workspace, removing one and deleting a branch each run as a task
   in `src-tauri/src/tasks.rs`: a title, a status and a log. The registry is

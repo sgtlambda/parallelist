@@ -1,22 +1,33 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import type { AppConfig, OpenTarget } from '../api'
+import { api, type AppConfig, type ProjectFile } from '../api'
+import { shortPath, templatePath } from '../format'
 import { refresh, saveConfig, state } from '../store'
 import { useEscape } from '../useEscape'
+import Icon from './Icon.vue'
+import OpenTargetList from './OpenTargetList.vue'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-type Tab = 'project' | 'targets' | 'general'
-useEscape(() => props.open, () => emit('close'))
-
-const tab = ref<Tab>('project')
+/** `general`, `targets`, or a project's id. */
+const section = ref<string>('general')
 const draft = ref<AppConfig | null>(null)
+/** The draft as it was opened, to tell whether anything changed. */
+const baseline = ref('')
+const files = ref<Record<string, ProjectFile>>({})
 const saving = ref(false)
+const error = ref<string | null>(null)
+/** Times Esc or the scrim was refused over unsaved changes; replays the notice. */
+const nudge = ref(0)
 const form = ref<HTMLFormElement | null>(null)
+const body = ref<HTMLElement | null>(null)
 
-/** Lower bounds of the General tab's numbers, used by both the inputs and
- *  `save`. */
+// Esc is a stray key as often as a click beside the window is a stray click,
+// so it closes on the same terms (`dismiss`); Cancel is the way to discard.
+useEscape(() => props.open, () => dismiss())
+
+/** Lower bounds of the General numbers, used by both the inputs and `save`. */
 const MIN = { fetchIntervalSecs: 30, prRefreshSecs: 30, activeDays: 1 }
 
 watch(
@@ -27,294 +38,435 @@ watch(
     // throws DataCloneError on those, which silently left the dialog empty.
     draft.value =
       isOpen && state.config ? (JSON.parse(JSON.stringify(state.config)) as AppConfig) : null
-    tab.value = 'project'
+    baseline.value = draft.value ? JSON.stringify(draft.value) : ''
+    error.value = null
+    nudge.value = 0
+    if (!draft.value) return
+    // Opens on the project on screen: "Project settings…" and the gear both
+    // mean the one being looked at.
+    const current = draft.value.selectedProjectId
+    section.value = draft.value.projects.some((p) => p.id === current) ? current! : 'general'
+    files.value = {}
+    api.projectFiles().then(
+      (found) => (files.value = found),
+      () => (files.value = {}),
+    )
   },
 )
 
-const project = computed(
-  () => draft.value?.projects.find((p) => p.id === draft.value?.selectedProjectId) ?? null,
+watch(section, () => {
+  if (body.value) body.value.scrollTop = 0
+})
+
+const dirty = computed(() => !!draft.value && JSON.stringify(draft.value) !== baseline.value)
+
+const project = computed(() => draft.value?.projects.find((p) => p.id === section.value) ?? null)
+const file = computed(() => (project.value ? files.value[project.value.id] ?? null : null))
+const overrides = computed(() => (file.value && !file.value.error ? file.value.overrides : null))
+
+/** The base branch shown as a placeholder: what the overview detected, for
+ *  the project on screen. */
+const detectedBase = computed(() =>
+  project.value && project.value.id === state.config?.selectedProjectId && state.overview?.baseBranch
+    ? state.overview.baseBranch
+    : 'detected from origin/HEAD',
 )
+
+const EXAMPLE = { branch: 'fix/login-redirect', pr: 1234 }
+const preview = computed(() => {
+  const p = project.value
+  if (!p) return ''
+  const template = overrides.value?.pathTemplate ?? p.pathTemplate
+  return shortPath(templatePath(template, p.path, EXAMPLE.branch, EXAMPLE.pr))
+})
 
 function addStep() {
   project.value?.setupSteps.push({
     id: `step-${Date.now()}`,
-    label: 'New step',
-    defaultEnabled: false,
+    label: '',
+    defaultEnabled: true,
     script: '',
   })
 }
 
-const targetGroups = computed(() => [
-  {
-    key: 'global' as const,
-    title: 'Every project',
-    items: draft.value?.openTargets ?? [],
-  },
-  {
-    key: 'project' as const,
-    title: project.value ? `Only ${project.value.name}` : 'This project',
-    items: project.value?.openTargets ?? [],
-  },
-])
-
-function addTarget(items: OpenTarget[]) {
-  items.push({
-    id: `target-${Date.now()}`,
-    label: 'New target',
-    icon: '▸',
-    command: 'open {path}',
-    kind: 'command',
-    primary: false,
-    requiresPr: false,
-    runOnCreate: false,
-  })
+function removeStep(id: string) {
+  if (project.value) project.value.setupSteps = project.value.setupSteps.filter((s) => s.id !== id)
 }
 
-/** The browser validates only the inputs on screen, and the tabs aren't
- *  rendered while hidden, so a bad number left on General would otherwise
- *  save. Go back to it and let the browser point at the field. */
+/** The section holding the first field that won't save. The browser only
+ *  checks the inputs on screen, and the other sections aren't rendered. */
+function invalidSection(config: AppConfig): string | null {
+  const keys = Object.keys(MIN) as (keyof typeof MIN)[]
+  if (keys.some((key) => !Number.isInteger(config[key]) || config[key] < MIN[key])) return 'general'
+  return config.projects.find((p) => !p.name.trim())?.id ?? null
+}
+
 async function save() {
   if (!draft.value) return
-  const config = draft.value
-  const bad = (Object.keys(MIN) as (keyof typeof MIN)[]).some(
-    (key) => !Number.isInteger(config[key]) || config[key] < MIN[key],
-  )
+  if (!dirty.value) return emit('close')
+  const bad = invalidSection(draft.value)
   if (bad) {
-    tab.value = 'general'
+    section.value = bad
     await nextTick()
     form.value?.reportValidity()
     return
   }
   saving.value = true
+  error.value = null
   try {
     await saveConfig(draft.value)
-    await refresh()
     emit('close')
+    await refresh()
+  } catch (e) {
+    error.value = String(e)
   } finally {
     saving.value = false
+  }
+}
+
+/** Esc or a click beside the window closes it only when nothing would be
+ *  lost. With unsaved changes it stays, and the footer's notice flashes so
+ *  the key or click visibly did something. */
+function dismiss() {
+  if (!dirty.value) return emit('close')
+  nudge.value++
+}
+
+function onKey(event: KeyboardEvent) {
+  if (event.metaKey && event.key.toLowerCase() === 's') {
+    event.preventDefault()
+    void save()
   }
 }
 </script>
 
 <template>
-  <div v-if="open && draft" class="scrim" @click.self="emit('close')">
-    <form ref="form" class="modal wide" @submit.prevent="save">
-      <div class="modal-header" data-tauri-drag-region="deep">
-        <span>Settings</span>
-        <span class="spacer" />
-        <div class="tabs" style="padding: 0; border: none">
+  <div v-if="open && draft" class="scrim settings-scrim" @click.self="dismiss">
+    <form
+      ref="form"
+      class="settings"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+      @submit.prevent="save"
+      @keydown="onKey"
+    >
+      <nav class="settings-nav" data-tauri-drag-region="deep">
+        <div class="settings-nav-title" data-tauri-drag-region>Settings</div>
+        <button
+          type="button"
+          class="settings-nav-item"
+          :class="{ active: section === 'general' }"
+          @click="section = 'general'"
+        >
+          <Icon name="sliders" :size="14" />
+          General
+        </button>
+        <button
+          type="button"
+          class="settings-nav-item"
+          :class="{ active: section === 'targets' }"
+          @click="section = 'targets'"
+        >
+          <Icon name="launch" :size="14" />
+          Open in
+        </button>
+
+        <div class="settings-nav-heading">Projects</div>
+        <div class="settings-nav-projects">
           <button
+            v-for="p in draft.projects"
+            :key="p.id"
             type="button"
-            class="tab"
-            :class="{ active: tab === 'project' }"
-            @click="tab = 'project'"
+            class="settings-nav-item"
+            :class="{ active: section === p.id }"
+            :title="shortPath(p.path)"
+            @click="section = p.id"
           >
-            {{ project?.name ?? 'Project' }}
+            <Icon name="folder" :size="14" />
+            <span class="truncate">{{ p.name || 'Untitled' }}</span>
           </button>
-          <button
-            type="button"
-            class="tab"
-            :class="{ active: tab === 'targets' }"
-            @click="tab = 'targets'"
-          >
-            Open in
-          </button>
-          <button
-            type="button"
-            class="tab"
-            :class="{ active: tab === 'general' }"
-            @click="tab = 'general'"
-          >
-            General
-          </button>
+          <p v-if="!draft.projects.length" class="settings-nav-empty">No projects yet.</p>
         </div>
-      </div>
+      </nav>
 
-      <div class="modal-body">
-        <!-- Project -->
-        <template v-if="tab === 'project'">
-          <p v-if="!project" class="empty">Select a project first.</p>
-          <template v-else>
-            <div class="field">
-              <label>Name</label>
-              <input v-model="project.name" />
-            </div>
-            <div class="field">
-              <label>Main workspace</label>
-              <input :value="project.path" readonly class="mono" />
-              <span class="hint">
-                The project's own clone. New worktrees hang off it and setup steps copy files
-                out of it.
-              </span>
-            </div>
-            <div class="field">
-              <label>Base branch</label>
-              <input
-                :value="project.baseBranch ?? ''"
-                :placeholder="state.overview?.baseBranch ?? 'detected from origin/HEAD'"
-                @input="project.baseBranch = ($event.target as HTMLInputElement).value || null"
-              />
-              <span class="hint">Ahead/behind counts and merge detection measure against this.</span>
-            </div>
-            <div class="field">
-              <label>Directory template</label>
-              <input v-model="project.pathTemplate" class="mono" />
-              <span class="hint">
-                <code>{parent}</code> <code>{project}</code> <code>{slug}</code>
-                <code>{branch}</code> <code>{pr}</code> — the slug is the branch's last segment,
-                prefixed with the PR number when there is one.
-              </span>
+      <section class="settings-main">
+        <header class="settings-head" data-tauri-drag-region="deep">
+          <div class="settings-head-text" data-tauri-drag-region>
+            <template v-if="section === 'general'">
+              <h2 data-tauri-drag-region>General</h2>
+              <p data-tauri-drag-region>How often parallelist checks origin and GitHub.</p>
+            </template>
+            <template v-else-if="section === 'targets'">
+              <h2 data-tauri-drag-region>Open in</h2>
+              <p data-tauri-drag-region>
+                Apps and commands offered on every project's workspaces.
+              </p>
+            </template>
+            <template v-else-if="project">
+              <h2 class="truncate" data-tauri-drag-region>{{ project.name || 'Untitled' }}</h2>
+              <p class="mono truncate selectable">{{ shortPath(project.path) }}</p>
+            </template>
+          </div>
+          <button type="button" class="settings-close" title="Close (Esc)" @click="emit('close')">
+            <Icon name="close" :size="13" />
+          </button>
+        </header>
+
+        <div ref="body" class="settings-body">
+          <!-- General -->
+          <template v-if="section === 'general'">
+            <div class="set-group">
+              <h3>Background refresh</h3>
+              <div class="set-card">
+                <div class="set-row">
+                  <div class="set-row-text">
+                    <label for="set-fetch">Fetch origin every</label>
+                    <p>
+                      Runs <code>git fetch --all --prune</code>, so the branch list and ahead/behind
+                      counts stay current.
+                    </p>
+                  </div>
+                  <div class="unit-input">
+                    <input
+                      id="set-fetch"
+                      v-model.number="draft.fetchIntervalSecs"
+                      type="number"
+                      :min="MIN.fetchIntervalSecs"
+                      step="1"
+                      required
+                    />
+                    <span>sec</span>
+                  </div>
+                </div>
+                <label class="set-row clickable">
+                  <div class="set-row-text">
+                    <span class="set-label">Also fetch when the window is focused</span>
+                  </div>
+                  <input v-model="draft.fetchOnFocus" type="checkbox" class="switch" />
+                </label>
+                <div class="set-row">
+                  <div class="set-row-text">
+                    <label for="set-prs">Refresh pull requests every</label>
+                    <p>Review and CI state, from GitHub.</p>
+                  </div>
+                  <div class="unit-input">
+                    <input
+                      id="set-prs"
+                      v-model.number="draft.prRefreshSecs"
+                      type="number"
+                      :min="MIN.prRefreshSecs"
+                      step="1"
+                      required
+                    />
+                    <span>sec</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div class="field">
-              <label>Setup steps</label>
-              <span class="hint">
-                Shell commands, offered as checkboxes when creating a workspace and
-                run inside it. <code>{primary}</code> <code>{path}</code>
-                <code>{branch}</code> are substituted and shell-quoted. A committed
-                <code>.parallelist.json</code> in the project overrides these.
-              </span>
-              <div
-                v-for="step in project.setupSteps"
-                :key="step.id"
-                class="card"
-                style="gap: 6px; margin-top: 6px"
-              >
-                <div class="row">
-                  <input v-model="step.label" style="flex: 1" placeholder="Label" />
-                  <button
-                    type="button"
-                    class="btn ghost small danger"
-                    @click="project.setupSteps = project.setupSteps.filter((s) => s.id !== step.id)"
-                  >
-                    ✕
+            <div class="set-group">
+              <h3>Branch list</h3>
+              <div class="set-card">
+                <div class="set-row">
+                  <div class="set-row-text">
+                    <label for="set-active">Active window</label>
+                    <p>
+                      A branch is active if it has an open pull request, has a workspace, or was
+                      committed to within this many days.
+                    </p>
+                  </div>
+                  <div class="unit-input">
+                    <input
+                      id="set-active"
+                      v-model.number="draft.activeDays"
+                      type="number"
+                      :min="MIN.activeDays"
+                      step="1"
+                      required
+                    />
+                    <span>days</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- Open in, for every project -->
+          <template v-else-if="section === 'targets'">
+            <div class="set-group">
+              <h3>Every project</h3>
+              <OpenTargetList :items="draft.openTargets" />
+              <p class="set-foot">
+                <code>{path}</code> the workspace, <code>{primary}</code> the main workspace and
+                <code>{branch}</code> are filled in, shell-quoted. Targets for one project only are
+                set on that project.
+              </p>
+            </div>
+          </template>
+
+          <!-- A project -->
+          <template v-else-if="project">
+            <div v-if="file" class="set-notice" :class="{ error: file.error }">
+              <Icon name="file" :size="14" />
+              <p v-if="file.error">
+                <code>{{ file.file }}</code> in this project isn't valid and is ignored:
+                {{ file.error }}
+              </p>
+              <p v-else>
+                This project commits a <code>{{ file.file }}</code>. What it sets wins over what is
+                entered here, and is marked below.
+              </p>
+            </div>
+
+            <div class="set-group">
+              <h3>Project</h3>
+              <div class="set-card">
+                <div class="set-row">
+                  <div class="set-row-text">
+                    <label for="set-name">Name</label>
+                  </div>
+                  <input id="set-name" v-model="project.name" class="set-input" required />
+                </div>
+                <div class="set-row">
+                  <div class="set-row-text">
+                    <label for="set-base">Base branch</label>
+                    <p v-if="overrides?.baseBranch" class="set-overridden">
+                      Set to <code>{{ overrides.baseBranch }}</code> by
+                      <code>{{ file!.file }}</code>.
+                    </p>
+                    <p v-else>Ahead/behind counts and merge detection measure against it.</p>
+                  </div>
+                  <input
+                    id="set-base"
+                    class="set-input"
+                    :value="project.baseBranch ?? ''"
+                    :placeholder="detectedBase"
+                    spellcheck="false"
+                    @input="project.baseBranch = ($event.target as HTMLInputElement).value || null"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="set-group">
+              <h3>New workspaces</h3>
+              <div class="set-card">
+                <div class="set-row stacked">
+                  <div class="set-row-text">
+                    <label for="set-template">Directory</label>
+                    <p v-if="overrides?.pathTemplate" class="set-overridden">
+                      Set to <code>{{ overrides.pathTemplate }}</code> by
+                      <code>{{ file!.file }}</code>.
+                    </p>
+                    <p v-else>
+                      <code>{parent}</code> is the folder holding the main workspace,
+                      <code>{project}</code> its name, and <code>{slug}</code> the branch's last
+                      segment after its pull request number. <code>{branch}</code> and
+                      <code>{pr}</code> are there as well.
+                    </p>
+                  </div>
+                  <input
+                    id="set-template"
+                    v-model="project.pathTemplate"
+                    class="set-input mono"
+                    spellcheck="false"
+                  />
+                  <p class="template-preview">
+                    <span class="faint">{{ EXAMPLE.branch }} #{{ EXAMPLE.pr }}</span>
+                    <span class="faint">→</span>
+                    <span class="mono selectable truncate">{{ preview }}</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div class="set-group">
+              <h3>Setup steps</h3>
+              <p class="set-intro">
+                Shell commands run inside a new workspace, each one a checkbox in the New workspace
+                dialog.
+              </p>
+              <p v-if="overrides?.setupSteps" class="set-overridden">
+                <code>{{ file!.file }}</code> sets {{ overrides.setupSteps.length }}
+                {{ overrides.setupSteps.length === 1 ? 'step' : 'steps' }}, used instead of these.
+              </p>
+              <div class="set-list" :class="{ muted: overrides?.setupSteps }">
+                <div v-if="project.setupSteps.length" class="set-list-head">
+                  <span>Step</span>
+                  <span>Ticked</span>
+                </div>
+                <p v-else class="set-empty">No setup steps.</p>
+                <div v-for="step in project.setupSteps" :key="step.id" class="set-item step">
+                  <div class="step-text">
+                    <input
+                      v-model="step.label"
+                      class="bare set-item-title"
+                      placeholder="What it does"
+                      aria-label="Label"
+                    />
+                    <div class="command">
+                      <span class="command-prompt" aria-hidden="true">$</span>
+                      <input
+                        v-model="step.script"
+                        class="bare mono"
+                        placeholder="pnpm install"
+                        aria-label="Command"
+                        spellcheck="false"
+                      />
+                    </div>
+                  </div>
+                  <input
+                    v-model="step.defaultEnabled"
+                    type="checkbox"
+                    class="switch"
+                    title="Ticked by default in the New workspace dialog"
+                    aria-label="Ticked by default"
+                  />
+                  <button type="button" class="set-remove" title="Remove step" @click="removeStep(step.id)">
+                    <Icon name="close" :size="12" />
                   </button>
                 </div>
-                <input v-model="step.script" class="mono" placeholder="pnpm install" />
-                <label class="check">
-                  <input v-model="step.defaultEnabled" type="checkbox" />
-                  <span class="hint">Ticked by default</span>
-                </label>
+                <button type="button" class="set-add" @click="addStep">
+                  <Icon name="add" :size="12" />
+                  Add step
+                </button>
               </div>
-              <button
-                type="button"
-                class="btn small"
-                style="align-self: flex-start"
-                @click="addStep"
-              >
-                + Add step
-              </button>
+              <p class="set-foot">
+                <code>{path}</code> the new workspace, <code>{primary}</code> the main workspace and
+                <code>{branch}</code> are filled in, shell-quoted.
+              </p>
+            </div>
+
+            <div class="set-group">
+              <h3>Open in, for this project only</h3>
+              <p v-if="overrides?.openTargets" class="set-overridden">
+                <code>{{ file!.file }}</code> sets {{ overrides.openTargets.length }}
+                {{ overrides.openTargets.length === 1 ? 'target' : 'targets' }}, used instead of
+                these.
+              </p>
+              <OpenTargetList :items="project.openTargets" :muted="!!overrides?.openTargets" />
+              <p class="set-foot">Listed after the ones for every project.</p>
             </div>
           </template>
-        </template>
+        </div>
 
-        <!-- Open in -->
-        <template v-else-if="tab === 'targets'">
-          <span class="hint">
-            Each target is a shell command run in your login shell.
-            <code>{path}</code> <code>{branch}</code> <code>{primary}</code> <code>{prUrl}</code>
-            are substituted and shell-quoted.
-          </span>
-          <template v-for="group in targetGroups" :key="group.key">
-          <div class="card-title" style="margin-top: 4px">{{ group.title }}</div>
-          <p v-if="group.key === 'project' && !project" class="hint">
-            Select a project to add targets that only apply to it.
-          </p>
-          <div v-for="target in group.items" :key="target.id" class="card" style="gap: 6px">
-            <div class="row">
-              <input v-model="target.icon" style="width: 52px; text-align: center" />
-              <input v-model="target.label" style="flex: 1" placeholder="Label" />
-              <button
-                type="button"
-                class="btn ghost small danger"
-                @click="group.items.splice(group.items.indexOf(target), 1)"
-              >
-                ✕
-              </button>
-            </div>
-            <div class="row">
-              <select v-model="target.kind" title="Where the command runs">
-                <option value="command">Runs on its own</option>
-                <option value="terminal">Built-in terminal</option>
-              </select>
-              <input v-model="target.command" class="mono" style="flex: 1; min-width: 0" />
-            </div>
-            <div class="row">
-              <label class="check">
-                <input v-model="target.primary" type="checkbox" />
-                <span class="hint">Show as a button</span>
-              </label>
-              <label class="check">
-                <input v-model="target.requiresPr" type="checkbox" />
-                <span class="hint">Only when there's a PR</span>
-              </label>
-              <label class="check">
-                <input v-model="target.runOnCreate" type="checkbox" />
-                <span class="hint">Run in new workspace by default</span>
-              </label>
-            </div>
-          </div>
-          <button
-            v-if="group.key === 'global' || project"
-            type="button"
-            class="btn small"
-            style="align-self: flex-start"
-            @click="addTarget(group.items)"
+        <footer class="settings-foot">
+          <span v-if="error" class="settings-error truncate" :title="error">{{ error }}</span>
+          <span
+            v-else-if="dirty"
+            :key="nudge"
+            class="settings-dirty"
+            :class="{ nudged: nudge > 0 }"
+            >Unsaved changes</span
           >
-            + Add target
+          <span class="spacer" />
+          <button type="button" class="btn" @click="emit('close')">Cancel</button>
+          <button type="submit" class="btn primary" :disabled="saving || !dirty" title="Save (⌘S)">
+            Save
           </button>
-          </template>
-        </template>
-
-        <!-- General -->
-        <template v-else>
-          <div class="field">
-            <label>Fetch every (seconds)</label>
-            <input
-              v-model.number="draft.fetchIntervalSecs"
-              type="number"
-              :min="MIN.fetchIntervalSecs"
-              required
-            />
-            <span class="hint">
-              <code>git fetch --all --prune</code> in the background, so the branch list and
-              ahead/behind counts stay honest.
-            </span>
-          </div>
-          <div class="field">
-            <label>Refresh pull requests every (seconds)</label>
-            <input
-              v-model.number="draft.prRefreshSecs"
-              type="number"
-              :min="MIN.prRefreshSecs"
-              required
-            />
-          </div>
-          <div class="field">
-            <label>"Active" window (days)</label>
-            <input
-              v-model.number="draft.activeDays"
-              type="number"
-              :min="MIN.activeDays"
-              required
-            />
-            <span class="hint">
-              A branch counts as active if it has an open PR, has a workspace on disk, or was
-              committed to within this window.
-            </span>
-          </div>
-          <label class="check">
-            <input v-model="draft.fetchOnFocus" type="checkbox" />
-            <span>Also fetch when the window regains focus</span>
-          </label>
-        </template>
-      </div>
-
-      <div class="modal-footer">
-        <span class="spacer" />
-        <button type="button" class="btn" @click="emit('close')">Cancel</button>
-        <button type="submit" class="btn primary" :disabled="saving">Save</button>
-      </div>
+        </footer>
+      </section>
     </form>
   </div>
 </template>
