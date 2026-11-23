@@ -151,7 +151,7 @@ async function reveal(task: LiveTask) {
 
             <div v-if="isReady(featured)" class="actions" @click.stop>
               <button
-                v-for="target in openTargetsFor(featured.projectId).filter((t) => !t.requiresPr)"
+                v-for="target in openTargetsFor(featured.projectId)"
                 :key="target.id"
                 class="btn small"
                 :disabled="targetBusy(target, featured.path ?? '')"

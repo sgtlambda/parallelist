@@ -32,9 +32,25 @@ export interface OpenTarget {
    *  into the workspace's built-in terminal. */
   kind: 'command' | 'terminal'
   primary: boolean
-  requiresPr: boolean
   /** Starts ticked in the New workspace dialog. */
   runOnCreate: boolean
+}
+
+/** What a project's committed `.parallelist.json` sets. Each field it has
+ *  wins over the one stored in the app. */
+export interface ProjectOverrides {
+  baseBranch: string | null
+  pathTemplate: string | null
+  setupSteps: SetupStep[] | null
+  openTargets: OpenTarget[] | null
+}
+
+export interface ProjectFile {
+  /** `.parallelist.json`, or a legacy `.switcheroo.json`. */
+  file: string
+  overrides: ProjectOverrides
+  /** Set when the file isn't valid, and is ignored as a whole. */
+  error: string | null
 }
 
 export interface AppConfig {
@@ -232,6 +248,8 @@ export const api = {
   openFolder: (path: string) => invoke<Landing>('open_folder', { path }),
   /** Which of the paths dragged onto the window are folders. */
   areFolders: (paths: string[]) => invoke<boolean[]>('are_folders', { paths }),
+  /** Each project's committed project file, keyed by project id. */
+  projectFiles: () => invoke<Record<string, ProjectFile>>('project_files'),
   removeProject: (id: string) => invoke<void>('remove_project', { id }),
   selectProject: (id: string | null) => invoke<void>('select_project', { id }),
   refresh: (id: string, fetch: boolean) => invoke<Overview>('refresh', { id, fetch }),

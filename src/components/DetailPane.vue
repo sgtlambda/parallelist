@@ -105,14 +105,11 @@ const title = computed(
   () => row.value?.branch.name ?? (cards.value.length || terminal.value ? selectedBranch.value : null),
 )
 
-const targets = computed(() => {
-  const usable = openTargets.value.filter((t) => !t.requiresPr || row.value?.pr)
-  return showAllTargets.value ? usable : usable.filter((t) => t.primary)
-})
+const targets = computed(() =>
+  showAllTargets.value ? openTargets.value : openTargets.value.filter((t) => t.primary),
+)
 
-const hiddenCount = computed(() => {
-  return openTargets.value.filter((t) => (!t.requiresPr || row.value?.pr) && !t.primary).length
-})
+const hiddenCount = computed(() => openTargets.value.filter((t) => !t.primary).length)
 
 /** The workspace whose terminal the pane shows instead of the overview. Only
  *  while its shell runs, or that workspace is listed on the row, or is a
@@ -549,7 +546,7 @@ async function openPullRequest() {
               </div>
               <div v-if="item.job.status === 'done'" class="actions">
                 <button
-                  v-for="target in targets.filter((t) => !t.requiresPr)"
+                  v-for="target in targets"
                   :key="target.id"
                   class="btn small"
                   :disabled="targetBusy(target, item.job.path ?? '')"

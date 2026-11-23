@@ -64,7 +64,6 @@ struct Entry {
     category: Category,
     kind: OpenKind,
     primary: bool,
-    requires_pr: bool,
     ways: Vec<Way>,
 }
 
@@ -96,7 +95,6 @@ fn catalog() -> Vec<Entry> {
         category,
         kind,
         primary,
-        requires_pr: false,
         ways,
     };
     let agent = |id, label, icon, bin| {
@@ -167,18 +165,6 @@ fn catalog() -> Vec<Entry> {
         git("fork", "Fork", "Fork", None),
         git("tower", "Tower", "Tower", Some("gittower")),
         git("sublime-merge", "Sublime Merge", "Sublime Merge", Some("smerge")),
-        Entry {
-            requires_pr: true,
-            ..entry(
-                "pull-request",
-                "Pull request",
-                "\u{2197}",
-                Other,
-                OpenKind::Command,
-                false,
-                vec![Way::Bin("open", "open {prUrl}")],
-            )
-        },
         entry(
             "finder",
             "Finder",
@@ -321,7 +307,6 @@ pub fn suggest(probe: &Probe, configured: &[OpenTarget]) -> Vec<Suggestion> {
                     command,
                     kind: entry.kind,
                     primary: entry.primary,
-                    requires_pr: entry.requires_pr,
                     run_on_create: false,
                 },
                 category: entry.category,
@@ -407,7 +392,7 @@ mod tests {
             assert!(!entry.ways.is_empty(), "{} has no way to run it", entry.id);
             for command in bare_commands(entry) {
                 assert!(!command.contains("{bin}") && !command.contains("{app}"), "{command}");
-                assert_eq!(entry.kind == OpenKind::Command, command.contains("{path}") || command.contains("{prUrl}"), "{command}");
+                assert_eq!(entry.kind == OpenKind::Command, command.contains("{path}"), "{command}");
             }
         }
     }
@@ -499,7 +484,6 @@ mod tests {
             command: command.into(),
             kind: OpenKind::Command,
             primary: true,
-            requires_pr: false,
             run_on_create: false,
         };
         let configured = [
@@ -516,6 +500,5 @@ mod tests {
         // A terminal app is configured, so none is ticked.
         assert!(!find(&all, "terminal-app").configured);
         assert!(!find(&all, "terminal-app").recommended);
-        assert!(find(&all, "pull-request").recommended);
     }
 }

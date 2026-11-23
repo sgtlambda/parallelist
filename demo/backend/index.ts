@@ -70,6 +70,7 @@ const handlers: Record<string, Handler> = {
     config.targetsChosen = true
     return copy(config)
   },
+  project_files: () => ({}),
   are_folders: ({ paths }: { paths: string[] }) => paths.map(() => false),
   open_folder: () => {
     throw new Error('Choosing a folder is not possible in a web page')

@@ -86,12 +86,10 @@ pub struct OpenTarget {
     pub command: String,
     #[serde(default)]
     pub kind: OpenKind,
-    /// Shown as a button on the workspace row rather than only in the menu.
+    /// "Primary" in Settings: shown as a button on the workspace card
+    /// rather than only in its menu.
     #[serde(default)]
     pub primary: bool,
-    /// Hidden unless the selected branch has a pull request (for `{prUrl}`).
-    #[serde(default)]
-    pub requires_pr: bool,
     /// Starts ticked in the create-workspace dialog, which runs the ticked
     /// targets once the new workspace is set up.
     #[serde(default)]
@@ -344,18 +342,27 @@ impl ProjectConfig {
         }
     }
 
+    /// The project file committed at the repo root, if there is one: its
+    /// name and what it sets, or why it couldn't be read. `.parallelist.json`
+    /// wins over a legacy `.switcheroo.json`.
+    pub fn committed(&self) -> Option<Committed> {
+        let root = Path::new(&self.path);
+        let (file, text) = [PROJECT_CONFIG_FILE, LEGACY_PROJECT_CONFIG_FILE]
+            .iter()
+            .find_map(|name| Some((*name, std::fs::read_to_string(root.join(name)).ok()?)))?;
+        let (overrides, error) = match serde_json::from_str::<ProjectOverrides>(&text) {
+            Ok(over) => (over, None),
+            Err(e) => (ProjectOverrides::default(), Some(e.to_string())),
+        };
+        Some(Committed { file: file.into(), overrides, error })
+    }
+
     /// Apply `.parallelist.json` (or a legacy `.switcheroo.json`) from the
-    /// repo root on top of the stored config.
+    /// repo root on top of the stored config. A file that doesn't parse
+    /// changes nothing.
     pub fn resolved(&self) -> ProjectConfig {
         let mut out = self.clone();
-        let root = Path::new(&self.path);
-        let Some(text) = [PROJECT_CONFIG_FILE, LEGACY_PROJECT_CONFIG_FILE]
-            .iter()
-            .find_map(|name| std::fs::read_to_string(root.join(name)).ok())
-        else {
-            return out;
-        };
-        let Ok(over) = serde_json::from_str::<ProjectOverrides>(&text) else {
+        let Some(Committed { overrides: over, .. }) = self.committed() else {
             return out;
         };
         if let Some(v) = over.base_branch {
@@ -372,6 +379,18 @@ impl ProjectConfig {
         }
         out
     }
+}
+
+/// A project file committed in the repo, as Settings shows it: the fields it
+/// sets win over the ones stored in the app, so editing those there would
+/// change nothing.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Committed {
+    pub file: String,
+    pub overrides: ProjectOverrides,
+    /// Set when the file isn't valid; it is then ignored as a whole.
+    pub error: Option<String>,
 }
 
 #[cfg(test)]
@@ -428,7 +447,6 @@ mod tests {
             command: command.into(),
             kind: OpenKind::Command,
             primary: false,
-            requires_pr: false,
             run_on_create: false,
         };
         let mut config = AppConfig {
@@ -457,6 +475,27 @@ mod tests {
 
         std::fs::write(root.join(PROJECT_CONFIG_FILE), r#"{"baseBranch": "new"}"#).unwrap();
         assert_eq!(project.resolved().base_branch.as_deref(), Some("new"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn reports_what_a_project_file_sets_and_why_it_is_ignored() {
+        let root = scratch("committed");
+        let project = ProjectConfig::new(root.clone(), "p".into());
+        assert!(project.committed().is_none());
+
+        std::fs::write(root.join(PROJECT_CONFIG_FILE), r#"{"pathTemplate": "{parent}/x"}"#).unwrap();
+        let committed = project.committed().unwrap();
+        assert_eq!(committed.file, PROJECT_CONFIG_FILE);
+        assert_eq!(committed.overrides.path_template.as_deref(), Some("{parent}/x"));
+        assert!(committed.overrides.setup_steps.is_none());
+        assert!(committed.error.is_none());
+
+        // A file that doesn't parse sets nothing, and says so.
+        std::fs::write(root.join(PROJECT_CONFIG_FILE), r#"{"pathTemplate": 3}"#).unwrap();
+        let committed = project.committed().unwrap();
+        assert!(committed.error.is_some());
+        assert_eq!(project.resolved().path_template, project.path_template);
         std::fs::remove_dir_all(&root).ok();
     }
 }

@@ -29,7 +29,6 @@ export const targets: OpenTarget[] = [
     command: 'claude',
     kind: 'terminal',
     primary: true,
-    requiresPr: false,
     runOnCreate: true,
   },
   {
@@ -39,17 +38,6 @@ export const targets: OpenTarget[] = [
     command: 'code {path}',
     kind: 'command',
     primary: true,
-    requiresPr: false,
-    runOnCreate: false,
-  },
-  {
-    id: 'pr',
-    label: 'Pull request',
-    icon: '↗',
-    command: 'open {prUrl}',
-    kind: 'command',
-    primary: false,
-    requiresPr: true,
     runOnCreate: false,
   },
 ]

@@ -33,12 +33,6 @@ export function targetsClash(projectId: string | null, target: OpenTarget, id: s
   )
 }
 
-/** "Open in" targets on offer for a branch. One that needs a PR only when
- *  the branch has one. */
-export function offeredTargets(projectId: string | null, row: Row | null): OpenTarget[] {
-  return openTargetsFor(projectId).filter((t) => !t.requiresPr || row?.pr)
-}
-
 /** The row for a branch of the project on screen, if it has one: a branch
  *  that doesn't exist yet has none, and so no PR. */
 export function rowFor(branch: string): Row | null {
@@ -86,7 +80,7 @@ export function createRequest(choice: {
     newBranch,
     from: newBranch ? `origin/${baseBranch()}` : null,
     steps: choice.steps,
-    openTargets: offeredTargets(choice.projectId, rowFor(choice.branch))
+    openTargets: openTargetsFor(choice.projectId)
       .filter((t) => choice.targets.includes(t.id))
       .map((t) => t.id),
   }

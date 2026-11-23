@@ -51,6 +51,29 @@ export function basename(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? path
 }
 
+/**
+ * Where a workspace for `branch` would go under a project's directory
+ * template, as `workspace::slugify` and `suggest_path` in the backend fill it
+ * in, without the `-b`/`-c` walk around directories that already exist.
+ * Only for showing a template's effect in Settings; the backend decides the
+ * real path.
+ */
+export function templatePath(template: string, primary: string, branch: string, pr: number | null) {
+  const parts = primary.replace(/\/+$/, '').split('/')
+  const project = parts.pop() ?? ''
+  const tail = branch.split('/').pop() ?? branch
+  const cleaned = tail.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  const slug = pr == null ? cleaned : `${pr}-${cleaned}`
+  const values: Record<string, string> = {
+    parent: parts.join('/'),
+    project,
+    slug,
+    branch,
+    pr: pr == null ? '' : String(pr),
+  }
+  return template.replace(/\{(parent|project|slug|branch|pr)\}/g, (_, key: string) => values[key])
+}
+
 function words(text: string): Set<string> {
   return new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1))
 }

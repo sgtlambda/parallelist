@@ -1,7 +1,7 @@
 import { watch } from 'vue'
-import { createWithDefaults, defaultTargets, offeredTargets, rowFor } from './newWorkspace'
+import { createWithDefaults, defaultTargets, rowFor } from './newWorkspace'
 import { openIn } from './openIn'
-import { goToBranch, project, projectId, selectedBranch, state, type Row } from './store'
+import { goToBranch, openTargetsFor, project, projectId, selectedBranch, state, type Row } from './store'
 import { createTasksFor, isActive, normalizePath, removalOf } from './tasks'
 import { enterTerminal } from './terminal'
 import { byTerminalRank, latestShown, terminalActive, terminalRank } from './terminalState'
@@ -42,7 +42,7 @@ export async function enterShell(row: Row) {
   if (usable.length) {
     const workspace = usable.find((w) => normalizePath(w.path) === shown) ?? usable[0]
     enterTerminal(id, branch, workspace.path)
-    const target = offeredTargets(id, row).find(
+    const target = openTargetsFor(id).find(
       (t) => t.kind === 'terminal' && defaultTargets(id).includes(t.id),
     )
     if (!target) return

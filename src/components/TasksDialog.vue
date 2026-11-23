@@ -162,7 +162,7 @@ async function reveal(t: LiveTask) {
       <div class="modal-footer">
         <template v-if="task && isReady(task)">
           <button
-            v-for="target in openTargetsFor(task.projectId).filter((t) => !t.requiresPr)"
+            v-for="target in openTargetsFor(task.projectId)"
             :key="target.id"
             class="btn small"
             :disabled="targetBusy(target, task.path ?? '')"
