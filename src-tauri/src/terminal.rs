@@ -45,26 +45,17 @@
 //! opened on, which is where the frontend lists any terminal whose workspace
 //! the overview doesn't put on a branch.
 
-use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{CommandBuilder, PtySize};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::git::WorkspaceKind;
+use crate::pty::{self, append_backlog, Host, Spawn, Survivor};
 use crate::tasks::now_ms;
 
-/// How much recent output a terminal keeps for replay on reattach. A few
-/// screens of a noisy build; xterm keeps the real scrollback on its side.
-const BACKLOG: usize = 512 * 1024;
-
-/// How long to wait for the last output after the shell exits. A background
-/// job the shell left behind can hold the pty open indefinitely, and the exit
-/// still has to be reported.
-const DRAIN_GRACE: Duration = Duration::from_millis(500);
 
 /// What a terminal sends to whoever is attached.
 #[derive(Debug, Clone, PartialEq)]
@@ -159,18 +150,19 @@ struct Output {
 }
 
 struct Terminal {
+    /// The host's name for its pty.
+    id: String,
     info: TerminalInfo,
-    master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
-    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    host: Arc<dyn Host>,
     output: Mutex<Output>,
     /// The shell's pid. While it leads the foreground process group, nothing
     /// else is running, so no program status can be current.
-    shell_pid: Option<i32>,
+    shell_pid: Mutex<Option<i32>>,
     status: Mutex<Status>,
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
 struct Status {
     state: Option<String>,
     message: Option<String>,
@@ -182,14 +174,22 @@ struct Status {
 impl Status {
     /// Start the wait when it begins and end it when it does, after
     /// anything that changes `state` or `ready`.
-    fn settle(&mut self) {
+    fn settle(&mut self, at: u64) {
         let waiting = self.ready || self.state.as_deref() == Some("blocked");
         if !waiting {
             self.waiting_since = None;
         } else if self.waiting_since.is_none() {
-            self.waiting_since = Some(now_ms());
+            self.waiting_since = Some(at);
         }
     }
+}
+
+/// What a terminal keeps with its pty in the relay (`Host::set_state`), so
+/// the next app to attach knows where it belongs and what waits there.
+#[derive(Serialize, Deserialize)]
+struct Kept {
+    home: Home,
+    status: Status,
 }
 
 impl Terminal {
@@ -205,32 +205,26 @@ impl Terminal {
         }
     }
 
-    /// Act on the OSC 7501 sequences in a chunk of output. Returns whether
-    /// the status changed.
-    fn follow_status(&self, payloads: Vec<String>) -> bool {
+    /// Act on the OSC 7501 payloads the host found in a chunk of output,
+    /// arrived `at`, with `leader` leading the foreground after it. Returns
+    /// whether the status changed.
+    fn follow_status(&self, payloads: Vec<String>, leader: Option<i32>, at: u64) -> bool {
         let mut changed = false;
         for payload in payloads {
-            if payload.starts_with('?') {
-                // The probe. Anything starting with `?` is taken as support.
-                let mut writer = self.writer.lock().unwrap();
-                let _ = writer.write_all(b"\x1b]7501;?\x07");
-                let _ = writer.flush();
-            } else if let Some(report) = parse_status(&payload) {
-                changed |= self.set_status(report);
+            if let Some(report) = parse_status(&payload) {
+                changed |= self.set_status(report, at);
             }
         }
         // A program killed outright never sends `clear`. Its shell is back in
         // the foreground by the time anything prints a prompt.
-        if self.status.lock().unwrap().state.is_some() && self.shell_pid.is_some() {
-            let leader = self.master.lock().unwrap().process_group_leader();
-            if leader == self.shell_pid {
-                changed |= self.set_status(Report::default());
-            }
+        let shell = *self.shell_pid.lock().unwrap();
+        if self.status.lock().unwrap().state.is_some() && shell.is_some() && leader == shell {
+            changed |= self.set_status(Report::default(), at);
         }
         changed
     }
 
-    fn set_status(&self, Report { state, message }: Report) -> bool {
+    fn set_status(&self, Report { state, message }: Report, at: u64) -> bool {
         let mut status = self.status.lock().unwrap();
         if status.state == state {
             // Saying what it does now is news, but not activity.
@@ -246,8 +240,8 @@ impl Terminal {
         // — the user did themselves.
         status.ready = state.as_deref() == Some("done");
         status.state = state;
-        status.active_at = now_ms();
-        status.settle();
+        status.active_at = at;
+        status.settle(at);
         true
     }
 
@@ -283,22 +277,21 @@ impl Terminal {
                 }
             }
         }
-        status.settle();
+        status.settle(now_ms());
     }
 
     fn send(&self, data: &[u8]) -> Result<(), String> {
-        let mut writer = self.writer.lock().unwrap();
-        writer.write_all(data).map_err(|e| e.to_string())?;
-        writer.flush().map_err(|e| e.to_string())
+        self.host.write(&self.id, data)
     }
 
     /// The user typed into it: whatever waited for a reply has had one.
     /// Returns whether anything was waiting.
     fn typed(&self) -> bool {
         let mut status = self.status.lock().unwrap();
-        status.active_at = now_ms();
+        let now = now_ms();
+        status.active_at = now;
         let was = std::mem::take(&mut status.ready);
-        status.settle();
+        status.settle(now);
         was
     }
 
@@ -320,19 +313,36 @@ impl Terminal {
         !crate::git::is_git_repo(Path::new(&self.info.path))
     }
 
-    /// SIGHUP to the shell alone is enough: it leads the terminal's session,
-    /// and when it exits the kernel hangs up on the foreground job too
-    /// (`closing_hangs_up_on_the_foreground_job`; an explicit `killpg` of
-    /// that group was tried and made no difference). Jobs the user put in
-    /// the background are the shell's to hang up, as in any terminal.
     /// The process leading the foreground, unless that is the shell itself.
     fn foreground(&self) -> Option<i32> {
-        let leader = self.master.lock().unwrap().process_group_leader()?;
-        (Some(leader) != self.shell_pid).then_some(leader)
+        let leader = self.host.leader(&self.id)?;
+        (Some(leader) != *self.shell_pid.lock().unwrap()).then_some(leader)
     }
 
+    /// Hang up on the shell (`pty::Local::hang_up`).
     fn hang_up(&self) {
-        let _ = self.killer.lock().unwrap().kill();
+        self.host.hang_up(&self.id);
+    }
+
+    /// Keep where it belongs and its status with the pty, for the next app.
+    fn persist(&self) {
+        if !self.host.persistent() {
+            return;
+        }
+        let kept = Kept {
+            home: self.info.home.clone(),
+            status: {
+                let s = self.status.lock().unwrap();
+                Status {
+                    state: s.state.clone(),
+                    message: s.message.clone(),
+                    ..*s
+                }
+            },
+        };
+        if let Ok(value) = serde_json::to_value(kept) {
+            self.host.set_state(&self.id, value);
+        }
     }
 
     /// Send to the attached sink, if any; drop it if its receiver is gone.
@@ -348,8 +358,8 @@ impl Terminal {
 pub type Hook = Arc<dyn Fn(TerminalEvent) + Send + Sync>;
 
 #[derive(Default)]
-pub struct Terminals {
-    by_path: Arc<Mutex<HashMap<String, Arc<Terminal>>>>,
+struct Inner {
+    by_path: Mutex<HashMap<String, Arc<Terminal>>>,
     /// Told about every exit and status change, attached or not. A webview
     /// that reloaded marks running terminals from `list` before attaching to
     /// any of them, and a shell that exits meanwhile has no sink to report
@@ -358,7 +368,152 @@ pub struct Terminals {
     /// The terminal on screen, focused window or not. Switching to another
     /// app is not leaving it. Only `reap` cares; nothing about a terminal's
     /// status follows from being looked at.
-    shown: Arc<Mutex<Option<String>>>,
+    shown: Mutex<Option<String>>,
+}
+
+impl Inner {
+    fn find(&self, id: &str) -> Option<Arc<Terminal>> {
+        self.by_path.lock().unwrap().values().find(|t| t.id == id).cloned()
+    }
+
+    /// Its status changed: tell the webview, and keep it with the pty.
+    fn changed(&self, term: &Terminal) {
+        if let Some(hook) = &self.hook {
+            hook(TerminalEvent::Status(&term.info()));
+        }
+        term.persist();
+    }
+
+    fn on_event(&self, event: pty::Event) {
+        match event {
+            pty::Event::Output { id, data, statuses, leader } => {
+                let Some(term) = self.find(&id) else { return };
+                let mut output = term.output.lock().unwrap();
+                append_backlog(&mut output.backlog, &data);
+                Terminal::deliver(&mut output, Chunk::Data(data));
+                drop(output);
+                if term.follow_status(statuses, leader, now_ms()) {
+                    self.changed(&term);
+                    // Claude Code finishing the turn in which it removed its
+                    // own worktree, typically.
+                    if term.outlived(self.shown.lock().unwrap().as_deref()) {
+                        term.hang_up();
+                    }
+                }
+            }
+            pty::Event::Exit { id, code } => {
+                // Out of the registry first, so an open racing this exit
+                // starts a new shell rather than attaching to a dead one.
+                let mut map = self.by_path.lock().unwrap();
+                let Some(path) = map.iter().find(|(_, t)| t.id == id).map(|(p, _)| p.clone()) else {
+                    return;
+                };
+                let term = map.remove(&path).expect("just found");
+                drop(map);
+                let mut output = term.output.lock().unwrap();
+                output.exited = true;
+                Terminal::deliver(&mut output, Chunk::Exit(code));
+                output.sink = None;
+                drop(output);
+                *term.status.lock().unwrap() = Status::default();
+                if let Some(hook) = &self.hook {
+                    hook(TerminalEvent::Exit(&term.info()));
+                }
+            }
+        }
+    }
+
+    /// Take back a terminal that ran on in the relay while no app was
+    /// attached, as it was when the last app left it, with what its program
+    /// reported since.
+    fn restore(&self, host: &Arc<dyn Host>, survivor: Survivor) {
+        let kept: Option<Kept> = survivor.state.and_then(|v| serde_json::from_value(v).ok());
+        let (home, status) = match kept {
+            Some(kept) => (kept.home, kept.status),
+            // Started, but its app went before it could say where it
+            // belongs. It still has to be listed, to be ended.
+            None => (
+                Home {
+                    project_id: String::new(),
+                    branch: String::new(),
+                    kind: WorkspaceKind::Primary,
+                },
+                Status {
+                    active_at: now_ms(),
+                    ..Status::default()
+                },
+            ),
+        };
+        let path = key(&survivor.path);
+        let term = Arc::new(Terminal {
+            id: survivor.id,
+            info: TerminalInfo {
+                path: path.clone(),
+                home,
+                status: None,
+                ready: false,
+                active_at: 0,
+                waiting_since: None,
+                message: None,
+            },
+            host: Arc::clone(host),
+            output: Mutex::new(Output {
+                backlog: survivor.backlog,
+                sink: None,
+                exited: false,
+            }),
+            shell_pid: Mutex::new(survivor.shell_pid),
+            status: Mutex::new(status),
+        });
+        let mut changed = false;
+        for (at, payload) in survivor.statuses {
+            changed |= term.follow_status(vec![payload], None, at);
+        }
+        changed |= term.follow_status(Vec::new(), survivor.leader, now_ms());
+        if changed {
+            term.persist();
+        }
+        self.by_path.lock().unwrap().insert(path, term);
+    }
+}
+
+/// What another build's relay says about one of its terminals, as far as
+/// it can be told without taking it over: where it belongs, and its status
+/// when its app last looked.
+pub fn describe(survivor: &Survivor) -> TerminalInfo {
+    let kept: Option<Kept> = survivor.state.clone().and_then(|v| serde_json::from_value(v).ok());
+    let (home, status) = match kept {
+        Some(kept) => (kept.home, kept.status),
+        None => (
+            Home {
+                project_id: String::new(),
+                branch: String::new(),
+                kind: WorkspaceKind::Primary,
+            },
+            Status::default(),
+        ),
+    };
+    TerminalInfo {
+        path: key(&survivor.path),
+        home,
+        status: status.state,
+        ready: status.ready,
+        active_at: status.active_at,
+        waiting_since: status.waiting_since,
+        message: status.message,
+    }
+}
+
+pub struct Terminals {
+    inner: Arc<Inner>,
+    host: Arc<dyn Host>,
+}
+
+impl Default for Terminals {
+    /// Shells in this process, told to no one: for tests.
+    fn default() -> Self {
+        Self::with_host(None, Arc::new(pty::Local::default()), Vec::new())
+    }
 }
 
 /// Variables the shell must not inherit. A Finder-launched app has almost no
@@ -377,12 +532,32 @@ fn key(path: &str) -> String {
 }
 
 impl Terminals {
+    /// Shells in this process, which end with it.
     pub fn new(hook: Hook) -> Self {
-        Self {
-            by_path: Arc::default(),
-            hook: Some(hook),
-            shown: Arc::default(),
+        Self::with_host(Some(hook), Arc::new(pty::Local::default()), Vec::new())
+    }
+
+    /// Shells in `host`, starting with the ones it already had.
+    pub fn with_host(hook: Option<Hook>, host: Arc<dyn Host>, survivors: Vec<Survivor>) -> Self {
+        let inner = Arc::new(Inner {
+            hook,
+            ..Inner::default()
+        });
+        for survivor in survivors {
+            inner.restore(&host, survivor);
         }
+        let weak = Arc::downgrade(&inner);
+        host.set_sink(Arc::new(move |event| {
+            if let Some(inner) = weak.upgrade() {
+                inner.on_event(event);
+            }
+        }));
+        Terminals { inner, host }
+    }
+
+    /// Whether the shells outlive the app: they run in a relay.
+    pub fn persistent(&self) -> bool {
+        self.host.persistent()
     }
 
     /// The user's login shell in `path`, with the environment a terminal
@@ -436,7 +611,7 @@ impl Terminals {
         sink: Sink,
     ) -> Result<Opened, String> {
         let key = key(path);
-        let mut map = self.by_path.lock().unwrap();
+        let mut map = self.inner.by_path.lock().unwrap();
         if let Some(term) = map.get(&key) {
             let mut output = term.output.lock().unwrap();
             if !output.exited {
@@ -446,7 +621,7 @@ impl Terminals {
                     output.backlog.is_empty() || sink(Chunk::Data(output.backlog.clone()));
                 output.sink = alive.then_some(sink);
                 drop(output);
-                let _ = term.master.lock().unwrap().resize(size);
+                let _ = self.host.resize(&term.id, size);
                 return Ok(Opened {
                     started: false,
                     terminal: term.info(),
@@ -454,30 +629,14 @@ impl Terminals {
             }
         }
 
-        // portable-pty quietly falls back to $HOME for a missing directory; a
-        // shell somewhere else than the card says is worse than an error.
         if !Path::new(path).is_dir() {
             return Err(format!("{path} does not exist"));
         }
 
-        let pair = native_pty_system()
-            .openpty(size)
-            .map_err(|e| format!("could not open a terminal: {e}"))?;
-        let mut child = pair
-            .slave
-            .spawn_command(command)
-            .map_err(|e| format!("could not start a shell: {e}"))?;
-        // Ours must go, or the reader never sees end-of-file: the pty stays
-        // open for as long as anything holds its slave side.
-        drop(pair.slave);
-        let mut reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| e.to_string())?;
-        let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
-
-        let shell_pid = child.process_id().map(|pid| pid as i32);
+        // In the registry before the shell starts, so its first output finds
+        // it. A UUID rather than a counter, since a relay outlives the app.
         let term = Arc::new(Terminal {
+            id: uuid::Uuid::new_v4().to_string(),
             info: TerminalInfo {
                 path: key.clone(),
                 home,
@@ -487,15 +646,13 @@ impl Terminals {
                 waiting_since: None,
                 message: None,
             },
-            master: Mutex::new(pair.master),
-            writer: Mutex::new(writer),
-            killer: Mutex::new(child.clone_killer()),
+            host: Arc::clone(&self.host),
             output: Mutex::new(Output {
                 backlog: Vec::new(),
                 sink: Some(sink),
                 exited: false,
             }),
-            shell_pid,
+            shell_pid: Mutex::default(),
             status: Mutex::new(Status {
                 active_at: now_ms(),
                 ..Status::default()
@@ -503,73 +660,27 @@ impl Terminals {
         });
         map.insert(key.clone(), Arc::clone(&term));
         drop(map);
-        let opened = Opened {
+
+        match self.host.open(&term.id, &key, &Spawn::from_command(&command), size) {
+            Ok(pid) => *term.shell_pid.lock().unwrap() = pid,
+            Err(e) => {
+                let mut map = self.inner.by_path.lock().unwrap();
+                if map.get(&key).is_some_and(|t| Arc::ptr_eq(t, &term)) {
+                    map.remove(&key);
+                }
+                return Err(e);
+            }
+        }
+        term.persist();
+        Ok(Opened {
             started: true,
             terminal: term.info(),
-        };
-
-        let (drained_tx, drained_rx) = mpsc::channel::<()>();
-        let reading = Arc::clone(&term);
-        let status_hook = self.hook.clone();
-        let shown = Arc::clone(&self.shown);
-        std::thread::spawn(move || {
-            let mut buf = vec![0u8; 64 * 1024];
-            let mut scanner = StatusScanner::default();
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        let mut output = reading.output.lock().unwrap();
-                        append_backlog(&mut output.backlog, &buf[..n]);
-                        Terminal::deliver(&mut output, Chunk::Data(buf[..n].to_vec()));
-                        drop(output);
-                        if reading.follow_status(scanner.feed(&buf[..n])) {
-                            if let Some(hook) = &status_hook {
-                                hook(TerminalEvent::Status(&reading.info()));
-                            }
-                            // Claude Code finishing the turn in which it
-                            // removed its own worktree, typically.
-                            if reading.outlived(shown.lock().unwrap().as_deref()) {
-                                reading.hang_up();
-                            }
-                        }
-                    }
-                }
-            }
-            let _ = drained_tx.send(());
-        });
-
-        let by_path = Arc::clone(&self.by_path);
-        let hook = self.hook.clone();
-        std::thread::spawn(move || {
-            let code = child
-                .wait()
-                .map(|status| status.exit_code() as i32)
-                .unwrap_or(-1);
-            let _ = drained_rx.recv_timeout(DRAIN_GRACE);
-            // Out of the registry first, so an open racing this exit starts a
-            // new shell rather than attaching to a dead one.
-            let mut map = by_path.lock().unwrap();
-            if map.get(&key).is_some_and(|t| Arc::ptr_eq(t, &term)) {
-                map.remove(&key);
-            }
-            drop(map);
-            let mut output = term.output.lock().unwrap();
-            output.exited = true;
-            Terminal::deliver(&mut output, Chunk::Exit(code));
-            output.sink = None;
-            drop(output);
-            *term.status.lock().unwrap() = Status::default();
-            if let Some(hook) = hook {
-                hook(TerminalEvent::Exit(&term.info()));
-            }
-        });
-
-        Ok(opened)
+        })
     }
 
     fn get(&self, path: &str) -> Result<Arc<Terminal>, String> {
-        self.by_path
+        self.inner
+            .by_path
             .lock()
             .unwrap()
             .get(&key(path))
@@ -584,9 +695,7 @@ impl Terminals {
         let term = self.get(path)?;
         term.send(data)?;
         if term.typed() {
-            if let Some(hook) = &self.hook {
-                hook(TerminalEvent::Status(&term.info()));
-            }
+            self.inner.changed(&term);
         }
         let active_at = term.status.lock().unwrap().active_at;
         Ok(active_at)
@@ -606,8 +715,7 @@ impl Terminals {
 
     pub fn resize(&self, path: &str, size: PtySize) -> Result<(), String> {
         let term = self.get(path)?;
-        let master = term.master.lock().unwrap();
-        master.resize(size).map_err(|e| e.to_string())
+        self.host.resize(&term.id, size)
     }
 
     /// Hang up on the shell and whatever it is running in the foreground.
@@ -621,14 +729,22 @@ impl Terminals {
         true
     }
 
+    /// Hang up on every terminal: quitting with "End all".
+    pub fn close_all(&self) {
+        for term in self.inner.by_path.lock().unwrap().values() {
+            term.hang_up();
+        }
+    }
+
     /// Close every terminal whose directory has gone and that nothing in
     /// needs the user any more (`Terminal::outlived`), and return their
     /// paths. Asked whenever that may have just become true: a refresh that
     /// may be the first to notice the directory is gone, the user leaving a
     /// terminal, and its program going quiet (in the reader).
     pub fn reap(&self) -> Vec<String> {
-        let shown = self.shown.lock().unwrap().clone();
-        let terms: Vec<Arc<Terminal>> = self.by_path.lock().unwrap().values().cloned().collect();
+        let shown = self.inner.shown.lock().unwrap().clone();
+        let terms: Vec<Arc<Terminal>> =
+            self.inner.by_path.lock().unwrap().values().cloned().collect();
         terms
             .into_iter()
             .filter(|term| term.outlived(shown.as_deref()))
@@ -644,7 +760,7 @@ impl Terminals {
     /// leaving one may be the last thing a removed workspace's terminal was
     /// waiting for.
     pub fn view(&self, path: Option<&str>) {
-        *self.shown.lock().unwrap() = path.map(key);
+        *self.inner.shown.lock().unwrap() = path.map(key);
         self.reap();
     }
 
@@ -661,6 +777,7 @@ impl Terminals {
     /// server from an idle shell before ending either.
     pub fn programs(&self) -> HashMap<String, String> {
         let pids: Vec<(String, i32)> = self
+            .inner
             .by_path
             .lock()
             .unwrap()
@@ -691,14 +808,13 @@ impl Terminals {
     pub fn mark(&self, path: &str, mark: Mark) -> Result<(), String> {
         let term = self.get(path)?;
         term.mark(mark);
-        if let Some(hook) = &self.hook {
-            hook(TerminalEvent::Status(&term.info()));
-        }
+        self.inner.changed(&term);
         Ok(())
     }
 
     pub fn list(&self) -> Vec<TerminalInfo> {
-        self.by_path
+        self.inner
+            .by_path
             .lock()
             .unwrap()
             .values()
@@ -725,84 +841,6 @@ impl Terminals {
     }
 }
 
-const STATUS_OPENER: &[u8] = b"\x1b]7501;";
-
-/// Longest a status sequence may grow while its terminator is awaited. Real
-/// ones are a few dozen bytes; anything longer is not one, and is dropped
-/// rather than buffered.
-const MAX_STATUS: usize = 4096;
-
-/// Finds OSC 7501 sequences in a stream of output, including ones split
-/// across reads.
-#[derive(Default)]
-struct StatusScanner {
-    /// The unfinished start of a sequence from the previous read.
-    carry: Vec<u8>,
-}
-
-impl StatusScanner {
-    /// The payloads of the sequences completed by `data`.
-    fn feed(&mut self, data: &[u8]) -> Vec<String> {
-        let joined;
-        let buf: &[u8] = if self.carry.is_empty() {
-            data
-        } else {
-            self.carry.extend_from_slice(data);
-            joined = std::mem::take(&mut self.carry);
-            &joined
-        };
-
-        let mut found = Vec::new();
-        let mut at = 0;
-        while let Some(i) = find(&buf[at..], STATUS_OPENER) {
-            let opener = at + i;
-            let start = opener + STATUS_OPENER.len();
-            match terminator(&buf[start..]) {
-                Some((len, skip)) => {
-                    found.push(String::from_utf8_lossy(&buf[start..start + len]).into_owned());
-                    at = start + len + skip;
-                }
-                None => {
-                    if buf.len() - opener <= MAX_STATUS {
-                        self.carry = buf[opener..].to_vec();
-                    }
-                    return found;
-                }
-            }
-        }
-        // An opener cut off by the end of the read: keep what could still
-        // become one.
-        let from = buf.len().saturating_sub(STATUS_OPENER.len() - 1).max(at);
-        if let Some(k) = (from..buf.len()).find(|&k| STATUS_OPENER.starts_with(&buf[k..])) {
-            self.carry = buf[k..].to_vec();
-        }
-        found
-    }
-}
-
-fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
-
-/// Where an OSC payload ends — BEL, or ESC `\` — and how long the
-/// terminator is. `None` when it hasn't arrived yet.
-fn terminator(rest: &[u8]) -> Option<(usize, usize)> {
-    for (j, &b) in rest.iter().enumerate() {
-        match b {
-            0x07 => return Some((j, 1)),
-            0x1b => {
-                return match rest.get(j + 1) {
-                    Some(b'\\') => Some((j, 2)),
-                    // Malformed: whatever comes next starts something else.
-                    Some(_) => Some((j, 1)),
-                    None => None,
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
 
 /// What a status payload says: the state it sets, `None` for `clear`, and
 /// its message.
@@ -844,8 +882,6 @@ fn parse_status(payload: &str) -> Option<Report> {
     })
 }
 
-/// Keep the newest `BACKLOG` bytes, cut at a line break so a replay doesn't
-/// start in the middle of an escape sequence.
 /// `ps -o pid=,args=` as pid → command line, with the program named by its
 /// file name rather than the path it was started by.
 fn parse_ps(stdout: &str) -> HashMap<i32, String> {
@@ -862,33 +898,21 @@ fn parse_ps(stdout: &str) -> HashMap<i32, String> {
         .collect()
 }
 
-fn append_backlog(backlog: &mut Vec<u8>, data: &[u8]) {
-    backlog.extend_from_slice(data);
-    if backlog.len() > BACKLOG {
-        let excess = backlog.len() - BACKLOG;
-        let cut = backlog[excess..]
-            .iter()
-            .position(|&b| b == b'\n')
-            .map(|i| excess + i + 1)
-            .unwrap_or(excess);
-        backlog.drain(..cut);
-    }
-}
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use std::sync::mpsc::Receiver;
+    use std::io::Write;
+    use std::sync::mpsc::{self, Receiver};
     use std::time::Instant;
 
-    const SIZE: PtySize = PtySize {
+    pub(crate) const SIZE: PtySize = PtySize {
         rows: 24,
         cols: 80,
         pixel_width: 0,
         pixel_height: 0,
     };
 
-    fn home() -> Home {
+    pub(crate) fn home() -> Home {
         Home {
             project_id: "p".into(),
             branch: "feature".into(),
@@ -896,13 +920,13 @@ mod tests {
         }
     }
 
-    fn sink() -> (Sink, Receiver<Chunk>) {
+    pub(crate) fn sink() -> (Sink, Receiver<Chunk>) {
         let (tx, rx) = mpsc::channel();
         (Box::new(move |chunk| tx.send(chunk).is_ok()), rx)
     }
 
     /// A plain `sh`, so the tests don't run the user's shell profile.
-    fn sh(dir: &Path) -> CommandBuilder {
+    pub(crate) fn sh(dir: &Path) -> CommandBuilder {
         let mut cmd = CommandBuilder::new("/bin/sh");
         cmd.cwd(dir);
         cmd.env("PS1", "$ ");
@@ -910,7 +934,7 @@ mod tests {
     }
 
     /// Collect output until `want` shows up, or fail after a few seconds.
-    fn read_until(rx: &Receiver<Chunk>, want: &str) -> String {
+    pub(crate) fn read_until(rx: &Receiver<Chunk>, want: &str) -> String {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut seen = String::new();
         while Instant::now() < deadline {
@@ -926,7 +950,7 @@ mod tests {
         panic!("never saw {want:?} in {seen:?}");
     }
 
-    fn temp_dir(name: &str) -> std::path::PathBuf {
+    pub(crate) fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("parallelist-term-{name}-{}", std::process::id()));
         // A workspace, as far as `outlived` can tell.
         std::fs::create_dir_all(dir.join(".git")).unwrap();
@@ -1061,35 +1085,6 @@ mod tests {
             .open(home(), missing, SIZE, sh(Path::new(missing)), tx)
             .unwrap_err();
         assert!(err.contains("does not exist"), "{err}");
-    }
-
-    #[test]
-    fn the_backlog_keeps_the_newest_output_from_a_line_start() {
-        let mut backlog = Vec::new();
-        for i in 0..BACKLOG / 8 {
-            append_backlog(&mut backlog, format!("{i:07}\n").as_bytes());
-        }
-        append_backlog(&mut backlog, b"last\n");
-        assert!(backlog.len() <= BACKLOG);
-        assert!(backlog.ends_with(b"last\n"));
-        assert!(backlog[..8].ends_with(b"\n") && backlog[..7].iter().all(u8::is_ascii_digit));
-    }
-
-    #[test]
-    fn status_sequences_are_found_across_reads() {
-        let mut scanner = StatusScanner::default();
-        assert_eq!(scanner.feed(b"text\x1b]7501;state=idle:app=x\x07more"), ["state=idle:app=x"]);
-        // Split in the opener, in the payload and in an ESC \\ terminator.
-        assert!(scanner.feed(b"abc\x1b]75").is_empty());
-        assert!(scanner.feed(b"01;state=wor").is_empty());
-        assert!(scanner.feed(b"king\x1b").is_empty());
-        assert_eq!(scanner.feed(b"\\tail"), ["state=working"]);
-        // Other OSCs, and a title that merely mentions the number, are not it.
-        assert!(scanner.feed(b"\x1b]0;7501;x\x07\x1b]133;A\x07").is_empty());
-        // A runaway sequence is dropped rather than buffered forever.
-        assert!(scanner.feed(b"\x1b]7501;").is_empty());
-        assert!(scanner.feed(&vec![b'x'; MAX_STATUS * 2]).is_empty());
-        assert!(scanner.carry.is_empty());
     }
 
     #[test]

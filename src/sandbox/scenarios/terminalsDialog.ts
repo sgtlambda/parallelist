@@ -31,6 +31,26 @@ async function seed() {
       [`${WS}/parallelist`]: 'pnpm tauri dev',
       [`${WS}/parallelist-session-management`]: 'claude',
     }),
+    other_builds: () => [
+      {
+        build: 'aq-spacer-width (dev)',
+        terminals: [
+          {
+            id: 'a1',
+            path: `${WS}/parallelist-aq-spacer-width`,
+            projectId: 'parallelist',
+            branch: 'aq-spacer-width',
+            kind: 'worktree',
+            status: 'idle',
+            ready: true,
+            activeAt: Date.now() - 3 * 86_400_000,
+            waitingSince: Date.now() - 3 * 86_400_000,
+            message: null,
+          },
+        ],
+      },
+      { build: 'interactive-icon', terminals: null },
+    ],
   })
 }
 
@@ -50,7 +70,7 @@ export default defineGroup('Terminals dialog', [
     props: { open: true },
     setup: async () => {
       await boot()
-      backend.handle({ terminal_programs: () => ({}) })
+      backend.handle({ terminal_programs: () => ({}), other_builds: () => [] })
     },
   },
 ])

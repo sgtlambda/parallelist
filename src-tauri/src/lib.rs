@@ -5,6 +5,8 @@ pub mod gh;
 pub mod git;
 pub mod link;
 pub mod proc;
+pub mod pty;
+pub mod relay;
 pub mod status;
 pub mod tasks;
 pub mod terminal;
@@ -35,6 +37,9 @@ struct AppState {
     terminals: Arc<terminal::Terminals>,
     /// Set once the user has confirmed quitting with terminals running.
     quit_confirmed: AtomicBool,
+    /// A relay of another version that holds this build's terminals, until
+    /// the user decides what to do with it (`relay::Attach::Outdated`).
+    outdated_relay: Mutex<Option<relay::Meta>>,
 }
 
 impl AppState {
@@ -1100,11 +1105,98 @@ fn show_window(app: &tauri::AppHandle) {
     }
 }
 
-/// Quit after the confirmation dialog was accepted.
+/// Quit after the confirmation dialog was accepted, ending every terminal
+/// with `end_terminals`, or leaving them running in the relay without.
 #[tauri::command]
-fn quit_app(app: tauri::AppHandle, state: State<AppState>) {
+fn quit_app(app: tauri::AppHandle, state: State<AppState>, end_terminals: bool) {
+    if end_terminals {
+        state.terminals.close_all();
+    }
     state.quit_confirmed.store(true, Ordering::SeqCst);
     app.exit(0);
+}
+
+/// A relay of another version holding this build's terminals, found at
+/// startup: which build it serves, for the dialog that asks what to do.
+#[tauri::command]
+fn relay_outdated(state: State<AppState>) -> Option<String> {
+    state.outdated_relay.lock().unwrap().as_ref().map(|m| m.build.clone())
+}
+
+/// End the terminals in the outdated relay, and start again with a new one.
+#[tauri::command]
+fn replace_outdated_relay(app: tauri::AppHandle, state: State<AppState>) {
+    if let Some(meta) = state.outdated_relay.lock().unwrap().take() {
+        relay::terminate(&meta);
+    }
+    state.terminals.close_all();
+    state.quit_confirmed.store(true, Ordering::SeqCst);
+    app.restart();
+}
+
+/// A terminal in another build's relay, for the Terminals dialog.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OtherTerminal {
+    id: String,
+    #[serde(flatten)]
+    info: terminal::TerminalInfo,
+}
+
+/// Another build's relay that is still running, and its terminals: `None`
+/// for a relay of another version, which can only be ended as a whole.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OtherBuild {
+    build: String,
+    terminals: Option<Vec<OtherTerminal>>,
+}
+
+#[tauri::command]
+async fn other_builds(state: State<'_, AppState>) -> Result<Vec<OtherBuild>, String> {
+    let dir = state.dir.join("relays");
+    tauri::async_runtime::spawn_blocking(move || {
+        relay::others(&dir)
+            .into_iter()
+            .map(|other| OtherBuild {
+                build: other.meta.build,
+                terminals: other.terminals.map(|found| {
+                    found
+                        .iter()
+                        .map(|s| OtherTerminal {
+                            id: s.id.clone(),
+                            info: terminal::describe(s),
+                        })
+                        .collect()
+                }),
+            })
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// End some of another build's terminals by id, or all of them (`ids` empty,
+/// and the only way for a relay of another version): the relay goes with
+/// them.
+#[tauri::command]
+async fn end_other_terminals(state: State<'_, AppState>, build: String, ids: Vec<String>) -> Result<(), String> {
+    let dir = state.dir.join("relays");
+    tauri::async_runtime::spawn_blocking(move || {
+        let meta = relay::others(&dir)
+            .into_iter()
+            .map(|o| o.meta)
+            .find(|m| m.build == build)
+            .ok_or_else(|| format!("{build} has no terminals running"))?;
+        if ids.is_empty() {
+            relay::terminate(&meta);
+            Ok(())
+        } else {
+            relay::hang_up_in(&meta, &ids).map_err(|e| e.to_string())
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1144,6 +1236,19 @@ pub fn run() {
             });
             let handle = app.handle().clone();
             let terminal_handle = app.handle().clone();
+            // The shells live in this build's relay, so they outlive the app.
+            // Without one they live here, as they used to, and end with it.
+            let (host, survivors, outdated): (Arc<dyn pty::Host>, _, _) =
+                match relay::attach(&dir.join("relays")) {
+                    relay::Attach::Ready(client, survivors) => (client, survivors, None),
+                    relay::Attach::Outdated(meta) => {
+                        (Arc::new(pty::Local::default()), Vec::new(), Some(meta))
+                    }
+                    relay::Attach::Failed(e) => {
+                        eprintln!("terminal relay: {e}; terminals will end with the app");
+                        (Arc::new(pty::Local::default()), Vec::new(), None)
+                    }
+                };
             app.manage(dock::Blink::start(app.handle().clone()));
             let tasks = Arc::new(Tasks::new(move |event| {
                 let _ = match event {
@@ -1160,18 +1265,25 @@ pub fn run() {
                 tasks,
                 refreshes: Mutex::default(),
                 quit_confirmed: AtomicBool::new(false),
-                terminals: Arc::new(terminal::Terminals::new(Arc::new(move |event| {
-                    let _ = match event {
-                        terminal::TerminalEvent::Exit(info) => {
-                            terminal_handle.emit("terminal-exit", &info.path)
-                        }
-                        terminal::TerminalEvent::Status(info) => {
-                            terminal_handle.emit("terminal-status", info)
-                        }
-                    };
-                    update_dock(&terminal_handle);
-                }))),
+                terminals: Arc::new(terminal::Terminals::with_host(
+                    Some(Arc::new(move |event| {
+                        let _ = match event {
+                            terminal::TerminalEvent::Exit(info) => {
+                                terminal_handle.emit("terminal-exit", &info.path)
+                            }
+                            terminal::TerminalEvent::Status(info) => {
+                                terminal_handle.emit("terminal-status", info)
+                            }
+                        };
+                        update_dock(&terminal_handle);
+                    })),
+                    host,
+                    survivors,
+                )),
+                outdated_relay: Mutex::new(outdated),
             });
+            // Terminals taken back from the relay may be waiting already.
+            update_dock(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1209,6 +1321,10 @@ pub fn run() {
             terminal_question,
             terminal_programs,
             quit_app,
+            relay_outdated,
+            replace_outdated_relay,
+            other_builds,
+            end_other_terminals,
         ])
         .build(tauri::generate_context!())
         .expect("error while building parallelist")
@@ -1228,7 +1344,8 @@ pub fn run() {
                     api.prevent_exit();
                     show_window(app);
                     let waiting = terminals.iter().filter(|t| t.waiting_since.is_some()).count();
-                    let _ = app.emit("confirm-quit", (terminals.len(), waiting));
+                    let persistent = state.terminals.persistent();
+                    let _ = app.emit("confirm-quit", (terminals.len(), waiting, persistent));
                 }
             }
             // Clicking the Dock icon.

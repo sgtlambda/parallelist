@@ -24,6 +24,7 @@ const quiet: Record<string, Handler> = {
   terminal_viewing: () => undefined,
   terminal_mark: () => undefined,
   terminal_close: () => undefined,
+  other_builds: () => [],
   copy_text: () => undefined,
   open_link: () => undefined,
 }

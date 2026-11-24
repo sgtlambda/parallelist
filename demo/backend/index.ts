@@ -192,6 +192,9 @@ const handlers: Record<string, Handler> = {
   set_create_menu: () => {},
   // A page has no app to quit.
   quit_app: () => {},
+  relay_outdated: () => null,
+  other_builds: () => [],
+  end_other_terminals: () => {},
 
   terminal_open: ({ projectId, branch, path, cols, rows, channel }: any) =>
     terminals.open(projectId, branch, path, cols, rows, channel),

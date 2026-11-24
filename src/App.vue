@@ -6,6 +6,7 @@ import BranchList from './components/BranchList.vue'
 import CleanupDialog from './components/CleanupDialog.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import ConfirmQuitDialog from './components/ConfirmQuitDialog.vue'
+import OutdatedRelayDialog from './components/OutdatedRelayDialog.vue'
 import CreateDialog from './components/CreateDialog.vue'
 import DetailPane from './components/DetailPane.vue'
 import DropTargets from './components/DropTargets.vue'
@@ -213,7 +214,9 @@ let stopSettingsMenu: (() => void) | null = null
 let stopCreateMenu: (() => void) | null = null
 let stopTerminalsMenu: (() => void) | null = null
 let stopConfirmQuit: (() => void) | null = null
-const quitAsk = ref<{ running: number; waiting: number } | null>(null)
+const quitAsk = ref<{ running: number; waiting: number; persistent: boolean } | null>(null)
+/** The build whose older relay holds this build's terminals, if any. */
+const outdatedRelay = ref<string | null>(null)
 
 onMounted(async () => {
   // Before anything awaited: the first refresh waits on a fetch, and the
@@ -238,9 +241,10 @@ onMounted(async () => {
   stopTerminalsMenu = await onOpenTerminals(() => {
     terminalsOpen.value = true
   })
-  stopConfirmQuit = await onConfirmQuit((running, waiting) => {
-    quitAsk.value = { running, waiting }
+  stopConfirmQuit = await onConfirmQuit((running, waiting, persistent) => {
+    quitAsk.value = { running, waiting, persistent }
   })
+  outdatedRelay.value = await api.relayOutdated().catch(() => null)
   await loadConfig()
   await refresh({ fetch: true })
   startBackgroundSync()
@@ -326,6 +330,7 @@ onUnmounted(() => {
     <SettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
     <TerminalsDialog :open="terminalsOpen" @close="terminalsOpen = false" />
     <ConfirmQuitDialog :ask="quitAsk" @close="quitAsk = null" />
+    <OutdatedRelayDialog :build="outdatedRelay" @close="outdatedRelay = null" />
     <TasksDialog @error="state.error = $event" />
     <CommandPalette />
 
