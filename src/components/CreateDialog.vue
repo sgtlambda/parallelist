@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import BranchPicker from './BranchPicker.vue'
+import Icon from './Icon.vue'
 import type { Issue, OpenTarget } from '../api'
 import { branchName, loadIssues } from '../branchPicker'
 import { shortPath } from '../format'
@@ -199,33 +200,26 @@ async function start() {
 
         <div class="field">
           <label>Kind</label>
+          <div class="segmented kind-choice" role="radiogroup" aria-label="Kind">
+            <button
+              v-for="kind in (['worktree', 'clone'] as const)"
+              :key="kind"
+              type="button"
+              role="radio"
+              :aria-checked="mode === kind"
+              :class="{ on: mode === kind }"
+              :disabled="kind === 'worktree' && !!conflict"
+              @click="mode = kind"
+            >
+              <Icon :name="kind" :size="12" />
+              {{ kind === 'worktree' ? 'Worktree' : 'Clone' }}
+            </button>
+          </div>
           <div v-if="conflict" class="banner">
             <strong>{{ conflict.branch }}</strong> already has a worktree at
             <code>{{ shortPath(conflict.path) }}</code
-            >. Git allows a branch in only one worktree per clone, so a second workspace for it
-            has to be a clone.
+            >.
           </div>
-
-          <label class="choice" :class="{ selected: mode === 'worktree', disabled: !!conflict }">
-            <input v-model="mode" type="radio" value="worktree" :disabled="!!conflict" />
-            <span>
-              <strong>Worktree</strong>
-              <div class="hint">
-                Shares the main workspace's object store. Cheap and instant.
-              </div>
-            </span>
-          </label>
-
-          <label class="choice" :class="{ selected: mode === 'clone' }">
-            <input v-model="mode" type="radio" value="clone" />
-            <span>
-              <strong>Clone</strong>
-              <div class="hint">
-                An independent repository, so the same branch can sit in two workspaces at
-                once. Copied locally with hardlinked objects, then pointed back at origin.
-              </div>
-            </span>
-          </label>
         </div>
 
         <div class="field">

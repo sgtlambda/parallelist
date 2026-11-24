@@ -40,7 +40,6 @@ const OPTIONS = [
   {
     key: 'runOnCreate',
     label: 'Ticked for new workspaces',
-    note: 'Starts ticked in the New workspace dialog, and runs once the workspace is set up.',
   },
 ] as const
 
@@ -72,7 +71,6 @@ function remove(target: OpenTarget) {
 
 <template>
   <div ref="root" class="ot" :class="{ muted }">
-    <p v-if="!items.length" class="ot-empty">No targets yet.</p>
     <div
       v-for="target in items"
       :key="target.id"
@@ -156,7 +154,6 @@ function remove(target: OpenTarget) {
                   spellcheck="false"
                 />
               </div>
-              <p class="ot-hint">{{ KINDS[target.kind].note }}</p>
             </div>
           </div>
 
@@ -164,7 +161,7 @@ function remove(target: OpenTarget) {
             <label v-for="option in OPTIONS" :key="option.key" class="ot-option">
               <span class="ot-option-text">
                 <span>{{ option.label }}</span>
-                <small>{{ option.note }}</small>
+                <small v-if="'note' in option">{{ option.note }}</small>
               </span>
               <input v-model="target[option.key]" type="checkbox" class="switch" />
             </label>

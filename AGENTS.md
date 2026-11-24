@@ -474,7 +474,10 @@ redundant complexity and are not.
     of the old name if it was still on origin. A branch with no workspace is
     the exception, since its name is all it has: selecting one (`selectBranch`)
     takes its workspace as soon as an overview lists one. Don't key anything
-    about a terminal or workspace on a branch name.
+    about a terminal or workspace on a branch name. Nothing selected is not
+    a state the pane shows: a project opened for the first time, or whose
+    selected row a refresh dropped, lands on its main workspace
+    (`defaultSelection`), else on the list's first row.
   - **Every running terminal has a row, by construction.** Each has a
     *home*, set when its shell starts: the project, the branch last seen in
     its workspace (kept up as overviews land, for a rename), and the
@@ -795,6 +798,21 @@ For anything a user reads: the README, the site, and copy in the app.
   user would be walked through. State what the app does, not how to operate
   it, and don't narrate the interface step by step ("the dialog closes",
   "click the button"): say what the user ends up with.
+- **Text in the app has to earn its place.** A hint under a field, a
+  subtitle, a footer note or a long placeholder is read every time the view
+  opens, not once, and in a dialog used several times a day it becomes
+  noise. Before adding one, check whether the control already says it
+  through its label, its icon or what happens when it is used, and whether
+  the user would miss the text after the first time. How something works
+  (why git needs a clone here, which command a fetch runs, that a task runs
+  in the background) goes in a tooltip, the README or nowhere. Visible text
+  is for what the user decides on and for warnings about losing work. An
+  empty state the app can fill itself should be filled instead of
+  explained: a project opens on its main workspace rather than on "Pick a
+  branch". The onboarding screen is the exception, since it is seen once.
+  This was learned by removing such text: the Worktree and Clone
+  explanations in the New workspace dialog, the palette's key legend,
+  Cleanup's "Runs in the background" and the Settings subtitles.
 - **Concrete, and from the reader's side.** Describe the reader's day in
   its own terms (the shells they have open, `app-1234-fix-header` next to
   `app-b`, a program that worked for a while and now needs an answer)

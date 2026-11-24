@@ -154,9 +154,7 @@ async function reveal(t: LiveTask) {
             <div v-else-if="!task.log.length" class="muted">No output.</div>
           </div>
         </section>
-        <section v-else class="task-detail">
-          <p class="empty">Pick a task to see its log.</p>
-        </section>
+        <section v-else class="task-detail" />
       </div>
 
       <div class="modal-footer">

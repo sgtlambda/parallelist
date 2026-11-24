@@ -351,6 +351,16 @@ function workspaceOn(branch: string): string | null {
   return latestShown(paths) ?? (paths.length ? normalizePath(paths[0]) : null)
 }
 
+/** What a project shows when nothing is selected: the main workspace, which
+ *  the list pins on top, else the list's first row. An empty detail pane
+ *  only asked for a click the app can make itself. */
+function defaultSelection(): Selection | null {
+  const main = state.overview?.workspaces.find((w) => w.kind === 'primary')
+  if (main?.branch) return { path: normalizePath(main.path), branch: main.branch }
+  const first = visibleRows.value[0]?.branch.name
+  return first ? { path: workspaceOn(first), branch: first } : null
+}
+
 /** Select a branch of the project on screen, as clicking its row does. */
 export function selectBranch(branch: string | null) {
   state.selection = branch ? { path: workspaceOn(branch), branch } : null
@@ -453,7 +463,10 @@ function land(overview: Overview) {
     }
   }
   const s = state.selection
-  if (!s) return
+  if (!s) {
+    state.selection = defaultSelection()
+    return
+  }
   const placed = s.path && placedOn.value.get(s.path)
   if (placed) s.branch = placed
   // One still asked for stays: a create's, which is listed later.
@@ -500,7 +513,7 @@ export async function refresh(options: { fetch?: boolean } = {}) {
       !selectedRow.value &&
       !hasPendingCreate(id, selectedBranch.value)
     ) {
-      state.selection = null
+      state.selection = defaultSelection()
     }
     void loadAheadBehind()
   } catch (e) {
