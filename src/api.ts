@@ -56,6 +56,9 @@ export interface ProjectFile {
 export interface AppConfig {
   projects: ProjectConfig[]
   openTargets: OpenTarget[]
+  /** Whether the first-run choice of targets has been made or skipped. A new
+   *  config starts with no targets, and false. */
+  targetsChosen: boolean
   fetchIntervalSecs: number
   fetchOnFocus: boolean
   prRefreshSecs: number
@@ -68,6 +71,21 @@ export interface AppConfig {
   detailWidth: number
   /** Every terminal's, so zooming one zooms them all. */
   terminalFontSize: number
+}
+
+export type TargetCategory = 'agent' | 'editor' | 'terminal' | 'git' | 'other'
+
+/** A target the app knows how to suggest, as this machine has it. */
+export interface TargetSuggestion {
+  /** Ready to adopt as it is. */
+  target: OpenTarget
+  category: TargetCategory
+  /** The program or app found, as a path; null when none was. */
+  found: string | null
+  /** A target the user has already does this. */
+  configured: boolean
+  /** Ticked when offered: an agent, or Finder, found and not configured. */
+  recommended: boolean
 }
 
 export interface BranchInfo {
@@ -218,6 +236,13 @@ export interface OpenContext {
 export const api = {
   getConfig: () => invoke<AppConfig>('get_config'),
   saveConfig: (config: AppConfig) => invoke<void>('save_config', { config }),
+  /** Every target the app can suggest, resolved against what is installed.
+   *  Starts an interactive shell, so it can take a second. */
+  suggestTargets: () => invoke<TargetSuggestion[]>('suggest_targets'),
+  /** Add the chosen targets (replacing any with the same id) and mark the
+   *  choice made; `[]` skips it. Take the returned config in place of the
+   *  store's, which would otherwise be saved back over it. */
+  adoptTargets: (targets: OpenTarget[]) => invoke<AppConfig>('adopt_targets', { targets }),
   /** The project or workspace a folder is, added as a project if neither. */
   openFolder: (path: string) => invoke<Landing>('open_folder', { path }),
   /** Which of the paths dragged onto the window are folders. */

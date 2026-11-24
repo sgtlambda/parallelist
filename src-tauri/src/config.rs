@@ -116,8 +116,17 @@ pub enum OpenKind {
 pub struct AppConfig {
     #[serde(default)]
     pub projects: Vec<ProjectConfig>,
-    #[serde(default = "default_open_targets")]
+    #[serde(default)]
     pub open_targets: Vec<OpenTarget>,
+    /// Whether the first-run choice of "Open in" targets (`targets.rs`) has
+    /// been made, or skipped. A new config starts without any targets and
+    /// the frontend offers the choice while this is false.
+    ///
+    /// A config.json that predates the field defaults it to true: it was
+    /// written by a build that shipped targets of its own, and its user has
+    /// had them, and the Settings to change them, ever since.
+    #[serde(default = "yes")]
+    pub targets_chosen: bool,
     #[serde(default = "default_fetch_interval")]
     pub fetch_interval_secs: u64,
     #[serde(default = "yes")]
@@ -174,7 +183,8 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             projects: Vec::new(),
-            open_targets: default_open_targets(),
+            open_targets: Vec::new(),
+            targets_chosen: false,
             fetch_interval_secs: default_fetch_interval(),
             fetch_on_focus: true,
             pr_refresh_secs: default_pr_interval(),
@@ -186,49 +196,6 @@ impl Default for AppConfig {
             terminal_font_size: default_terminal_font_size(),
         }
     }
-}
-
-/// Shipped defaults. These are ordinary editable entries, not special cases —
-/// the settings pane can rewrite or delete any of them and add new ones.
-pub fn default_open_targets() -> Vec<OpenTarget> {
-    vec![
-        OpenTarget {
-            id: "terminal".into(),
-            label: "Terminal".into(),
-            icon: "\u{25b6}".into(),
-            command: "open -na Ghostty --args --working-directory={path}".into(),
-            kind: OpenKind::Command,
-            primary: true,
-            run_on_create: false,
-        },
-        OpenTarget {
-            id: "editor".into(),
-            label: "PhpStorm".into(),
-            icon: "\u{2318}".into(),
-            command: "phpstorm {path}".into(),
-            kind: OpenKind::Command,
-            primary: true,
-            run_on_create: false,
-        },
-        OpenTarget {
-            id: "claude".into(),
-            label: "Claude Code".into(),
-            icon: "\u{2733}".into(),
-            command: "claude".into(),
-            kind: OpenKind::Terminal,
-            primary: true,
-            run_on_create: false,
-        },
-        OpenTarget {
-            id: "finder".into(),
-            label: "Finder".into(),
-            icon: "\u{1f4c1}".into(),
-            command: "open {path}".into(),
-            kind: OpenKind::Command,
-            primary: false,
-            run_on_create: false,
-        },
-    ]
 }
 
 /// Guess a useful setup recipe by looking at what the repo actually contains.
@@ -346,6 +313,20 @@ impl AppConfig {
     pub fn project(&self, id: &str) -> Option<&ProjectConfig> {
         self.projects.iter().find(|p| p.id == id)
     }
+
+    /// Take the targets chosen on first run and mark the choice made. Each
+    /// replaces a target with its id where there is one, in place, and is
+    /// added at the end otherwise, so choosing again never duplicates one.
+    /// Skipping the choice adopts none.
+    pub fn adopt_targets(&mut self, targets: Vec<OpenTarget>) {
+        for target in targets {
+            match self.open_targets.iter_mut().find(|t| t.id == target.id) {
+                Some(slot) => *slot = target,
+                None => self.open_targets.push(target),
+            }
+        }
+        self.targets_chosen = true;
+    }
 }
 
 impl ProjectConfig {
@@ -439,6 +420,47 @@ mod tests {
         std::fs::write(dir.join(CONFIG_FILE), r#"{"fetchIntervalSecs": 5}"#).unwrap();
         assert_eq!(AppConfig::load(&dir).fetch_interval_secs, 5);
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn only_a_new_config_has_its_targets_still_to_choose() {
+        let root = scratch("chosen");
+        let fresh = AppConfig::load(&root.join("none"));
+        assert!(!fresh.targets_chosen);
+        assert!(fresh.open_targets.is_empty());
+
+        // Written before the choice existed, with the targets shipped then.
+        std::fs::write(root.join(CONFIG_FILE), r#"{"openTargets": []}"#).unwrap();
+        assert!(AppConfig::load(&root).targets_chosen);
+
+        fresh.save(&root).unwrap();
+        assert!(!AppConfig::load(&root).targets_chosen, "a fresh config keeps asking until chosen");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn adopting_targets_replaces_by_id_and_appends_the_rest() {
+        let target = |id: &str, command: &str| OpenTarget {
+            id: id.into(),
+            label: id.into(),
+            icon: String::new(),
+            command: command.into(),
+            kind: OpenKind::Command,
+            primary: false,
+            run_on_create: false,
+        };
+        let mut config = AppConfig {
+            open_targets: vec![target("a", "old"), target("b", "b")],
+            ..AppConfig::default()
+        };
+        config.adopt_targets(vec![target("c", "c"), target("a", "new")]);
+        let got: Vec<_> = config.open_targets.iter().map(|t| (t.id.as_str(), t.command.as_str())).collect();
+        assert_eq!(got, [("a", "new"), ("b", "b"), ("c", "c")]);
+        assert!(config.targets_chosen);
+
+        let mut skipped = AppConfig::default();
+        skipped.adopt_targets(Vec::new());
+        assert!(skipped.targets_chosen && skipped.open_targets.is_empty());
     }
 
     #[test]

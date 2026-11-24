@@ -119,6 +119,10 @@ Settings are edited in the app and stored in
 project can commit a `.parallelist.json` at its root to override `baseBranch`,
 `pathTemplate`, `setupSteps` and `openTargets`.
 
+A first launch starts with no "Open in" targets. Before the first project is
+added, it offers the coding agents, editors, terminal apps and git clients it
+finds installed, with the agents and Finder picked.
+
 Setup steps and "Open in" targets are shell templates run through your login
 shell, with `{path}`, `{primary}` (the main workspace) and `{branch}`
 substituted and shell-quoted:

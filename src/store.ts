@@ -583,11 +583,19 @@ export async function addProject() {
   if (typeof picked === 'string') await openFolder(picked)
 }
 
+/** Whether a project can be added yet. Not while a new config's "Open in"
+ *  targets are still to be chosen: the onboarding offers that choice only
+ *  while there is no project, so adding one first would skip it for good. */
+export function canAddProjects() {
+  return !!state.config?.targetsChosen
+}
+
 /** Go to the project or workspace a folder is, dropped on the window or
  *  picked with "Add project", adding it as a project if it is neither. A
  *  folder git rejects is reported in `state.error`, as every other failure
  *  is. */
 export async function openFolder(path: string) {
+  if (!canAddProjects()) return
   try {
     const landing = await api.openFolder(path)
     if (landing.added) await loadConfig()

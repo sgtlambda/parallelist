@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api, onDragDrop } from '../api'
-import { openFolder } from '../store'
+import { canAddProjects, openFolder } from '../store'
 import { pastePaths, shownTerminal } from '../terminal'
 
 /**
@@ -15,7 +15,8 @@ import { pastePaths, shownTerminal } from '../terminal'
  *   are pasted into it, folders and files alike.
  *
  * Anything with a file in it gets only the terminal, and dropped anywhere
- * else does nothing.
+ * else does nothing. Folders get no area either while a new config's "Open
+ * in" targets are still to be chosen (`canAddProjects`).
  *
  * The drop goes to Tauri's native handler, never the page, so nothing here
  * takes the pointer: where the pointer is comes from the events. On macOS
@@ -51,7 +52,7 @@ function measure(x: number, y: number) {
   terminal = shown?.path ?? null
   const split = shown ? shown.pane.left : window.innerWidth
   const next: Area[] = []
-  if (kind.value !== 'files') next.push({ id: 'projects', left: 0, top: 0, width: split, height: bottom })
+  if (kind.value !== 'files' && canAddProjects()) next.push({ id: 'projects', left: 0, top: 0, width: split, height: bottom })
   if (shown) next.push({ id: 'terminal', left: split, top: 0, width: window.innerWidth - split, height: bottom })
   areas.value = next
   const hit = next.find((a) => x >= a.left && x < a.left + a.width && y >= a.top && y < a.top + a.height)

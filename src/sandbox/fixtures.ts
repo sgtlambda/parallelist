@@ -56,6 +56,7 @@ export const project = (name: string, overrides: Partial<ProjectConfig> = {}): P
 export const config = (overrides: Partial<AppConfig> = {}): AppConfig => ({
   projects: [project('app'), project('parallelist'), project('docs')],
   openTargets: targets,
+  targetsChosen: true,
   fetchIntervalSecs: 300,
   fetchOnFocus: true,
   prRefreshSecs: 120,
