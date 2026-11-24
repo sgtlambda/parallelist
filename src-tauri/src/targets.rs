@@ -38,8 +38,7 @@ pub enum Category {
     /// A program run in the workspace's built-in terminal.
     Agent,
     Editor,
-    /// Another terminal app. Only one of these is ticked: a user with three
-    /// installed opens workspaces in one of them.
+    /// Another terminal app.
     Terminal,
     Git,
     Other,
@@ -64,6 +63,10 @@ struct Entry {
     category: Category,
     kind: OpenKind,
     primary: bool,
+    /// Starts ticked when found: the agents and Finder. Each editor or
+    /// terminal app ticked would be another button on every workspace card,
+    /// so those are left to the user.
+    ticked: bool,
     ways: Vec<Way>,
 }
 
@@ -81,8 +84,8 @@ pub struct Suggestion {
     /// A target the user already has does this: same id, or the same
     /// command (`phpstorm {path}` is the PhpStorm entry, whatever its id).
     pub configured: bool,
-    /// Ticked when offered: found, not configured yet, and for a terminal
-    /// app, the first found while none is configured.
+    /// Ticked when offered: an agent, or Finder, that is found and not
+    /// configured yet.
     pub recommended: bool,
 }
 
@@ -95,10 +98,12 @@ fn catalog() -> Vec<Entry> {
         category,
         kind,
         primary,
+        ticked: false,
         ways,
     };
-    let agent = |id, label, icon, bin| {
-        entry(id, label, icon, Agent, OpenKind::Terminal, true, vec![Way::Bin(bin, "{bin}")])
+    let agent = |id, label, icon, bin| Entry {
+        ticked: true,
+        ..entry(id, label, icon, Agent, OpenKind::Terminal, true, vec![Way::Bin(bin, "{bin}")])
     };
     // An editor opens the folder through its app when it can: no command
     // line tool needs installing, and `open` returns at once where some
@@ -150,7 +155,6 @@ fn catalog() -> Vec<Entry> {
         editor("rustrover", "RustRover", &["RustRover"], "rustrover"),
         editor("clion", "CLion", &["CLion"], "clion"),
         editor("rider", "Rider", &["Rider"], "rider"),
-        // In order of preference: only the first one found is ticked, and
         // Terminal is always there.
         terminal("ghostty", "Ghostty", "Ghostty", "open -na {app} --args --working-directory={path}"),
         terminal("iterm", "iTerm", "iTerm", "open -a {app} {path}"),
@@ -165,15 +169,18 @@ fn catalog() -> Vec<Entry> {
         git("fork", "Fork", "Fork", None),
         git("tower", "Tower", "Tower", Some("gittower")),
         git("sublime-merge", "Sublime Merge", "Sublime Merge", Some("smerge")),
-        entry(
-            "finder",
-            "Finder",
-            "\u{1f4c1}",
-            Other,
-            OpenKind::Command,
-            false,
-            vec![Way::Bin("open", "open {path}")],
-        ),
+        Entry {
+            ticked: true,
+            ..entry(
+                "finder",
+                "Finder",
+                "\u{1f4c1}",
+                Other,
+                OpenKind::Command,
+                false,
+                vec![Way::Bin("open", "open {path}")],
+            )
+        },
     ]
 }
 
@@ -252,13 +259,22 @@ impl Probe {
 }
 
 /// `PATH` as an interactive login shell has it, as in a built-in terminal.
-/// Marked, since an interactive shell's startup files may print anything.
+/// Written to a file, since the shell runs detached with its streams on
+/// `/dev/null` (see [`proc::run_detached_timeout`] for why), and its startup
+/// files may print anything anyway.
 fn interactive_path(home: Option<&Path>) -> Option<String> {
-    const MARK: &str = "__parallelist_path__";
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-    let script = format!("printf '\\n{MARK}%s\\n' \"$PATH\"");
-    let out = proc::run_timeout(&shell, &["-ilc", &script], home, Duration::from_secs(10)).ok()?;
-    out.stdout.lines().find_map(|l| l.strip_prefix(MARK)).map(str::to_string)
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or_default();
+    let file = std::env::temp_dir().join(format!("parallelist-path-{}-{nanos}", std::process::id()));
+    let script = format!("printf '%s' \"$PATH\" > {}", proc::sh_quote(&file.to_string_lossy()));
+    let ran = proc::run_detached_timeout(&shell, &["-ilc", &script], home, Duration::from_secs(10));
+    let path = std::fs::read_to_string(&file).ok();
+    let _ = std::fs::remove_file(&file);
+    ran.ok()?;
+    path.filter(|p| !p.is_empty())
 }
 
 fn split_path(path: &str) -> Vec<PathBuf> {
@@ -285,7 +301,7 @@ fn same_command(a: &str, b: &str) -> bool {
 /// The catalog as `probe` finds this machine, next to the targets the user
 /// already has.
 pub fn suggest(probe: &Probe, configured: &[OpenTarget]) -> Vec<Suggestion> {
-    let mut out: Vec<Suggestion> = catalog()
+    catalog()
         .iter()
         .map(|entry| {
             let resolved = probe.resolve(entry);
@@ -299,6 +315,7 @@ pub fn suggest(probe: &Probe, configured: &[OpenTarget]) -> Vec<Suggestion> {
                     || same_command(&t.command, &command)
                     || bare_commands(entry).any(|c| same_command(&t.command, &c))
             });
+            let recommended = entry.ticked && resolved.is_some() && !is_configured;
             Suggestion {
                 target: OpenTarget {
                     id: entry.id.into(),
@@ -312,20 +329,10 @@ pub fn suggest(probe: &Probe, configured: &[OpenTarget]) -> Vec<Suggestion> {
                 category: entry.category,
                 found: resolved.map(|(_, path)| path.to_string_lossy().into_owned()),
                 configured: is_configured,
-                recommended: false,
+                recommended,
             }
         })
-        .collect();
-
-    let mut terminal_taken = out.iter().any(|s| s.category == Category::Terminal && s.configured);
-    for s in &mut out {
-        s.recommended = s.found.is_some() && !s.configured;
-        if s.category == Category::Terminal {
-            s.recommended &= !terminal_taken;
-            terminal_taken |= s.recommended;
-        }
-    }
-    out
+        .collect()
 }
 
 #[cfg(test)]
@@ -452,19 +459,19 @@ mod tests {
     }
 
     #[test]
-    fn only_the_first_terminal_app_found_is_ticked() {
-        let s = Scratch::new("terminals");
-        for app in ["Warp", "iTerm", "Terminal"] {
+    fn only_the_agents_and_finder_found_are_ticked() {
+        let s = Scratch::new("ticked");
+        for app in ["Ghostty", "PhpStorm", "Fork", "Terminal"] {
             s.app(app);
         }
+        s.program("login", "claude");
+        s.program("login", "codex");
+        s.program("login", "open");
         let all = suggest(&s.probe(), &[]);
-        let ticked: Vec<_> = all
-            .iter()
-            .filter(|s| s.category == Category::Terminal && s.recommended)
-            .map(|s| s.target.id.as_str())
-            .collect();
-        assert_eq!(ticked, ["iterm"]);
-        assert!(find(&all, "terminal-app").found.is_some());
+        let found: Vec<_> = all.iter().filter(|s| s.found.is_some()).map(|s| s.target.id.as_str()).collect();
+        assert_eq!(found, ["claude", "codex", "phpstorm", "ghostty", "terminal-app", "fork", "finder"]);
+        let ticked: Vec<_> = all.iter().filter(|s| s.recommended).map(|s| s.target.id.as_str()).collect();
+        assert_eq!(ticked, ["claude", "codex", "finder"]);
     }
 
     /// The targets parallelist shipped before this catalog, as they sit in
@@ -497,8 +504,6 @@ mod tests {
             assert!(find(&all, id).configured, "{id}");
             assert!(!find(&all, id).recommended, "{id}");
         }
-        // A terminal app is configured, so none is ticked.
         assert!(!find(&all, "terminal-app").configured);
-        assert!(!find(&all, "terminal-app").recommended);
     }
 }

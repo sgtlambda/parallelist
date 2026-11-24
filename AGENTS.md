@@ -655,7 +655,12 @@ redundant complexity and are not.
   rather than over where the sidebar was. It carries its own error
   banner, because a folder git rejects lands in `state.error`, which only the
   branch list showed. `addProject` is in the store so the sidebar's strip and
-  the screen's button are one path.
+  the screen's button are one path. On a new config (`targetsChosen` false)
+  it starts a step earlier, with the "Open in" targets to begin with
+  (`OnboardingTargets.vue`, below), and numbers the two steps. No project
+  can be added until that step is done (`canAddProjects`): a folder dropped
+  on it would have added one, and with a project the onboarding, and the
+  choice with it, is gone for good.
 - **A folder dropped on the window goes where it belongs** (`open_folder`):
   the project it is the main workspace of, else the branch of the workspace
   it is, else it is added as a project. A subfolder counts as its workspace,
@@ -928,10 +933,12 @@ access and fails without it. The `.app` is the deliverable.
 - **No targets are shipped.** The old defaults (Ghostty, PhpStorm, Claude
   Code) were one machine's, and gave most users buttons that ran nothing.
   A new config starts with no targets and `targetsChosen: false`, and the
-  first run offers `suggest_targets`: the catalog in `src-tauri/src/targets.rs`
+  onboarding's first step offers `suggest_targets` as a tile per program
+  found (`OnboardingTargets.vue`, logic in `src/firstRun.ts`): the catalog in `src-tauri/src/targets.rs`
   (agents, editors, terminal apps, git clients, Finder),
-  each resolved against what is installed and ticked if found. Only the
-  first terminal app found is ticked. `adopt_targets` adds the chosen ones
+  each resolved against what is installed. Only the agents and Finder
+  start ticked: every editor or app ticked would be another button on every
+  workspace card, so those are left to the user. `adopt_targets` adds the chosen ones
   (replacing by id), sets the flag, and returns the config, which the
   frontend must take in place of its own copy, or its next `save_config`
   writes the old one back. A config.json without the field predates it and
@@ -941,7 +948,14 @@ access and fails without it. The `.app` is the deliverable.
     only on the interactive `PATH` (nvm, most agent installers) is written
     by its full path; a `terminal` target is typed into an interactive
     shell and names it bare. Getting that `PATH` starts an interactive
-    shell, so `suggest_targets` takes up to a second.
+    shell, so `suggest_targets` takes up to a second. That shell runs in a
+    session of its own, with no terminal and its streams on `/dev/null`,
+    and writes `PATH` to a file (`proc::run_detached_timeout`). Started
+    from a terminal, as `pnpm tauri dev` and `probe` are, an interactive
+    shell stops on SIGTTIN when it reaches for the terminal, and every
+    `suggest_targets` waited out its 10 s timeout. A job that `.zshrc`
+    leaves in the background inherits the shell's streams, and reading
+    them to the end waited for that job too, past the timeout.
   - Apps are found by `<name>.app` in the usual folders, not through Launch
     Services (`open -Ra` reveals the app in Finder) or Spotlight (off on
     some machines). An editor opens through `open -a` when its app is

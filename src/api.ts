@@ -84,8 +84,7 @@ export interface TargetSuggestion {
   found: string | null
   /** A target the user has already does this. */
   configured: boolean
-  /** Ticked when offered: found, not configured, and only the first
-   *  terminal app found. */
+  /** Ticked when offered: an agent, or Finder, found and not configured. */
   recommended: boolean
 }
 

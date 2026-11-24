@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import Icon from './Icon.vue'
+import OnboardingTargets from './OnboardingTargets.vue'
 import { addProject, state } from '../store'
 
 /**
@@ -10,56 +12,74 @@ import { addProject, state } from '../store'
  * things on, and shows what the window does once there is one. Its own error
  * banner, because a folder git rejects is reported in `state.error`, which
  * the branch list shows and this replaces.
+ *
+ * On a new config it starts a step earlier, with the "Open in" targets to
+ * start with (`OnboardingTargets`), and numbers the two steps. A user who
+ * removed every project later goes straight to adding one, unnumbered.
+ * The two steps share one box, as wide and as tall, its content from the
+ * top, so the step numbers and the heading stay put between them.
  */
+const choosing = ref(!state.config?.targetsChosen)
+const stepped = choosing.value
 </script>
 
 <template>
   <!-- A deep drag region: the text drags the window, the button still clicks. -->
   <main class="pane onboarding" data-tauri-drag-region="deep">
-    <div class="welcome">
-      <Icon name="logo" :size="40" class="logo" />
-      <h1>Add a project</h1>
-      <p class="lead">
-        Choose the <strong>main workspace</strong> of a git repository: the clone you work in.
-        parallelist keeps its branches, workspaces and terminals in one window.
-      </p>
-
-      <div v-if="state.error" class="banner error">{{ state.error }}</div>
-
-      <div class="add-row">
-        <button class="btn primary add" @click="addProject">Add project…</button>
-        <span class="faint">or drop its folder on this window</span>
-      </div>
-
-      <ul class="then">
-        <li>
-          <Icon name="branch" />
-          <span>Every branch on origin, with the workspaces that hold it and its pull request.</span>
+    <div class="welcome" :class="{ stepped }">
+      <ol v-if="stepped" class="steps" aria-label="Steps">
+        <li :class="{ on: choosing, past: !choosing }">
+          <span class="num"><Icon v-if="!choosing" name="check" :size="10" /><template v-else>1</template></span>
+          Open in
         </li>
-        <li>
-          <Icon name="terminal" />
-          <span>A terminal for each workspace, which keeps running while you look elsewhere.</span>
-        </li>
-        <li>
-          <Icon name="check" />
-          <span>
-            A mark when something needs you: <b class="blocked">orange</b> while a program waits
-            for an answer, <b class="ready">blue</b> when a finished turn hasn't been seen.
-          </span>
-        </li>
-        <li>
-          <Icon name="search" />
-          <span>
-            <kbd>⌘P</kbd> reaches any branch of any project, and <kbd>⌘↵</kbd> goes to whatever
-            has waited longest.
-          </span>
-        </li>
-      </ul>
+        <li :class="{ on: !choosing }"><span class="num">2</span>Project</li>
+      </ol>
+      <OnboardingTargets v-if="choosing" @done="choosing = false" />
+      <template v-else>
+        <Icon v-if="!stepped" name="logo" :size="40" class="logo" />
+        <h1>Add a project</h1>
+        <p class="lead">
+          Choose the <strong>main workspace</strong> of a git repository: the clone you work in.
+          parallelist keeps its branches, workspaces and terminals in one window.
+        </p>
 
-      <p class="faint note">
-        Pull request data comes from <code>gh</code>, once signed in with
-        <code>gh auth login</code>. Everything else works without it.
-      </p>
+        <div v-if="state.error" class="banner error">{{ state.error }}</div>
+
+        <div class="add-row">
+          <button class="btn primary add" @click="addProject">Add project…</button>
+          <span class="faint">or drop its folder on this window</span>
+        </div>
+
+        <ul class="then">
+          <li>
+            <Icon name="branch" />
+            <span>Every branch on origin, with the workspaces that hold it and its pull request.</span>
+          </li>
+          <li>
+            <Icon name="terminal" />
+            <span>A terminal for each workspace, which keeps running while you look elsewhere.</span>
+          </li>
+          <li>
+            <Icon name="check" />
+            <span>
+              A mark when something needs you: <b class="blocked">orange</b> while a program waits
+              for an answer, <b class="ready">blue</b> when a finished turn hasn't been seen.
+            </span>
+          </li>
+          <li>
+            <Icon name="search" />
+            <span>
+              <kbd>⌘P</kbd> reaches any branch of any project, and <kbd>⌘↵</kbd> goes to whatever
+              has waited longest.
+            </span>
+          </li>
+        </ul>
+
+        <p class="faint note">
+          Pull request data comes from <code>gh</code>, once signed in with
+          <code>gh auth login</code>. Everything else works without it.
+        </p>
+      </template>
     </div>
   </main>
 </template>
@@ -85,9 +105,51 @@ import { addProject, state } from '../store'
   overflow-y: auto;
 }
 
+.welcome.stepped {
+  width: min(520px, 100%);
+  height: min(600px, 100%);
+}
+
 .logo {
   color: var(--text-dim);
   margin-bottom: 14px;
+}
+
+.steps {
+  display: flex;
+  gap: 14px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.steps .num {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  font-size: 10px;
+}
+
+.steps li.on {
+  color: var(--text);
+  font-weight: 550;
+}
+
+.steps li.on .num {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-fg);
 }
 
 h1 {

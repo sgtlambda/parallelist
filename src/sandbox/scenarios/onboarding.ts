@@ -4,14 +4,39 @@ import { defineGroup } from '../define'
 import { config } from '../fixtures'
 import { backend } from '../backend'
 import { state } from '../../store'
+import { BARE, TYPICAL, firstRun } from '../suggestions'
 
-/** The app with no project added, as on a first launch. */
+/** The app with no project added, its "Open in" targets already chosen:
+ *  every project removed since. */
 const firstLaunch = () => boot({ config: config({ projects: [], selectedProjectId: null }) })
 
 export default defineGroup('Onboarding', [
   {
+    id: 'open-in',
+    title: 'A new config: "Open in" first',
+    note: 'The agents and Finder found start lit. Continue or Skip moves on to adding a project.',
+    component: Window,
+    props: { show: 'onboarding' },
+    setup: () => firstRun(TYPICAL),
+  },
+  {
+    id: 'open-in-bare',
+    title: 'A new config, on a Mac with little installed',
+    component: Window,
+    props: { show: 'onboarding' },
+    setup: () => firstRun(BARE),
+  },
+  {
+    id: 'open-in-loading',
+    title: 'A new config, while it looks',
+    note: 'suggest_targets can take a second.',
+    component: Window,
+    props: { show: 'onboarding' },
+    setup: () => firstRun(TYPICAL, { loading: true }),
+  },
+  {
     id: 'first-launch',
-    title: 'No projects',
+    title: 'No projects, targets chosen',
     note: 'Replaces the branch list and the detail pane, which have nothing to show; the sidebar and the queue stay. Try narrow widths.',
     component: Window,
     props: { show: 'onboarding' },

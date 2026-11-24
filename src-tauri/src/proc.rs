@@ -75,6 +75,17 @@ impl Output {
 }
 
 fn build(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {
+    let mut cmd = command(program, args, cwd);
+    // Own process group, so a timeout can take the whole tree down. `git
+    // fetch` spawns ssh, and killing git alone provably leaves that ssh alive
+    // holding the dead socket.
+    cmd.process_group(0);
+    cmd
+}
+
+/// A command with the environment every child gets, in the app's own
+/// process group.
+fn command(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args);
     if let Some(dir) = cwd {
@@ -100,10 +111,6 @@ fn build(program: &str, args: &[&str], cwd: Option<&Path>) -> Command {
              -o ServerAliveInterval=10 -o ServerAliveCountMax=3",
         );
     }
-    // Own process group, so a timeout can take the whole tree down. `git
-    // fetch` spawns ssh, and killing git alone provably leaves that ssh alive
-    // holding the dead socket.
-    cmd.process_group(0);
     cmd
 }
 
@@ -165,6 +172,48 @@ pub fn run_timeout(
             "{program} timed out after {}s",
             timeout.as_secs()
         )),
+    }
+}
+
+/// Run a program in a session of its own, with no controlling terminal and
+/// every stream on `/dev/null`, killing the session if it outlives
+/// `timeout`. Returns its exit code. For an interactive shell, which needs
+/// both:
+///
+/// - Started from a terminal (`pnpm tauri dev`, `probe`), a child in a
+///   process group of its own still has that terminal, and an interactive
+///   shell with job control stops on SIGTTIN when it reaches for it, until
+///   the timeout kills it. Observed with `zsh -ic` under a pty.
+/// - Its startup files may leave a job in the background (`foo &` in
+///   `.zshrc`), which inherits the shell's streams. Waiting for a pipe to
+///   close then waits for that job, past any timeout. So nothing is read
+///   from the child: it has to leave what it reports somewhere else, a file.
+pub fn run_detached_timeout(
+    program: &str,
+    args: &[&str],
+    cwd: Option<&Path>,
+    timeout: Duration,
+) -> Result<i32, String> {
+    let mut cmd = command(program, args, cwd);
+    // SAFETY: setsid is async-signal-safe. It also makes the child its own
+    // process group leader, which `kill_group` relies on.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("failed to run {program}: {e}"))?;
+    match wait_until(&mut child, timeout) {
+        Some(status) => Ok(status.code().unwrap_or(-1)),
+        None => Err(format!("{program} timed out after {}s", timeout.as_secs())),
     }
 }
 
@@ -370,6 +419,31 @@ mod tests {
             !marker.exists(),
             "grandchild outlived the timeout and still ran"
         );
+    }
+
+    #[test]
+    fn a_detached_command_has_no_terminal() {
+        // From a terminal, `cargo test` hands its children the tty; this one
+        // must not be able to open it.
+        let code = run_detached_timeout("sh", &["-c", "exec 3</dev/tty"], None, Duration::from_secs(5)).unwrap();
+        assert_ne!(code, 0, "the detached child could open /dev/tty");
+    }
+
+    #[test]
+    fn a_detached_command_does_not_wait_for_its_background_jobs() {
+        let started = Instant::now();
+        let code = run_detached_timeout("sh", &["-c", "sleep 30 & exit 0"], None, Duration::from_secs(10)).unwrap();
+        assert_eq!(code, 0);
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_detached_command_is_killed_at_its_timeout() {
+        let started = Instant::now();
+        let err = run_detached_timeout("sleep", &["30"], None, Duration::from_millis(300))
+            .expect_err("a 30s sleep must not satisfy a 300ms timeout");
+        assert!(err.contains("timed out"), "unexpected error: {err}");
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 
     #[test]
