@@ -248,7 +248,7 @@ async function remove() {
                   <span v-if="impact.commitCount" class="badge warn">
                     {{ impact.commitCount }} commit{{ impact.commitCount === 1 ? '' : 's' }}
                   </span>
-                  <span v-else class="faint">nothing — every commit is on origin</span>
+                  <span v-else class="faint">nothing</span>
                 </td>
               </tr>
               <tr v-if="impact.commits.length" class="detail-row">
@@ -293,9 +293,6 @@ async function remove() {
       </div>
 
       <div class="modal-footer">
-        <span class="faint" style="font-size: 11.5px">
-          Runs in the background, one at a time.
-        </span>
         <span class="spacer" />
         <button type="button" class="btn" :disabled="submitting" @click="emit('close')">
           Cancel

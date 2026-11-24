@@ -267,7 +267,7 @@ async function openPullRequest() {
         <Icon name="back" />
       </button>
       <span class="truncate" style="font-weight: 600; flex: 0 1 auto">
-        {{ title ?? 'No branch selected' }}
+        {{ title }}
       </span>
       <span
         v-if="terminal"
@@ -320,13 +320,7 @@ async function openPullRequest() {
       <TerminalPane :path="terminal.path" />
     </div>
 
-    <div v-else-if="!title" class="pane-body">
-      <p class="empty">
-        Pick a branch to see its pull request, how far it has drifted from
-        <code>{{ state.overview?.baseBranch ?? 'the base branch' }}</code
-        >, and which workspaces hold it.
-      </p>
-    </div>
+    <div v-else-if="!title" class="pane-body" />
 
     <div v-else class="pane-body detail">
       <div v-if="row" class="card">

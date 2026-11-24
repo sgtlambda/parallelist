@@ -165,10 +165,7 @@ function hover(i: number) {
       </div>
 
       <div class="palette-footer faint">
-        <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
-        <span><kbd>↵</kbd> go to branch</span>
         <span><kbd>⌘↵</kbd> open shell</span>
-        <span><kbd>esc</kbd> close</span>
       </div>
     </div>
   </div>

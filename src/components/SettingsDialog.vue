@@ -193,16 +193,8 @@ function onKey(event: KeyboardEvent) {
       <section class="settings-main">
         <header class="settings-head" data-tauri-drag-region="deep">
           <div class="settings-head-text" data-tauri-drag-region>
-            <template v-if="section === 'general'">
-              <h2 data-tauri-drag-region>General</h2>
-              <p data-tauri-drag-region>How often parallelist checks origin and GitHub.</p>
-            </template>
-            <template v-else-if="section === 'targets'">
-              <h2 data-tauri-drag-region>Open in</h2>
-              <p data-tauri-drag-region>
-                Apps and commands offered on every project's workspaces.
-              </p>
-            </template>
+            <h2 v-if="section === 'general'" data-tauri-drag-region>General</h2>
+            <h2 v-else-if="section === 'targets'" data-tauri-drag-region>Open in</h2>
             <template v-else-if="project">
               <h2 class="truncate" data-tauri-drag-region>{{ project.name || 'Untitled' }}</h2>
               <p class="mono truncate selectable">{{ shortPath(project.path) }}</p>
@@ -219,13 +211,9 @@ function onKey(event: KeyboardEvent) {
             <div class="set-group">
               <h3>Background refresh</h3>
               <div class="set-card">
-                <div class="set-row">
+                <div class="set-row" title="Runs git fetch --all --prune">
                   <div class="set-row-text">
                     <label for="set-fetch">Fetch origin every</label>
-                    <p>
-                      Runs <code>git fetch --all --prune</code>, so the branch list and ahead/behind
-                      counts stay current.
-                    </p>
                   </div>
                   <div class="unit-input">
                     <input
@@ -248,7 +236,6 @@ function onKey(event: KeyboardEvent) {
                 <div class="set-row">
                   <div class="set-row-text">
                     <label for="set-prs">Refresh pull requests every</label>
-                    <p>Review and CI state, from GitHub.</p>
                   </div>
                   <div class="unit-input">
                     <input
@@ -299,8 +286,7 @@ function onKey(event: KeyboardEvent) {
               <OpenTargetList :items="draft.openTargets" />
               <p class="set-foot">
                 <code>{path}</code> the workspace, <code>{primary}</code> the main workspace and
-                <code>{branch}</code> are filled in, shell-quoted. Targets for one project only are
-                set on that project.
+                <code>{branch}</code> are filled in, shell-quoted.
               </p>
             </div>
           </template>
@@ -383,10 +369,6 @@ function onKey(event: KeyboardEvent) {
 
             <div class="set-group">
               <h3>Setup steps</h3>
-              <p class="set-intro">
-                Shell commands run inside a new workspace, each one a checkbox in the New workspace
-                dialog.
-              </p>
               <p v-if="overrides?.setupSteps" class="set-overridden">
                 <code>{{ file!.file }}</code> sets {{ overrides.setupSteps.length }}
                 {{ overrides.setupSteps.length === 1 ? 'step' : 'steps' }}, used instead of these.
@@ -396,7 +378,6 @@ function onKey(event: KeyboardEvent) {
                   <span>Step</span>
                   <span>Ticked</span>
                 </div>
-                <p v-else class="set-empty">No setup steps.</p>
                 <div v-for="step in project.setupSteps" :key="step.id" class="set-item step">
                   <div class="step-text">
                     <input
@@ -446,7 +427,6 @@ function onKey(event: KeyboardEvent) {
                 these.
               </p>
               <OpenTargetList :items="project.openTargets" :muted="!!overrides?.openTargets" />
-              <p class="set-foot">Listed after the ones for every project.</p>
             </div>
           </template>
         </div>

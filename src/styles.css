@@ -1837,9 +1837,12 @@ code,
   border-bottom: 1px solid var(--border-soft);
 }
 
+/* As tall with a project's path under the title as without, so switching
+   sections doesn't move the body. */
 .settings-head-text {
   flex: 1;
   min-width: 0;
+  min-height: 37px;
 }
 
 .settings-head h2 {
@@ -1951,7 +1954,6 @@ code,
   font-weight: 650;
 }
 
-.set-intro,
 .set-foot,
 .set-group > .set-overridden {
   margin: -2px 2px 2px;
@@ -2184,14 +2186,6 @@ p.set-overridden,
   justify-self: center;
 }
 
-.set-empty {
-  margin: 0;
-  padding: 14px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--text-faint);
-}
-
 .set-item {
   display: flex;
   flex-direction: column;
@@ -2349,14 +2343,6 @@ p.set-overridden,
 
 .settings .ot.muted > .ot-item {
   opacity: 0.5;
-}
-
-.settings .ot-empty {
-  margin: 0;
-  padding: 14px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--text-faint);
 }
 
 .settings .ot-item + .ot-item {
@@ -2535,12 +2521,6 @@ p.set-overridden,
   padding: 4px 11px;
 }
 
-.settings .ot-hint {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text-faint);
-}
-
 .settings .ot-options {
   margin: 10px 14px 0 53px;
   border: 1px solid var(--border-soft);
@@ -2712,23 +2692,19 @@ p.set-overridden,
   border-radius: 4px;
 }
 
-.choice {
-  display: flex;
-  gap: 9px;
-  align-items: flex-start;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 9px 11px;
-  cursor: pointer;
+.kind-choice {
+  align-self: flex-start;
 }
 
-.choice.selected {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+.kind-choice button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
 }
 
-.choice.disabled {
-  opacity: 0.5;
+.segmented button:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
