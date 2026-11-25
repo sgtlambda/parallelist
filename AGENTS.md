@@ -190,8 +190,15 @@ redundant complexity and are not.
    TCP connection leaves `git fetch` blocked in `packet_reader_read` forever —
    no data, no error, no recovery. Killing git alone provably leaves its `ssh`
    child alive holding the dead socket (observed surviving 7 minutes after its
-   parent died), so the timeout `killpg`s the whole group. Covered by
-   `a_timeout_takes_grandchildren_with_it`. The terminal relay is the one
+   parent died), so the timeout `killpg`s the whole group. **Once is not
+   enough**: on macOS a single `killpg(SIGKILL)` now and then misses a member
+   (15% of timeouts with 40 at once), and that shell runs its next command
+   at once. So `kill_group` stops the group first, then sends `SIGKILL`
+   until nothing in it is left, and reaps the leader last, which keeps the
+   group's id from going to another process meanwhile. Don't fold it back
+   into one call. Covered by `a_timeout_takes_grandchildren_with_it`, which
+   times out 96 commands so that it catches a single `killpg` every time;
+   with one command it failed about one run in ten. The terminal relay is the one
    deliberate exception: it is meant to outlive the app, and ends itself.
 
 2. **`PATH` comes from the login shell**, resolved once at startup via
