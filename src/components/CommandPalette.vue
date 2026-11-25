@@ -14,7 +14,7 @@ import {
   screenStatus,
   searchScreens,
   stopScreenSearch,
-  wordPositions,
+  markPositions,
 } from '../screenSearch'
 import { state } from '../store'
 import { enterTerminal } from '../terminal'
@@ -232,7 +232,7 @@ function hover(i: number) {
             <Icon name="terminal" :size="11" />
             <span class="truncate">
               <span
-                v-for="(part, j) in highlight(result.screen.snippet, wordPositions(result.screen.snippet, query))"
+                v-for="(part, j) in highlight(result.screen.snippet, markPositions(result.screen.marks))"
                 :key="j"
                 :class="{ hit: part.hit }"
                 >{{ part.text }}</span

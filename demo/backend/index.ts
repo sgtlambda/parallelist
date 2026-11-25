@@ -244,6 +244,7 @@ const handlers: Record<string, Handler> = {
     { id: 'minilm-l12', label: 'Medium', name: 'all-MiniLM-L12-v2', downloadMb: 135, memoryMb: 550 },
     { id: 'mpnet-base', label: 'Large', name: 'all-mpnet-base-v2', downloadMb: 440, memoryMb: 1200 },
   ],
+  screen_search_marks: ({ snippets }: { snippets: string[] }) => snippets.map(() => []),
   screen_search_status: (): ScreenSearchStatus =>
     config.screenSearch ? { state: 'ready', model: config.screenSearchModel } : { state: 'off' },
   screen_search: ({ query }: { query: string }): ScreenFound => {
@@ -264,7 +265,15 @@ const handlers: Record<string, Handler> = {
           const n = words.filter((w) => l.includes(w)).length
           if (n > 0 && n >= most) [best, most] = [i, n]
         })
-        return { path, relevance: found / words.length, snippet: best >= 0 ? lines[best].slice(0, 200) : '' }
+        const snippet = best >= 0 ? lines[best].slice(0, 200) : ''
+        const hay = snippet.toLowerCase()
+        const marks: [number, number][] = []
+        for (const w of words) {
+          for (let i = hay.indexOf(w); i >= 0; i = hay.indexOf(w, i + w.length)) {
+            marks.push([i, i + w.length])
+          }
+        }
+        return { path, relevance: (found / words.length) ** 2, snippet, matchedBy: 'text' as const, marks }
       })
       .filter((hit) => hit.relevance > 0)
       .sort((a, b) => b.relevance - a.relevance)

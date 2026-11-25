@@ -69,6 +69,13 @@ pub struct Model {
     /// above the median of the right ones.
     floor: f32,
     ceiling: f32,
+    /// The same for one word of the query against one word on a screen,
+    /// measured with the example's `words` mode. Single words sit higher
+    /// than passages: a synonym at 0.55 to 0.9 ("developer" for "engineer"
+    /// 0.56, "login" for "signin" 0.79), an unrelated word at up to 0.5,
+    /// so the floor sits just above that.
+    word_floor: f32,
+    word_ceiling: f32,
 }
 
 /// From fastest to best, all from the sentence-transformers family, which
@@ -86,6 +93,8 @@ pub const MODELS: &[Model] = &[
         embedding: EmbeddingModel::AllMiniLML6V2,
         floor: 0.20,
         ceiling: 0.50,
+        word_floor: 0.52,
+        word_ceiling: 0.80,
     },
     Model {
         id: "minilm-l12",
@@ -96,6 +105,8 @@ pub const MODELS: &[Model] = &[
         embedding: EmbeddingModel::AllMiniLML12V2,
         floor: 0.20,
         ceiling: 0.50,
+        word_floor: 0.50,
+        word_ceiling: 0.80,
     },
     Model {
         id: "mpnet-base",
@@ -106,6 +117,8 @@ pub const MODELS: &[Model] = &[
         embedding: EmbeddingModel::AllMpnetBaseV2,
         floor: 0.22,
         ceiling: 0.50,
+        word_floor: 0.52,
+        word_ceiling: 0.85,
     },
 ];
 
@@ -180,9 +193,28 @@ pub struct Hit {
     /// 0..1, the better of how many of the query's words are on the screen
     /// and how close in meaning its best chunk is.
     pub relevance: f32,
-    /// The text that matched: the line with the query's words, or the
-    /// chunk closest in meaning.
+    /// The text that matched: the line with the query's words or with a
+    /// word close to one of them, or the chunk closest in meaning.
     pub snippet: String,
+    pub matched_by: MatchedBy,
+    /// What to highlight in `snippet`, as `[start, end)` in UTF-16 code
+    /// units, as JavaScript indexes a string. Empty for a match by meaning
+    /// until `ScreenSearch::marks` has found which words in it are closest
+    /// to the query: a word it shares with the query is often not what
+    /// matched, and highlighting it read as a literal match.
+    pub marks: Vec<[u32; 2]>,
+}
+
+/// Which of the three scores found a screen (`ScreenSearch::search`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MatchedBy {
+    /// The query's own words are on it.
+    Text,
+    /// A word close to one of the query's is on it.
+    Word,
+    /// A few lines on it are close to the query as a whole.
+    Meaning,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -221,6 +253,19 @@ const EMBED_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Queries shorter than this are left to the branch names.
 pub const MIN_QUERY: usize = 3;
+
+/// A query of at most this many words (stopwords aside) is also matched
+/// word by word.
+const SHORT_QUERY: usize = 2;
+
+/// Words taken from one screen for matching word by word, newest first. A
+/// full screen of prose has two or three hundred.
+const SCREEN_WORDS: usize = 400;
+
+/// How much higher a single line has to score than a chunk to count as
+/// much. Short texts spread wider: unrelated lines reach 0.27 where chunks
+/// stay under 0.2.
+const LINE_MARGIN: f32 = 0.07;
 
 /// Below this a hit isn't worth a row.
 const MIN_RELEVANCE: f32 = 0.05;
@@ -262,10 +307,10 @@ pub struct ScreenSearch {
     inner: Mutex<Inner>,
     /// `None` in tests, which have no cache and no tasks.
     downloads: Option<Downloads>,
-    /// Embeddings by chunk text, for the model in `inner`. Holds only what
-    /// the last search saw, and outlives the worker, so one started again
-    /// after being idle embeds only what changed meanwhile.
-    embeddings: Mutex<HashMap<u64, Arc<[f32]>>>,
+    /// Vectors by text (chunks, words, word runs, queries), for the model
+    /// in `inner`. It outlives the worker, so one started again after
+    /// being idle embeds only what changed meanwhile.
+    embeddings: Mutex<Cache>,
     on_status: OnStatus,
     spawn: Spawn,
 }
@@ -331,7 +376,7 @@ impl ScreenSearch {
             inner.wanted = wanted;
             inner.worker = None;
             inner.failed_at = None;
-            self.embeddings.lock().unwrap().clear();
+            *self.embeddings.lock().unwrap() = Cache::default();
             let status = match wanted {
                 Some(m) => ModelStatus::Idle { model: m.id.into() },
                 None => ModelStatus::Off,
@@ -443,7 +488,16 @@ impl ScreenSearch {
     /// Score every screen against `query`, once the worker is ready, which
     /// this starts if it isn't. Until then nothing is found: the palette
     /// says where the model is instead (`Found::status`). Once it is ready
-    /// a screen counts by the better of its words and its meaning.
+    /// a screen counts by the best of three scores, each 0..1:
+    ///
+    /// - **Text**: the share of the query's words found on it.
+    /// - **Word**, for a query of one or two words: how close each of them
+    ///   is to the closest word on it. Embedded as a passage, "why did the
+    ///   developer trust the clean badge?" is about trusting badges, and
+    ///   scores no higher against "engineer" than unrelated text does; the
+    ///   word "developer" on its own scores well above it.
+    /// - **Meaning**: how close its closest chunk is to the query as a
+    ///   whole, which is what finds a question phrased differently.
     pub fn search(self: &Arc<Self>, query: &str, screens: &[Screen]) -> Found {
         let (status, worker, model, generation) = {
             let mut inner = self.inner.lock().unwrap();
@@ -452,88 +506,241 @@ impl ScreenSearch {
             (inner.status.clone(), inner.worker.clone(), inner.wanted, inner.generation)
         };
         let query = query.trim();
-        let mut hits = Vec::new();
         let ready = worker.zip(model).filter(|_| matches!(status, ModelStatus::Ready { .. }));
+        let mut hits = Vec::new();
         if let Some((worker, model)) = ready.filter(|_| query.chars().count() >= MIN_QUERY) {
-            let words = query_words(query);
-            let prepared: Vec<Prepared> = screens.iter().map(prepare).collect();
-            let meaning = match self.by_meaning(&worker, model, query, &prepared) {
-                Ok(meaning) => meaning,
-                Err(_) => {
-                    self.worker_died(generation);
-                    return Found { query: query.to_string(), status: self.status(), hits };
-                }
-            };
-            for (i, screen) in prepared.iter().enumerate() {
-                let (share, line) = literal(&words, &screen.lines);
-                let (closeness, chunk) = meaning.get(i).copied().unwrap_or((0.0, None));
-                let (relevance, snippet) = if share >= closeness {
-                    (share, line.map(|l| screen.lines[l].clone()))
-                } else {
-                    (closeness, chunk.map(|c| screen.chunks[c].replace('\n', " · ")))
-                };
-                if relevance >= MIN_RELEVANCE {
-                    hits.push(Hit {
-                        path: screen.path.clone(),
-                        relevance,
-                        snippet: clip(&snippet.unwrap_or_default(), SNIPPET_CHARS),
-                    });
-                }
+            match self.score(&worker, model, query, screens) {
+                Ok(found) => hits = found,
+                Err(_) => self.worker_died(generation),
             }
-            hits.sort_by(|a, b| b.relevance.total_cmp(&a.relevance));
         }
         Found { query: query.to_string(), status: self.status(), hits }
     }
 
-    /// For each screen, how close in meaning its best chunk is to the
-    /// query (0..1, after the model's floor and ceiling) and which chunk
-    /// that is. Embeds only chunks not seen in the last search.
-    fn by_meaning(
+    fn score(
         &self,
         worker: &Mutex<Worker>,
         model: &Model,
         query: &str,
-        screens: &[Prepared],
-    ) -> Result<Vec<(f32, Option<usize>)>, String> {
-        let mut known = std::mem::take(&mut *self.embeddings.lock().unwrap());
-        let mut missing: Vec<(u64, &str)> = Vec::new();
-        for screen in screens {
-            for chunk in &screen.chunks {
-                let key = hash(chunk);
-                if !known.contains_key(&key) && !missing.iter().any(|(k, _)| *k == key) {
-                    missing.push((key, chunk));
+        screens: &[Screen],
+    ) -> Result<Vec<Hit>, String> {
+        let words = query_words(query);
+        let by_word = (1..=SHORT_QUERY).contains(&words.len());
+        let prepared: Vec<Prepared> = screens.iter().map(|s| prepare(s, by_word)).collect();
+
+        // Meaning isn't asked of a single word, which against a passage
+        // scores as much at random ("engineer" found "Welcome to the
+        // agent") as where it fits.
+        let by_meaning = words.len() != 1;
+
+        // Everything to embed, in one request: the query, every chunk and
+        // line, and for a short query its words and every word on every
+        // screen.
+        let mut texts: Vec<&str> = vec![query];
+        if by_meaning {
+            texts.extend(prepared.iter().flat_map(|s| s.chunks.iter().map(String::as_str)));
+            texts.extend(prepared.iter().flat_map(|s| s.sentences().map(String::as_str)));
+        }
+        if by_word {
+            texts.extend(words.iter().map(String::as_str));
+            texts.extend(prepared.iter().flat_map(|s| s.words.iter().map(String::as_str)));
+        }
+        self.embeddings.lock().unwrap().round += 1;
+        let vectors = self.vectors(worker, &texts)?;
+        let vector = |text: &str| vectors.get(&hash(text));
+        let query_vector = vector(query).ok_or("no query vector")?;
+        let scaled = |sim: f32, floor: f32, ceiling: f32| ((sim - floor) / (ceiling - floor)).clamp(0.0, 1.0);
+
+        let mut hits = Vec::new();
+        for screen in &prepared {
+            // Text.
+            let (share, line) = literal(&words, &screen.lines);
+            let mut best = (share, MatchedBy::Text, line.map(|l| screen.lines[l].clone()));
+
+            // Word: each of the query's words against its closest word here,
+            // averaged, so both of two words have to be found.
+            if by_word && !screen.words.is_empty() {
+                let mut total = 0.0;
+                let mut closest: Option<(f32, &str)> = None;
+                for word in &words {
+                    let Some(w) = vector(word) else { continue };
+                    let near = screen
+                        .words
+                        .iter()
+                        .filter_map(|other| Some((dot(w, vector(other)?), other.as_str())))
+                        .max_by(|a, b| a.0.total_cmp(&b.0));
+                    if let Some((sim, other)) = near {
+                        total += scaled(sim, model.word_floor, model.word_ceiling);
+                        if closest.is_none_or(|(s, _)| sim > s) {
+                            closest = Some((sim, other));
+                        }
+                    }
+                }
+                let score = total / words.len() as f32;
+                if score > best.0 {
+                    let line = closest.and_then(|(_, w)| newest_line_with(&screen.lines, w));
+                    best = (score, MatchedBy::Word, line.map(|l| screen.lines[l].clone()));
+                }
+            }
+
+            // Meaning: the chunk or the line closest to the query as a whole.
+            // A line said in a chunk of other things is diluted there ("If
+            // you want something real to work on next", under a list of
+            // jokes); on its own it scores higher, and so does noise, hence
+            // its higher floor.
+            if by_meaning {
+                let mut closest: Option<(f32, &str)> = None;
+                let chunks = screen.chunks.iter().map(|t| (t, 0.0));
+                let lines = screen.sentences().map(|t| (t, LINE_MARGIN));
+                for (text, margin) in chunks.chain(lines) {
+                    let Some(v) = vector(text) else { continue };
+                    let score = scaled(dot(query_vector, v), model.floor + margin, model.ceiling + margin);
+                    if closest.is_none_or(|(s, _)| score > s) {
+                        closest = Some((score, text));
+                    }
+                }
+                if let Some((score, text)) = closest.filter(|(score, _)| *score > best.0) {
+                    best = (score, MatchedBy::Meaning, Some(text.replace('\n', " · ")));
+                }
+            }
+
+            let (relevance, matched_by, snippet) = best;
+            if relevance < MIN_RELEVANCE {
+                continue;
+            }
+            let snippet = clip(&snippet.unwrap_or_default(), SNIPPET_CHARS);
+            let marks = match matched_by {
+                MatchedBy::Text => words.iter().flat_map(|w| occurrences(&snippet, w, Bound::Start)).collect(),
+                MatchedBy::Word => screen
+                    .words
+                    .iter()
+                    .filter(|other| {
+                        words.iter().any(|w| match (vector(w), vector(other)) {
+                            (Some(a), Some(b)) => dot(a, b) >= model.word_floor,
+                            _ => false,
+                        })
+                    })
+                    .flat_map(|other| occurrences(&snippet, other, Bound::Whole))
+                    .collect(),
+                MatchedBy::Meaning => Vec::new(),
+            };
+            hits.push(Hit {
+                path: screen.path.clone(),
+                relevance,
+                snippet: snippet.clone(),
+                matched_by,
+                marks: marks.into_iter().map(|(a, b)| utf16_range(&snippet, a, b)).collect(),
+            });
+        }
+        hits.sort_by(|a, b| b.relevance.total_cmp(&a.relevance));
+        Ok(hits)
+    }
+
+    /// For each snippet a match by meaning found, the run of one to three
+    /// of its words closest to `query`, as ranges to highlight (see
+    /// `Hit::marks`); empty when none is close enough to point at. Asked by
+    /// the palette after the results are on screen, since a snippet's runs
+    /// take a fraction of a second to embed the first time.
+    pub fn marks(&self, query: &str, snippets: &[String]) -> Vec<Vec<[u32; 2]>> {
+        let (worker, model) = {
+            let inner = self.inner.lock().unwrap();
+            if !matches!(inner.status, ModelStatus::Ready { .. }) {
+                return vec![Vec::new(); snippets.len()];
+            }
+            match (inner.worker.clone(), inner.wanted) {
+                (Some(worker), Some(model)) => (worker, model),
+                _ => return vec![Vec::new(); snippets.len()],
+            }
+        };
+        let query = query.trim();
+        let spans: Vec<Vec<(usize, usize)>> = snippets.iter().map(|s| spans(s)).collect();
+        let mut texts: Vec<&str> = vec![query];
+        for (snippet, runs) in snippets.iter().zip(&spans) {
+            texts.extend(runs.iter().map(|&(a, b)| &snippet[a..b]));
+        }
+        let Ok(vectors) = self.vectors(&worker, &texts) else {
+            return vec![Vec::new(); snippets.len()];
+        };
+        let Some(q) = vectors.get(&hash(query)) else {
+            return vec![Vec::new(); snippets.len()];
+        };
+        snippets
+            .iter()
+            .zip(&spans)
+            .map(|(snippet, runs)| {
+                // The closest run; among equals the shortest, which says
+                // most precisely what matched.
+                let best = runs
+                    .iter()
+                    .filter_map(|&(a, b)| Some((dot(q, vectors.get(&hash(&snippet[a..b]))?), a, b)))
+                    .max_by(|x, y| x.0.total_cmp(&y.0).then((y.2 - y.1).cmp(&(x.2 - x.1))));
+                match best {
+                    Some((sim, a, b)) if sim >= model.floor => vec![utf16_range(snippet, a, b)],
+                    _ => Vec::new(),
+                }
+            })
+            .collect()
+    }
+
+    /// Vectors for `texts`, normalised, by the hash of their text: from the
+    /// cache where it has them, the rest from the worker in one request.
+    fn vectors(
+        &self,
+        worker: &Mutex<Worker>,
+        texts: &[&str],
+    ) -> Result<HashMap<u64, Arc<[f32]>>, String> {
+        let mut found = HashMap::new();
+        let mut missing: Vec<&str> = Vec::new();
+        {
+            let mut cache = self.embeddings.lock().unwrap();
+            let round = cache.round;
+            for text in texts {
+                let key = hash(text);
+                if found.contains_key(&key) {
+                    continue;
+                }
+                if let Some((vector, used)) = cache.vectors.get_mut(&key) {
+                    *used = round;
+                    found.insert(key, Arc::clone(vector));
+                } else if !missing.contains(text) {
+                    missing.push(text);
                 }
             }
         }
-        let mut texts: Vec<&str> = missing.iter().map(|(_, text)| *text).collect();
-        texts.push(query);
-        let mut vectors = worker.lock().unwrap().embed(&texts)?;
-        let query = normalized(vectors.pop().ok_or("no query embedding")?);
-        for ((key, _), vector) in missing.iter().zip(vectors) {
-            known.insert(*key, normalized(vector));
+        if !missing.is_empty() {
+            let fresh = worker.lock().unwrap().embed(&missing)?;
+            let mut cache = self.embeddings.lock().unwrap();
+            let round = cache.round;
+            for (text, vector) in missing.iter().zip(fresh) {
+                let vector = normalized(vector);
+                cache.vectors.insert(hash(text), (Arc::clone(&vector), round));
+                found.insert(hash(text), vector);
+            }
+            cache.prune();
         }
+        Ok(found)
+    }
+}
 
-        let mut kept = HashMap::new();
-        let scores = screens
-            .iter()
-            .map(|screen| {
-                let mut best = (f32::MIN, None);
-                for (c, chunk) in screen.chunks.iter().enumerate() {
-                    let key = hash(chunk);
-                    let Some(vector) = known.get(&key) else { continue };
-                    let sim = dot(&query, vector);
-                    if sim > best.0 {
-                        best = (sim, Some(c));
-                    }
-                    kept.insert(key, Arc::clone(vector));
-                }
-                let scaled =
-                    ((best.0 - model.floor) / (model.ceiling - model.floor)).clamp(0.0, 1.0);
-                (scaled, best.1.filter(|_| scaled > 0.0))
-            })
-            .collect();
-        *self.embeddings.lock().unwrap() = kept;
-        Ok(scores)
+/// Vectors by the hash of their text, each with the search that last used
+/// it, so what no recent search has used can go.
+#[derive(Default)]
+struct Cache {
+    vectors: HashMap<u64, (Arc<[f32]>, u64)>,
+    round: u64,
+}
+
+/// How many vectors the cache holds before it drops what the last few
+/// searches didn't use. A screen's chunks and words are a few hundred.
+const CACHE_LIMIT: usize = 50_000;
+const CACHE_ROUNDS: u64 = 20;
+
+impl Cache {
+    fn prune(&mut self) {
+        if self.vectors.len() > CACHE_LIMIT {
+            let keep_from = self.round.saturating_sub(CACHE_ROUNDS);
+            self.vectors.retain(|_, (_, used)| *used >= keep_from);
+        }
     }
 }
 
@@ -790,7 +997,7 @@ pub fn serve(model_id: &str, cache_dir: PathBuf) -> i32 {
     }
     for line in std::io::stdin().lines().map_while(Result::ok) {
         let reply = match serde_json::from_str::<Vec<String>>(&line) {
-            Ok(texts) => match embedder.embed(&texts, Some(EMBED_BATCH)) {
+            Ok(texts) => match embedder.embed(&texts, Some(batch_for(&texts))) {
                 Ok(vectors) => Reply::Vectors(vectors),
                 Err(e) => Reply::Error(e.to_string()),
             },
@@ -801,6 +1008,16 @@ pub fn serve(model_id: &str, cache_dir: PathBuf) -> i32 {
         }
     }
     0
+}
+
+/// Single words run many to a batch: they pad to a few tokens, where a
+/// chunk of lines pads to a hundred or more.
+fn batch_for(texts: &[String]) -> usize {
+    if texts.iter().all(|t| t.len() <= 40) {
+        64
+    } else {
+        EMBED_BATCH
+    }
 }
 
 /// When this process was started as a worker, be one and return its exit
@@ -820,12 +1037,133 @@ struct Prepared {
     path: String,
     lines: Vec<String>,
     chunks: Vec<String>,
+    /// Its distinct words, for matching word by word; empty unless asked.
+    words: Vec<String>,
 }
 
-fn prepare(screen: &Screen) -> Prepared {
+impl Prepared {
+    /// The lines that say enough to be matched by meaning on their own:
+    /// three words or more. A line like `failures:` is close to anything
+    /// about failing, and says less than the line under it.
+    fn sentences(&self) -> impl Iterator<Item = &String> {
+        self.lines.iter().filter(|l| l.split_whitespace().count() >= 3)
+    }
+}
+
+fn prepare(screen: &Screen, with_words: bool) -> Prepared {
     let lines = clean_lines(&screen.text);
     let chunks = chunks(&lines);
-    Prepared { path: screen.path.clone(), lines, chunks }
+    let words = if with_words { vocabulary(&lines) } else { Vec::new() };
+    Prepared { path: screen.path.clone(), lines, chunks, words }
+}
+
+/// A screen's distinct words worth comparing with a query's: three letters
+/// or more, letters only (so no hashes, numbers or paths), no stopwords,
+/// lowercased, newest first, at most `SCREEN_WORDS`.
+fn vocabulary(lines: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut words = Vec::new();
+    for line in lines.iter().rev() {
+        for word in line.split(|c: char| !c.is_alphabetic()) {
+            if word.chars().count() < 3 {
+                continue;
+            }
+            let word = word.to_lowercase();
+            if STOPWORDS.contains(&word.as_str()) || !seen.insert(word.clone()) {
+                continue;
+            }
+            words.push(word);
+            if words.len() == SCREEN_WORDS {
+                return words;
+            }
+        }
+    }
+    words
+}
+
+/// The newest line holding `word` as a word of its own.
+fn newest_line_with(lines: &[String], word: &str) -> Option<usize> {
+    lines.iter().rposition(|line| !occurrences(line, word, Bound::Whole).is_empty())
+}
+
+/// Where a word of the query, or of a screen, may sit in a text.
+#[derive(Clone, Copy, PartialEq)]
+enum Bound {
+    /// At the start of a word: "refund" in "refunds", not "work" in
+    /// "Network".
+    Start,
+    /// As a word of its own.
+    Whole,
+}
+
+/// Where `needle` occurs in `text`, ignoring ASCII case, as byte ranges.
+fn occurrences(text: &str, needle: &str, bound: Bound) -> Vec<(usize, usize)> {
+    let hay = text.to_ascii_lowercase();
+    let needle = needle.to_ascii_lowercase();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let letter = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(i) = hay[from..].find(&needle) {
+        let (a, b) = (from + i, from + i + needle.len());
+        let starts = !letter(hay[..a].chars().next_back());
+        if starts && (bound == Bound::Start || !letter(hay[b..].chars().next())) {
+            found.push((a, b));
+        }
+        from = b;
+    }
+    found
+}
+
+/// The runs of one to three words in a snippet, as byte ranges, with
+/// punctuation trimmed from their ends; runs across the ` · ` between
+/// lines, or of stopwords alone, are left out.
+fn spans(snippet: &str) -> Vec<(usize, usize)> {
+    let mut words: Vec<(usize, usize)> = Vec::new();
+    let mut start = None;
+    for (i, c) in snippet.char_indices().chain(std::iter::once((snippet.len(), ' '))) {
+        match (c.is_whitespace(), start) {
+            (false, None) => start = Some(i),
+            (true, Some(a)) => {
+                words.push((a, i));
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    let trim = |(a, b): (usize, usize)| {
+        let text = &snippet[a..b];
+        let lead = text.len() - text.trim_start_matches(|c: char| !c.is_alphanumeric()).len();
+        let tail = text.len() - text.trim_end_matches(|c: char| !c.is_alphanumeric()).len();
+        (a + lead, b.saturating_sub(tail).max(a + lead))
+    };
+    let mut runs = Vec::new();
+    for n in 1..=3 {
+        for group in words.windows(n) {
+            let texts: Vec<&str> = group.iter().map(|&(a, b)| &snippet[a..b]).collect();
+            if texts.contains(&"·") {
+                continue;
+            }
+            let content = texts.iter().any(|t| {
+                let t = t.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+                t.chars().count() >= 3 && !STOPWORDS.contains(&t.as_str())
+            });
+            let (a, b) = trim((group[0].0, group[n - 1].1));
+            if content && a < b {
+                runs.push((a, b));
+            }
+        }
+    }
+    runs
+}
+
+/// A byte range of `text` as UTF-16 code units, which is how JavaScript
+/// indexes the string.
+fn utf16_range(text: &str, a: usize, b: usize) -> [u32; 2] {
+    let start = text[..a].encode_utf16().count();
+    [start as u32, (start + text[a..b].encode_utf16().count()) as u32]
 }
 
 /// Box drawing, block elements, geometric shapes, braille spinners, and the
@@ -904,22 +1242,25 @@ fn query_words(query: &str) -> Vec<String> {
         .collect()
 }
 
-/// The share of `words` found on the screen, and the line holding most of
+/// How much of the query is on the screen: the share of `words` found at
+/// the start of a word, squared, so one word in three counts for little
+/// (0.11) and all of them for everything. With the line holding most of
 /// them, the lowest on the screen among equals (the newest).
 fn literal(words: &[String], lines: &[String]) -> (f32, Option<usize>) {
     if words.is_empty() {
         return (0.0, None);
     }
-    let lower: Vec<String> = lines.iter().map(|l| l.to_lowercase()).collect();
-    let found = words.iter().filter(|w| lower.iter().any(|l| l.contains(w.as_str()))).count();
-    let best = lower
+    let on = |line: &str, word: &str| !occurrences(line, word, Bound::Start).is_empty();
+    let found = words.iter().filter(|w| lines.iter().any(|l| on(l, w))).count();
+    let best = lines
         .iter()
         .enumerate()
-        .map(|(i, l)| (words.iter().filter(|w| l.contains(w.as_str())).count(), i))
+        .map(|(i, l)| (words.iter().filter(|w| on(l, w)).count(), i))
         .filter(|(n, _)| *n > 0)
         .max()
         .map(|(_, i)| i);
-    (found as f32 / words.len() as f32, best)
+    let share = found as f32 / words.len() as f32;
+    (share * share, best)
 }
 
 fn hash(text: &str) -> u64 {
@@ -967,7 +1308,7 @@ pub fn similarities(
             .collect())
     };
     let chunk_vectors: Vec<Vec<Arc<[f32]>>> =
-        screens.iter().map(|s| embed(&prepare(s).chunks)).collect::<Result<_, _>>()?;
+        screens.iter().map(|s| embed(&prepare(s, false).chunks)).collect::<Result<_, _>>()?;
     let query_vectors = embed(&queries.iter().map(|q| q.to_string()).collect::<Vec<_>>())?;
     Ok(query_vectors
         .iter()
@@ -975,6 +1316,47 @@ pub fn similarities(
             chunk_vectors
                 .iter()
                 .map(|vs| vs.iter().map(|v| dot(q, v)).fold(f32::MIN, f32::max))
+                .collect()
+        })
+        .collect())
+}
+
+/// For calibrating a model's `word_floor` and `word_ceiling` (the
+/// example's `words` mode): for each query word, the closest word on each
+/// screen, and how close.
+pub fn word_similarities(
+    model_id: &str,
+    cache_dir: PathBuf,
+    queries: &[&str],
+    screens: &[Screen],
+) -> Result<Vec<Vec<(f32, String)>>, String> {
+    let model = model(model_id).ok_or("unknown model")?;
+    let mut embedder = TextEmbedding::try_new(model.options(cache_dir)).map_err(|e| e.to_string())?;
+    let mut embed = |texts: &[String]| -> Result<Vec<Arc<[f32]>>, String> {
+        Ok(embedder
+            .embed(texts, Some(64))
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .map(normalized)
+            .collect())
+    };
+    let vocabularies: Vec<Vec<String>> = screens.iter().map(|s| prepare(s, true).words).collect();
+    let vectors: Vec<Vec<Arc<[f32]>>> = vocabularies.iter().map(|v| embed(v)).collect::<Result<_, _>>()?;
+    let query_vectors = embed(&queries.iter().map(|q| q.to_string()).collect::<Vec<_>>())?;
+    Ok(query_vectors
+        .iter()
+        .map(|q| {
+            vocabularies
+                .iter()
+                .zip(&vectors)
+                .map(|(words, vs)| {
+                    words
+                        .iter()
+                        .zip(vs)
+                        .map(|(w, v)| (dot(q, v), w.clone()))
+                        .max_by(|a, b| a.0.total_cmp(&b.0))
+                        .unwrap_or((0.0, String::new()))
+                })
                 .collect()
         })
         .collect())
@@ -1008,10 +1390,12 @@ mod tests {
             .map(|s| s.to_string())
             .collect();
         let words = query_words("Stripe WEBHOOK refund");
-        let (share, line) = literal(&words, &lines);
-        assert!((share - 2.0 / 3.0).abs() < 1e-6);
+        let (score, line) = literal(&words, &lines);
+        assert!((score - 4.0 / 9.0).abs() < 1e-6, "two words of three, squared");
         assert_eq!(line, Some(2));
         assert_eq!(literal(&query_words("on it"), &lines), (0.0, None), "too short to say anything");
+        let net = ["Network: use --host".to_string(), "a working tree".to_string()];
+        assert_eq!(literal(&query_words("work"), &net), (1.0, Some(1)), "at a word's start only");
         assert_eq!(query_words("what the header does on mobile"), ["header", "does", "mobile"]);
     }
 
@@ -1025,18 +1409,26 @@ mod tests {
         ]
     }
 
-    /// A worker that answers like the real one, from a shell: each text
-    /// gets [1, 0] if it mentions "vite", else [0, 1].
+    /// A worker that answers like the real one, from a shell, with a
+    /// made-up model that knows three things: anything mentioning "vite" is
+    /// [1, 0, 0], "engineer" and "developer" mean the same, [0, 1, 0], and
+    /// anything failing is [0, 0, 1]. Everything else is nothing, [0, 0, 0].
     fn fake_worker() -> Command {
         let mut cmd = Command::new("/bin/sh");
         cmd.arg("-c").arg(
             r#"echo '"ready"'
             while read -r line; do
               out=""
-              rest="$line"
-              while [ -n "$rest" ]; do
+              rest="${line#[\"}"
+              rest="${rest%\"]}"
+              while :; do
                 item="${rest%%\",\"*}"
-                case "$item" in *[Vv][Ii][Tt][Ee]*) v="[1,0]";; *) v="[0,1]";; esac
+                case "$item" in
+                  *[Vv][Ii][Tt][Ee]*) v="[1,0,0]";;
+                  *[Ee]ngineer*|*[Dd]eveloper*) v="[0,1,0]";;
+                  *[Ff][Aa][Ii][Ll]*) v="[0,0,1]";;
+                  *) v="[0,0,0]";;
+                esac
                 out="$out${out:+,}$v"
                 [ "$item" = "$rest" ] && break
                 rest="${rest#*\",\"}"
@@ -1099,6 +1491,8 @@ mod tests {
         let found = search.search("Vite thing", &screens());
         let b = found.hits.iter().find(|h| h.path == "/b").expect("/b by meaning");
         assert_eq!(b.relevance, 1.0);
+        assert_eq!(b.matched_by, MatchedBy::Meaning);
+        assert!(b.marks.is_empty(), "found afterwards, by `marks`");
         assert!(b.snippet.contains("VITE ready"), "{}", b.snippet);
         assert!(found.hits.iter().all(|h| h.path != "/a"), "{:?}", found.hits);
         assert_eq!(
@@ -1243,6 +1637,62 @@ mod tests {
         assert_eq!(task.log.back().unwrap().text, "Stopped, as the setting changed");
         assert_eq!(search.status(), ModelStatus::Off);
         std::fs::remove_dir_all(&cache_dir).ok();
+    }
+
+    fn ready(search: &Arc<ScreenSearch>) {
+        search.configure(Some("minilm-l6"), true);
+        wait_for(search, |s| matches!(s, ModelStatus::Ready { .. }));
+    }
+
+    #[test]
+    fn a_short_query_matches_a_word_close_to_it() {
+        let search = ScreenSearch::with_spawn(None, Box::new(|_| {}), Box::new(|_| fake_worker()));
+        ready(&search);
+        let screens = [
+            Screen {
+                path: "/jokes".into(),
+                text: "Why did the developer trust the clean badge?\nBecause unknown defaulted to zero.\n".into(),
+            },
+            Screen { path: "/b".into(), text: "VITE ready in 412 ms\n".into() },
+        ];
+        let found = search.search("engineer", &screens);
+        assert_eq!(found.hits.len(), 1, "{:?}", found.hits);
+        let hit = &found.hits[0];
+        assert_eq!(hit.path, "/jokes");
+        assert_eq!(hit.matched_by, MatchedBy::Word);
+        assert_eq!(hit.snippet, "Why did the developer trust the clean badge?");
+        assert_eq!(hit.marks, [[12, 21]], "\"developer\"");
+    }
+
+    #[test]
+    fn a_text_match_marks_the_query_words() {
+        let search = ScreenSearch::with_spawn(None, Box::new(|_| {}), Box::new(|_| fake_worker()));
+        ready(&search);
+        let screens = [Screen { path: "/a".into(), text: "→ test result: ok; result kept\n".into() }];
+        let hit = &search.search("result", &screens).hits[0];
+        assert_eq!(hit.matched_by, MatchedBy::Text);
+        // In UTF-16 units, past the arrow.
+        assert_eq!(hit.marks, [[7, 13], [19, 25]]);
+    }
+
+    #[test]
+    fn marks_point_at_the_closest_words_of_a_match_by_meaning() {
+        let search = ScreenSearch::with_spawn(None, Box::new(|_| {}), Box::new(|_| fake_worker()));
+        ready(&search);
+        let snippets = ["Why did the developer trust the clean badge? · next line".to_string()];
+        assert_eq!(search.marks("the engineer", &snippets), [vec![[12, 21]]]);
+        assert_eq!(search.marks("nothing alike", &snippets), [Vec::<[u32; 2]>::new()]);
+    }
+
+    #[test]
+    fn runs_are_words_trimmed_of_punctuation_within_a_line() {
+        let snippet = "Stripe-Signature throws, the event · next";
+        let runs: Vec<&str> = spans(snippet).into_iter().map(|(a, b)| &snippet[a..b]).collect();
+        assert!(runs.contains(&"Stripe-Signature"));
+        assert!(runs.contains(&"throws"), "comma trimmed: {runs:?}");
+        assert!(runs.contains(&"throws, the event"));
+        assert!(!runs.iter().any(|r| r.contains('·')), "{runs:?}");
+        assert!(!runs.contains(&"the"), "stopwords alone are no run");
     }
 
     #[test]

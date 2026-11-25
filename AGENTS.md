@@ -611,22 +611,44 @@ redundant complexity and are not.
     backlog), so no terminal parses its output while nobody searches. An
     earlier plan kept a vector per session updated from its output, and
     was dropped for exactly that cost.
-  - **Two scores, and the better one counts.** Literal: the share of the
-    query's words (three letters or more, no stopwords; "on" matched every
-    `On branch …`) found on the screen. That is what finds identifiers and
-    error codes, which a small embedding model blurs. By meaning: cosine
-    similarity to the screen's best chunk, scaled between the model's
-    `floor` and `ceiling` to 0..1. In the palette a hit is worth
-    `SCREEN_WEIGHT` (0.75) per query character at full relevance, as if the
-    query had matched a workspace directory. A branch whose name doesn't
-    match is listed for its screen alone. Choosing a row found that way goes
-    to the terminal that matched. The matched line is shown under the row,
-    since a row found by its screen would otherwise look like a random
-    result.
+  - **Three scores, and the best one counts** (`ScreenSearch::score`).
+    *Text*: the share of the query's words (three letters or more, no
+    stopwords; "on" matched every `On branch …`) found at the start of a
+    word on the screen ("work" matched Net*work* before that), squared, so
+    one word in three counts for little. That is what finds identifiers and
+    error codes, which a small embedding model blurs. *Word*, for a query
+    of one or two words: each of them against the closest word on the
+    screen, by the same model, scaled between `word_floor` and
+    `word_ceiling`. Embedded as a passage, "why did the developer trust the
+    clean badge?" is about trusting badges, and scored no higher against
+    "engineer" than unrelated text did; the word "developer" on its own
+    scores 0.56 against it, where unrelated words stay under 0.5.
+    *Meaning*: cosine similarity to the closest chunk or line (three
+    words or more), scaled between `floor` and `ceiling`, a line with a
+    margin (`LINE_MARGIN`): a line said in a chunk of other things is
+    diluted there, and short texts are noisier. Meaning isn't asked of a
+    single word, which against a passage scored as much at random
+    ("engineer" found "Welcome to the agent") as where it fits.
+    In the palette a hit is worth `SCREEN_WEIGHT` (0.75) per query
+    character at full relevance, as if the query had matched a workspace
+    directory. A branch whose name doesn't match is listed for its screen
+    alone. Choosing a row found that way goes to the terminal that
+    matched. The matched line is shown under the row, since a row found by
+    its screen would otherwise look like a random result.
+  - **What is highlighted is what matched** (`Hit::marks`, ranges in
+    UTF-16 units as JavaScript indexes a string): the query's words for a
+    text match, the close word for a word match ("developer" for
+    "engineer"). A match by meaning gets its marks in a second request
+    (`screen_search_marks`), once the results are on screen: the run of
+    one to three of its words closest to the query, which takes a
+    fraction of a second per snippet the first time. Highlighting the
+    query's own words in it pointed at a coincidence ("work" in a line
+    that matched "other things to work on" as a whole) and read as a
+    literal match.
   - **Chunks end where a line's hash says** (`chunks`), not every n lines.
-    Embeddings are cached by chunk text, and with fixed windows one new line
-    from a dev server shifts every window and makes every chunk new. A
-    search after the first takes ~7 ms on the small model.
+    Vectors are cached by text (chunks, lines, words, word runs), and with
+    fixed windows one new line from a dev server shifts every window and
+    makes every chunk new. A search after the first takes 7–20 ms.
   - **The model runs in a worker process**: the app's own binary started
     with `--screen-search-worker` (`main.rs` checks for it before Tauri
     starts), one JSON line per request. ONNX Runtime takes ~280 MB plus

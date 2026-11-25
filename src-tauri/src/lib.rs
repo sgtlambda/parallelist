@@ -953,6 +953,20 @@ async fn screen_search(
         .map_err(|e| e.to_string())
 }
 
+/// For snippets the palette shows that matched by meaning, the words in
+/// each closest to `query`, to highlight (`ScreenSearch::marks`).
+#[tauri::command]
+async fn screen_search_marks(
+    state: State<'_, AppState>,
+    query: String,
+    snippets: Vec<String>,
+) -> Result<Vec<Vec<[u32; 2]>>, String> {
+    let search = Arc::clone(&state.screen_search);
+    tauri::async_runtime::spawn_blocking(move || search.marks(&query, &snippets))
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Where the screen search model is, for Settings. Changes arrive as
 /// `screen-search-status` events.
 #[tauri::command]
@@ -1285,6 +1299,7 @@ pub fn run() {
             terminal_mark,
             terminal_question,
             screen_search,
+            screen_search_marks,
             screen_search_status,
             screen_search_models,
             quit_app,

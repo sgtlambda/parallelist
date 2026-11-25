@@ -99,15 +99,38 @@ async function run() {
     const q = wanted
     try {
       const found = await api.screenSearch(q)
-      // Not if the palette closed or the query was cleared meanwhile.
-      if (wanted !== null) screenFound.value = found
       screenStatus.value = found.status
+      // Not if the palette closed or the query was cleared meanwhile.
+      if (wanted === null) continue
+      screenFound.value = found
+      // Then which words matched, for the matches by meaning on screen,
+      // unless the query has moved on already.
+      if (!dirty) await markMeanings(found)
     } catch {
       // The palette goes on with branch names.
     }
   }
   inFlight = false
   screenSearching.value = false
+}
+
+/** The rows the palette shows at most, of which the matches by meaning get
+ *  their marks. */
+const MARKED = 12
+
+async function markMeanings(found: ScreenFound) {
+  const unmarked = found.hits.slice(0, MARKED).filter((h) => h.matchedBy === 'meaning' && !h.marks.length)
+  if (!unmarked.length) return
+  const marks = await api.screenSearchMarks(
+    found.query,
+    unmarked.map((h) => h.snippet),
+  )
+  if (screenFound.value?.query !== found.query) return
+  const byPath = new Map(unmarked.map((h, i) => [h.path, marks[i] ?? []]))
+  screenFound.value = {
+    ...found,
+    hits: found.hits.map((h) => (byPath.has(h.path) ? { ...h, marks: byPath.get(h.path)! } : h)),
+  }
 }
 
 /**
@@ -126,16 +149,7 @@ export function screenHits(query: string): Map<string, ScreenHit> {
   return hits
 }
 
-/** Where the query's words occur in `text`, for highlighting a snippet. */
-export function wordPositions(text: string, query: string): number[] {
-  const lower = text.toLowerCase()
-  const positions: number[] = []
-  for (const word of query.toLowerCase().split(/\s+/)) {
-    // As the backend looks for them literally: shorter words are noise.
-    if (word.length < 3) continue
-    for (let i = lower.indexOf(word); i >= 0; i = lower.indexOf(word, i + word.length)) {
-      for (let j = i; j < i + word.length; j++) positions.push(j)
-    }
-  }
-  return positions
+/** A hit's marks as the positions `highlight` takes. */
+export function markPositions(marks: [number, number][]): number[] {
+  return marks.flatMap(([start, end]) => Array.from({ length: end - start }, (_, i) => start + i))
 }

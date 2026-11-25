@@ -12,6 +12,11 @@
 //! runs through a worker process started from this binary.
 //!
 //! cargo run --release --example screen_search -- live <model cache dir> [model id]
+//!
+//! With `words` first, it calibrates matching word by word instead: single
+//! words against the closest word on each screen.
+//!
+//! cargo run --release --example screen_search -- words <model cache dir> [model id…]
 
 use parallelist_lib::git::WorkspaceKind;
 use parallelist_lib::screen_search::{self, similarities, Screen, ScreenSearch, MODELS};
@@ -104,6 +109,18 @@ $ docker compose up
 postgres-1  | LOG:  database system is ready to accept connections
 redis-1     | * Ready to accept connections tcp
 postgres-1  | LOG:  checkpoint complete: wrote 44 buffers"),
+    ("agent-jokes", "\
+> tell me some jokes about this project
+⏺ 1. A developer had twelve sibling directories called app, app-b, app-c, all the way
+  to app-l. Asked which one held the fix, they said \"the one I didn't delete.\"
+  2. git fetch walks into a bar. Then it waits there. Forever. No data, no error. The
+  bartender finally has to killpg the whole group, because its ssh friend was still
+  sitting in the booth seven minutes later.
+  3. Why did the developer trust the \"clean\" badge? Because \"unknown\" defaulted to
+  zero. They don't trust badges anymore.
+  4. A worktree and a clone go to couples therapy. The therapist asks what the
+  difference between them is.
+  If you want something real to work on next, the Open items list has some candidates."),
     ("pnpm", "\
 $ pnpm install
 Lockfile is up to date, resolution step is skipped
@@ -140,17 +157,97 @@ const QUERIES: &[(&str, Option<&str>)] = &[
     ("search ranking", None),
 ];
 
+/// A single word, and the screen with a word close to it but not the word
+/// itself (`None`: no screen has one).
+const WORD_QUERIES: &[(&str, Option<&str>)] = &[
+    ("engineer", Some("agent-jokes")),
+    ("programmer", Some("agent-jokes")),
+    ("pub", Some("agent-jokes")),
+    ("marriage", Some("agent-jokes")),
+    ("permanently", Some("agent-jokes")),
+    ("dependency", Some("pnpm")),
+    ("compile", Some("cargo")),
+    ("signin", Some("agent-auth")),
+    ("logout", Some("agent-auth")),
+    ("payment", Some("agent-stripe")),
+    ("kubernetes", None),
+    ("translation", None),
+    ("newsletter", None),
+    ("upload", None),
+    ("weather", None),
+    ("keyboard", None),
+    ("billing", None),
+    ("chart", None),
+];
+
+/// Each word query's closest word on every screen, and where the floor
+/// and ceiling should go.
+fn words(cache: PathBuf, wanted: &[String]) {
+    let screens: Vec<Screen> = SCREENS
+        .iter()
+        .map(|(name, text)| Screen { path: name.to_string(), text: text.to_string() })
+        .collect();
+    let queries: Vec<&str> = WORD_QUERIES.iter().map(|(q, _)| *q).collect();
+    for model in MODELS.iter().filter(|m| wanted.is_empty() || wanted.iter().any(|w| w == m.id)) {
+        let sims = match screen_search::word_similarities(model.id, cache.clone(), &queries, &screens) {
+            Ok(sims) => sims,
+            Err(e) => {
+                println!("{}: {e}", model.id);
+                continue;
+            }
+        };
+        println!("\n=== {} words", model.id);
+        let (mut right, mut wrong) = (Vec::new(), Vec::new());
+        for ((query, target), row) in WORD_QUERIES.iter().zip(&sims) {
+            let mut ranked: Vec<(&str, &(f32, String))> = SCREENS.iter().map(|(n, _)| *n).zip(row).collect();
+            ranked.sort_by(|a, b| b.1 .0.total_cmp(&a.1 .0));
+            for (name, (sim, _)) in &ranked {
+                if Some(*name) == *target { right.push(*sim) } else { wrong.push(*sim) }
+            }
+            let shown: Vec<String> = ranked
+                .iter()
+                .take(3)
+                .map(|(n, (s, w))| format!("{}{n}:{w}={s:.2}", if Some(*n) == *target { "*" } else { "" }))
+                .collect();
+            println!("  {query:12} {}", shown.join("  "));
+        }
+        println!(
+            "  right: min {:.2} median {:.2}\n  other: median {:.2} p90 {:.2} p97 {:.2} max {:.2}",
+            percentile(&mut right.clone(), 0.0),
+            percentile(&mut right.clone(), 0.5),
+            percentile(&mut wrong.clone(), 0.5),
+            percentile(&mut wrong.clone(), 0.9),
+            percentile(&mut wrong.clone(), 0.97),
+            percentile(&mut wrong.clone(), 1.0),
+        );
+    }
+}
+
 fn percentile(values: &mut [f32], p: f32) -> f32 {
     values.sort_by(f32::total_cmp);
     values[((values.len() - 1) as f32 * p).round() as usize]
 }
 
-/// Shells printing a few of `SCREENS`, searched as the palette would.
+/// A snippet with its marks in [brackets].
+fn marked(snippet: &str, marks: &[[u32; 2]]) -> String {
+    let units: Vec<u16> = snippet.encode_utf16().collect();
+    let mut out = String::new();
+    let mut at = 0;
+    for [a, b] in marks {
+        let (a, b) = (*a as usize, *b as usize);
+        out += &String::from_utf16_lossy(&units[at..a]);
+        out += &format!("[{}]", String::from_utf16_lossy(&units[a..b]));
+        at = b;
+    }
+    out + &String::from_utf16_lossy(&units[at..])
+}
+
+/// Shells printing `SCREENS`, searched as the palette would.
 fn live(cache: PathBuf, model: &str) {
     let terminals = Terminals::default();
     let root = std::env::temp_dir().join(format!("parallelist-live-{}", std::process::id()));
     let mut paths = Vec::new();
-    for (name, text) in SCREENS.iter().take(6) {
+    for (name, text) in SCREENS {
         let dir = root.join(name);
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         let file = dir.join("screen.txt");
@@ -183,12 +280,36 @@ fn live(cache: PathBuf, model: &str) {
         std::thread::sleep(Duration::from_millis(50));
     }
     println!("worker ready after {:?}", started.elapsed());
-    for query in ["payment signature", "payment signature verification", "failing test", "header layout on mobile", "refunds", "kubernetes deploy"] {
+    for query in [
+        "payment signature",
+        "payment signature verification",
+        "failing test",
+        "header layout on mobile",
+        "refunds",
+        "kubernetes deploy",
+        "engineer",
+        "pub",
+        "other things to work on",
+    ] {
         let started = Instant::now();
         let found = search.search(query, &terminals.screens());
         println!("\n{query:?} in {:?}", started.elapsed());
         for hit in &found.hits {
-            println!("  {:.2} {:14} {}", hit.relevance, name_of(&hit.path), hit.snippet);
+            println!("  {:.2} {:14} {:?} {}", hit.relevance, name_of(&hit.path), hit.matched_by, marked(&hit.snippet, &hit.marks));
+        }
+        let meaning: Vec<String> = found
+            .hits
+            .iter()
+            .filter(|h| h.marks.is_empty())
+            .map(|h| h.snippet.clone())
+            .collect();
+        if !meaning.is_empty() {
+            let started = Instant::now();
+            let marks = search.marks(query, &meaning);
+            println!("  marks in {:?}:", started.elapsed());
+            for (snippet, marks) in meaning.iter().zip(marks) {
+                println!("    {}", marked(snippet, &marks));
+            }
         }
     }
     for (path, _) in &paths {
@@ -201,6 +322,10 @@ fn main() {
     // This binary is the worker too, in `live`, as the app's is.
     if let Some(code) = screen_search::serve_from_args() {
         std::process::exit(code);
+    }
+    if std::env::args().nth(1).as_deref() == Some("words") {
+        let cache = PathBuf::from(std::env::args().nth(2).expect("usage: screen_search words <model cache dir> [model id…]"));
+        return words(cache, &std::env::args().skip(3).collect::<Vec<_>>());
     }
     if std::env::args().nth(1).as_deref() == Some("live") {
         let cache = PathBuf::from(std::env::args().nth(2).expect("usage: screen_search live <model cache dir> [model id]"));

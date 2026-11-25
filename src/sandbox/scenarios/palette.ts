@@ -46,19 +46,26 @@ export default defineGroup('Palette', [
   {
     id: 'screens',
     title: 'Found by what terminals show',
-    note: 'No branch is called anything like "stripe webhook"; two terminals show it, one literally and one by meaning. Each row says what matched.',
+    note: 'No branch is called anything like "stripe webhook"; two terminals show it, one by its words and one by meaning, each highlighting what matched.',
     component: CommandPalette,
     setup: () =>
       open('stripe webhook', () => [
         {
           path: billing,
           relevance: 1,
+          matchedBy: 'text',
           snippet: 'The controller calls Webhook::constructEvent before checking the Stripe-Signature header · Should I return a 400 early instead?',
+          marks: [
+            [21, 28],
+            [65, 71],
+          ],
         },
         {
           path: search,
           relevance: 0.42,
+          matchedBy: 'meaning',
           snippet: 'POST /payments/events 500 in 31ms · signature verification failed for event evt_1Q…',
+          marks: [[36, 58]],
         },
       ]),
   },
@@ -69,7 +76,29 @@ export default defineGroup('Palette', [
     component: CommandPalette,
     setup: () =>
       open('header', () => [
-        { path: search, relevance: 1, snippet: '5:12:01 PM [vite] hmr update /src/components/Header.vue' },
+        {
+          path: search,
+          relevance: 1,
+          matchedBy: 'text',
+          snippet: '5:12:01 PM [vite] hmr update /src/components/Header.vue',
+          marks: [[45, 51]],
+        },
+      ]),
+  },
+  {
+    id: 'synonym',
+    title: 'A word close to the query',
+    note: '"engineer" is on no screen; "developer" is, and is what lights up.',
+    component: CommandPalette,
+    setup: () =>
+      open('engineer', () => [
+        {
+          path: billing,
+          relevance: 0.19,
+          matchedBy: 'word',
+          snippet: '3. Why did the developer trust the "clean" badge? Because "unknown" defaulted to',
+          marks: [[15, 24]],
+        },
       ]),
   },
   {

@@ -108,6 +108,14 @@ export interface ScreenHit {
   relevance: number
   /** The text that matched. */
   snippet: string
+  /** `text`: the query's words are on it. `word`: a word close to one of
+   *  them is ("developer" for "engineer"). `meaning`: a few lines on it are
+   *  close to the query as a whole. */
+  matchedBy: 'text' | 'word' | 'meaning'
+  /** What to highlight in `snippet`, as `[start, end)` string indices. A
+   *  match by meaning has none until `screenSearchMarks` finds the words
+   *  in it closest to the query. */
+  marks: [number, number][]
 }
 
 export interface ScreenFound {
@@ -376,6 +384,11 @@ export const api = {
   /** Terminals whose screen matches `query`, literally or by meaning. Starts
    *  the model if it isn't running; until it is, matches are literal. */
   screenSearch: (query: string) => invoke<ScreenFound>('screen_search', { query }),
+  /** For snippets matched by meaning, the words in each closest to the
+   *  query, as ranges to highlight. A fraction of a second per snippet the
+   *  first time, so asked once the results are on screen. */
+  screenSearchMarks: (query: string, snippets: string[]) =>
+    invoke<[number, number][][]>('screen_search_marks', { query, snippets }),
   screenSearchStatus: () => invoke<ScreenSearchStatus>('screen_search_status'),
   screenSearchModels: () => invoke<ScreenSearchModel[]>('screen_search_models'),
 }
