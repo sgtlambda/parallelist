@@ -1,9 +1,13 @@
 /**
- * Light or dark on demand. `styles.css` only has the `prefers-color-scheme`
- * block, which a page cannot flip, so a forced theme copies that block's
- * `:root` values (or the plain ones) onto the root element, where they win.
- * The app itself stays as it is.
+ * Light or dark on demand. The themes' stylesheet picks a palette by
+ * `prefers-color-scheme`, which a page cannot flip, so a forced appearance
+ * sets the shown theme's palette for it on the root element, where it wins.
+ * The app itself stays as it is. (Here "theme" is the appearance; the
+ * app's colour themes are `themes.ts`.)
  */
+import { watch } from 'vue'
+import { THEMES, shownTheme, themeById } from '../themes'
+
 
 export type Theme = 'system' | 'light' | 'dark'
 
@@ -27,39 +31,23 @@ export function saveTheme(theme: Theme) {
   }
 }
 
-let applied: string[] = []
+let forced: Theme = 'system'
 
-function rootRule(dark: boolean): CSSStyleRule | null {
-  for (const sheet of document.styleSheets) {
-    let rules: CSSRuleList
-    try {
-      rules = sheet.cssRules
-    } catch {
-      continue
-    }
-    for (const rule of rules) {
-      if (dark && rule instanceof CSSMediaRule && rule.conditionText.includes('prefers-color-scheme: dark')) {
-        for (const inner of rule.cssRules) {
-          if (inner instanceof CSSStyleRule && inner.selectorText === ':root') return inner
-        }
-      }
-      if (!dark && rule instanceof CSSStyleRule && rule.selectorText === ':root' && rule.style.getPropertyValue('--bg')) {
-        return rule
-      }
-    }
-  }
-  return null
+/** Sets the shown theme's palette for the forced appearance on the root
+ *  element, where it wins over the stylesheet's `prefers-color-scheme`. */
+function apply() {
+  const root = document.documentElement
+  for (const name of Object.keys(THEMES[0].light)) root.style.removeProperty(`--${name}`)
+  root.style.removeProperty('color-scheme')
+  if (forced === 'system') return
+  const palette = themeById(shownTheme.value)[forced]
+  for (const [name, value] of Object.entries(palette)) root.style.setProperty(`--${name}`, value)
+  root.style.setProperty('color-scheme', forced)
 }
 
+watch(shownTheme, apply)
+
 export function applyTheme(theme: Theme) {
-  const root = document.documentElement
-  applied.forEach((name) => root.style.removeProperty(name))
-  applied = []
-  if (theme === 'system') return
-  const rule = rootRule(theme === 'dark')
-  if (!rule) return
-  for (const name of Array.from(rule.style)) {
-    root.style.setProperty(name, rule.style.getPropertyValue(name))
-    applied.push(name)
-  }
+  forced = theme
+  apply()
 }

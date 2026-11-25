@@ -155,6 +155,15 @@ pub struct AppConfig {
     /// Shared by every terminal, so zooming one zooms them all.
     #[serde(default = "default_terminal_font_size")]
     pub terminal_font_size: f64,
+    /// The colour theme's id (`src/themes.ts`). Each theme has a light and a
+    /// dark palette, picked by the OS appearance. An id the frontend doesn't
+    /// know falls back to its default, so this isn't checked here.
+    #[serde(default = "default_theme")]
+    pub theme: String,
+}
+
+pub fn default_theme() -> String {
+    "graphite".into()
 }
 
 fn default_sidebar_width() -> f64 {
@@ -194,6 +203,7 @@ impl Default for AppConfig {
             list_width: None,
             detail_width: default_detail_width(),
             terminal_font_size: default_terminal_font_size(),
+            theme: default_theme(),
         }
     }
 }

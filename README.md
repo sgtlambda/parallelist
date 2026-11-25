@@ -124,6 +124,10 @@ Settings are edited in the app and stored in
 project can commit a `.parallelist.json` at its root to override `baseBranch`,
 `pathTemplate`, `setupSteps` and `openTargets`.
 
+Settings › General has five colour themes: Graphite, Sand, Moss, Tide and
+Plum. Each has a light and a dark palette, and the system appearance picks
+between them. The marks stay orange and blue in all of them.
+
 A first launch starts with no "Open in" targets. Before the first project is
 added, it offers the coding agents, editors, terminal apps and git clients it
 finds installed, with the agents and Finder picked.

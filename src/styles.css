@@ -1,30 +1,5 @@
 :root {
-  --bg: #f6f6f7;
-  --bg-raised: #ffffff;
-  --bg-sidebar: #ececee;
-  --bg-hover: rgba(0, 0, 0, 0.045);
-  --bg-active: rgba(0, 0, 0, 0.075);
-  --border: rgba(0, 0, 0, 0.11);
-  --border-soft: rgba(0, 0, 0, 0.06);
-  --text: #1c1c1e;
-  --text-dim: #6d6d72;
-  --text-faint: #96969c;
-  --accent: #2f6fed;
-  --accent-fg: #ffffff;
-  --green: #1a7f37;
-  --red: #c93c37;
-  --danger-bg: #c93c37;
-  --danger-fg: #ffffff;
-  --amber: #9a6700;
-  --orange: #d0630e;
-  --purple: #7b47c4;
-  --skeleton: rgba(0, 0, 0, 0.07);
-  --skeleton-hi: rgba(0, 0, 0, 0.13);
-  /* Behind a label laid over other content: away from the text colour. */
-  --label-scrim: rgba(255, 255, 255, 0.6);
-  /* The chosen segment of a segmented control, raised off its track. */
-  --control-on: #ffffff;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  /* Colours are the theme's, in `themes.ts`. */
   --radius: 7px;
   --titlebar-h: 44px;
   /* The line the build's branch name takes under the title bar (App.vue). */
@@ -37,37 +12,6 @@
      into whatever space is laid out against the window's edge. */
   --window-edge: 1px;
   --sidebar-w: 216px;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1c1c1e;
-    --bg-raised: #262629;
-    --bg-sidebar: #202022;
-    --bg-hover: rgba(255, 255, 255, 0.055);
-    --bg-active: rgba(255, 255, 255, 0.09);
-    --border: rgba(255, 255, 255, 0.12);
-    --border-soft: rgba(255, 255, 255, 0.07);
-    --text: #f2f2f4;
-    --text-dim: #9e9ea5;
-    --text-faint: #6f6f77;
-    --accent: #4b8bff;
-    --accent-fg: #ffffff;
-    --green: #4ac26b;
-    --red: #f2695f;
-    --danger-bg: #c4423a;
-    --danger-fg: #ffffff;
-    --amber: #d4a72c;
-    --orange: #f0883e;
-    --purple: #b585f5;
-    --skeleton: rgba(255, 255, 255, 0.07);
-    --skeleton-hi: rgba(255, 255, 255, 0.15);
-    --label-scrim: rgba(0, 0, 0, 0.2);
-    --control-on: #4a4a4f;
-    --shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
-    color-scheme: dark;
-  }
 }
 
 * {
@@ -441,15 +385,15 @@ code,
 
 /* No border: a wash of the state's colour is all that marks a card out,
    so the ones that need the user are the only ones with colour behind
-   them. Blocked is the mark's orange, ready the accent's blue, mixed over
+   them. Blocked is the mark's orange, ready its blue, mixed over
    the strip's own colour so a card is opaque where the task box's backdrop
    fades over it. */
 .attention-card.ready {
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-sidebar));
+  background: color-mix(in srgb, var(--ready) 12%, var(--bg-sidebar));
 }
 
 .attention-card.ready:hover {
-  background: color-mix(in srgb, var(--accent) 18%, var(--bg-sidebar));
+  background: color-mix(in srgb, var(--ready) 18%, var(--bg-sidebar));
 }
 
 .attention-card.blocked {
@@ -1171,7 +1115,8 @@ code,
    in the colour of what it sits on. Blue when a turn finished out of sight,
    orange when it is blocked on an answer. The negative margin keeps the
    box from making its row taller than the bare glyph does. On a selected
-   row, whose background is the accent, the blue box inverts once more. */
+   row, whose background is the accent, the box inverts: the accent's
+   foreground, with the glyph knocked out of it in the accent. */
 .terminal-mark.ready,
 .terminal-mark.blocked {
   padding: 1px;
@@ -1181,7 +1126,7 @@ code,
 }
 
 .terminal-mark.ready {
-  background: var(--accent);
+  background: var(--ready);
 }
 
 .terminal-mark.blocked {
@@ -2111,6 +2056,99 @@ form.modal:not(.wide) .modal-body {
 .set-foot {
   margin: 0 2px;
   color: var(--text-faint);
+}
+
+/* The theme picker: a tile per theme, its light palette beside its dark
+   one, each drawn by setting the palette's tokens on its half. */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+}
+
+.theme-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.theme-tile input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.theme-preview {
+  display: flex;
+  height: 56px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.theme-tile:hover .theme-preview {
+  outline-color: var(--border);
+}
+
+.theme-tile.on .theme-preview {
+  outline-color: var(--accent);
+}
+
+.theme-tile input:focus-visible + .theme-preview {
+  outline-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.theme-half {
+  display: flex;
+  flex: 1;
+  background: var(--bg-raised);
+}
+
+.theme-side {
+  flex: none;
+  width: 30%;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-soft);
+}
+
+.theme-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 6px;
+}
+
+.theme-line {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--text-faint);
+  opacity: 0.6;
+}
+
+.theme-line.accent {
+  height: 6px;
+  background: var(--accent);
+  opacity: 1;
+}
+
+.theme-line.short {
+  width: 60%;
+}
+
+.theme-name {
+  padding-left: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.theme-tile.on .theme-name {
+  color: var(--text);
+  font-weight: 550;
 }
 
 .set-card,

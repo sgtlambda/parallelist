@@ -71,6 +71,8 @@ export interface AppConfig {
   detailWidth: number
   /** Every terminal's, so zooming one zooms them all. */
   terminalFontSize: number
+  /** A theme's id from `themes.ts`; an unknown one shows the default. */
+  theme: string
 }
 
 export type TargetCategory = 'agent' | 'editor' | 'terminal' | 'git' | 'other'

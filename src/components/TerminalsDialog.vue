@@ -545,7 +545,7 @@ const plural = (n: number) => (n === 1 ? '1 terminal' : `${n} terminals`)
 }
 
 .doing.ready {
-  color: var(--accent);
+  color: var(--ready);
 }
 
 .doing.blocked {
