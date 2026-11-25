@@ -21,6 +21,7 @@ import { setHomeDirectory } from './format'
 import { runCreateTargets } from './openIn'
 import { paletteOpen } from './palette'
 import { startTaskSync } from './tasks'
+import { startScreenSearchSync } from './screenSearch'
 import { syncTerminals, terminalShown, zoomTerminals } from './terminal'
 import {
   DETAIL_MIN,
@@ -210,6 +211,7 @@ let stopTerminalSync: (() => void) | null = null
 let stopSettingsMenu: (() => void) | null = null
 let stopCreateMenu: (() => void) | null = null
 let stopConfirmQuit: (() => void) | null = null
+let stopScreenSearchSync: (() => void) | null = null
 const quitAsk = ref<{ running: number; waiting: number } | null>(null)
 
 onMounted(async () => {
@@ -235,6 +237,7 @@ onMounted(async () => {
   stopConfirmQuit = await onConfirmQuit((running, waiting) => {
     quitAsk.value = { running, waiting }
   })
+  stopScreenSearchSync = await startScreenSearchSync()
   await loadConfig()
   await refresh({ fetch: true })
   startBackgroundSync()
@@ -246,6 +249,7 @@ onUnmounted(() => {
   stopSettingsMenu?.()
   stopCreateMenu?.()
   stopConfirmQuit?.()
+  stopScreenSearchSync?.()
   stopBackgroundSync()
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('contextmenu', onContextMenu)

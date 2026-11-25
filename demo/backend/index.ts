@@ -4,6 +4,9 @@ import type {
   CreateRequest,
   OpenTarget,
   RemovalImpact,
+  ScreenFound,
+  ScreenSearchModel,
+  ScreenSearchStatus,
   TargetSuggestion,
   WorkspaceKind,
 } from '../../src/api'
@@ -233,6 +236,40 @@ const handlers: Record<string, Handler> = {
   },
   terminal_mark: ({ path, mark }: { path: string; mark: 'unread' | 'blocked' | 'clear' | 'snooze' }) =>
     terminals.mark(path, mark),
+
+  // A page has no model to run, so the demo's screen search is literal
+  // only, as the real one is until its model is ready.
+  screen_search_models: (): ScreenSearchModel[] => [
+    { id: 'minilm-l6', label: 'Small', name: 'all-MiniLM-L6-v2', downloadMb: 90, memoryMb: 500 },
+    { id: 'minilm-l12', label: 'Medium', name: 'all-MiniLM-L12-v2', downloadMb: 135, memoryMb: 550 },
+    { id: 'mpnet-base', label: 'Large', name: 'all-mpnet-base-v2', downloadMb: 440, memoryMb: 1200 },
+  ],
+  screen_search_status: (): ScreenSearchStatus =>
+    config.screenSearch ? { state: 'idle', model: config.screenSearchModel } : { state: 'off' },
+  screen_search: ({ query }: { query: string }): ScreenFound => {
+    const q = query.trim()
+    const status: ScreenSearchStatus = config.screenSearch
+      ? { state: 'idle', model: config.screenSearchModel }
+      : { state: 'off' }
+    const words = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 3)
+    if (!config.screenSearch || q.length < 3 || !words.length) return { query: q, status, hits: [] }
+    const hits = terminals
+      .screens()
+      .map(({ path, lines }) => {
+        const lower = lines.map((l) => l.toLowerCase())
+        const found = words.filter((w) => lower.some((l) => l.includes(w))).length
+        let best = -1
+        let most = 0
+        lower.forEach((l, i) => {
+          const n = words.filter((w) => l.includes(w)).length
+          if (n > 0 && n >= most) [best, most] = [i, n]
+        })
+        return { path, relevance: found / words.length, snippet: best >= 0 ? lines[best].slice(0, 200) : '' }
+      })
+      .filter((hit) => hit.relevance > 0)
+      .sort((a, b) => b.relevance - a.relevance)
+    return { query: q, status, hits }
+  },
 }
 
 function dropBranch(id: string, name: string) {

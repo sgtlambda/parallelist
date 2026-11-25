@@ -7,11 +7,24 @@ import { highlight } from '../fuzzy'
 import { paletteLoading, paletteOpen, refreshPalette, searchPalette, type Result } from '../palette'
 import { goToEntry } from '../attention'
 import { enterShellOf } from '../enterShell'
+import {
+  screenSearching,
+  screenStatus,
+  searchScreens,
+  stopScreenSearch,
+  wordPositions,
+} from '../screenSearch'
+import { state } from '../store'
+import { enterTerminal } from '../terminal'
 import { useEscape } from '../useEscape'
 
 /** Rendered at most; the query narrows it long before anyone scrolls that
  *  far. */
 const LIMIT = 60
+
+/** Typing pauses this long before the screens are searched. Branch names
+ *  are matched on every key; a screen search costs the model a moment. */
+const SCREEN_DEBOUNCE_MS = 150
 
 const query = ref('')
 const index = ref(0)
@@ -24,8 +37,12 @@ const results = computed(() => (paletteOpen.value ? searchPalette(query.value, L
  *  a terminal. Not after going to a branch: that is somewhere else. */
 let returnFocus: HTMLElement | null = null
 
+let screenTimer: ReturnType<typeof setTimeout> | undefined
+
 watch(paletteOpen, (open) => {
   if (!open) {
+    clearTimeout(screenTimer)
+    stopScreenSearch()
     returnFocus?.focus()
     returnFocus = null
     return
@@ -37,9 +54,20 @@ watch(paletteOpen, (open) => {
   void nextTick(() => input.value?.focus())
 })
 
-watch(query, () => {
+watch(query, (q) => {
   index.value = 0
   list.value?.scrollTo({ top: 0 })
+  clearTimeout(screenTimer)
+  screenTimer = setTimeout(() => searchScreens(q), SCREEN_DEBOUNCE_MS)
+})
+
+const screensOn = computed(() => !!state.config?.screenSearch)
+
+const busy = computed(() => paletteLoading.value || (screensOn.value && screenSearching.value))
+
+const busyTitle = computed(() => {
+  if (paletteLoading.value) return 'Reading branches'
+  return screenStatus.value.state === 'loading' ? 'Starting the search model' : 'Searching terminals'
 })
 
 function close() {
@@ -55,7 +83,12 @@ async function choose(result: Result | undefined) {
   // Once the palette is gone: a terminal shown while its scrim is up
   // doesn't take the keyboard (`mayTakeFocus`).
   await nextTick()
-  goToEntry(result.entry)
+  // Found for what a terminal shows: to that terminal.
+  if (result.screen) {
+    enterTerminal(result.entry.projectId, result.entry.branch.name, result.screen.path)
+  } else {
+    goToEntry(result.entry)
+  }
 }
 
 /** Straight into the branch's shell, as double-clicking it in the list does. */
@@ -63,6 +96,13 @@ function enter(result: Result | undefined) {
   if (!result) return
   returnFocus = null
   paletteOpen.value = false
+  // Found for what a terminal shows: that terminal is the shell.
+  if (result.screen) {
+    void nextTick(() =>
+      enterTerminal(result.entry.projectId, result.entry.branch.name, result.screen!.path),
+    )
+    return
+  }
   void enterShellOf(result.entry.projectId, result.entry.branch.name)
 }
 
@@ -111,23 +151,25 @@ function hover(i: number) {
         <input
           ref="input"
           v-model="query"
-          placeholder="Go to a branch in any project…"
+          :placeholder="
+            screensOn ? 'Go to a branch, or find what a terminal shows…' : 'Go to a branch in any project…'
+          "
           spellcheck="false"
           autocomplete="off"
           @keydown="onKey"
         />
-        <span v-if="paletteLoading" class="spin tiny" title="Reading branches" />
+        <span v-if="busy" class="spin tiny" :title="busyTitle" />
       </div>
 
       <div ref="list" class="palette-list">
         <p v-if="!results.length" class="empty">
-          {{ paletteLoading ? 'Reading branches…' : 'No branch matches.' }}
+          {{ paletteLoading ? 'Reading branches…' : screensOn ? 'No branch or terminal matches.' : 'No branch matches.' }}
         </p>
         <button
           v-for="(result, i) in results"
           :key="`${result.entry.projectId}\0${result.entry.branch.name}`"
           class="palette-item"
-          :class="{ active: i === index }"
+          :class="{ active: i === index, 'with-screen': result.screen }"
           @mousemove="hover(i)"
           @click="choose(result)"
         >
@@ -161,6 +203,21 @@ function hover(i: number) {
             >
           </span>
           <span class="palette-age faint">{{ relativeTime(result.entry.branch.committedAt) }}</span>
+          <span
+            v-if="result.screen"
+            class="palette-screen truncate"
+            :title="`${basename(result.screen.path)} shows:\n${result.screen.snippet}`"
+          >
+            <Icon name="terminal" :size="11" />
+            <span class="truncate">
+              <span
+                v-for="(part, j) in highlight(result.screen.snippet, wordPositions(result.screen.snippet, query))"
+                :key="j"
+                :class="{ hit: part.hit }"
+                >{{ part.text }}</span
+              >
+            </span>
+          </span>
         </button>
       </div>
 

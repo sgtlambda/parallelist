@@ -598,6 +598,65 @@ redundant complexity and are not.
   user goes to that terminal, the one its queue card would go to
   (`goToEntry` in `src/attention.ts`): it was ranked first for what waits
   there, and landing on the overview meant a second step.
+- **Screen search** (`src-tauri/src/screen_search.rs`, `src/screenSearch.ts`)
+  lets the palette also find a terminal by what it shows. It is off by
+  default (`screenSearch` in the config), because it downloads a model. The
+  details that look like they could be simpler:
+  - **Nothing is indexed in the background.** It runs only while the
+    palette has a query of three or more characters, debounced, with one
+    search in flight and only the latest query searched after it. Each
+    search rebuilds every terminal's screen from its backlog with `vt100`
+    at the pty's size (`Terminals::screens`, ~5 ms for a full 512 KB
+    backlog), so no terminal parses its output while nobody searches. An
+    earlier plan kept a vector per session updated from its output, and
+    was dropped for exactly that cost.
+  - **Two scores, and the better one counts.** Literal: the share of the
+    query's words (three letters or more, no stopwords; "on" matched every
+    `On branch …`) found on the screen. That is what finds identifiers and
+    error codes, which a small embedding model blurs. By meaning: cosine
+    similarity to the screen's best chunk, scaled between the model's
+    `floor` and `ceiling` to 0..1. In the palette a hit is worth
+    `SCREEN_WEIGHT` (0.75) per query character at full relevance, as if the
+    query had matched a workspace directory. A branch whose name doesn't
+    match is listed for its screen alone. Choosing a row found that way goes
+    to the terminal that matched. The matched line is shown under the row,
+    since a row found by its screen would otherwise look like a random
+    result.
+  - **Chunks end where a line's hash says** (`chunks`), not every n lines.
+    Embeddings are cached by chunk text, and with fixed windows one new line
+    from a dev server shifts every window and makes every chunk new. A
+    search after the first takes ~7 ms on the small model.
+  - **The model runs in a worker process**: the app's own binary started
+    with `--screen-search-worker` (`main.rs` checks for it before Tauri
+    starts), one JSON line per request. ONNX Runtime takes ~280 MB plus
+    twice the model file once a model is loaded, and dropping the session
+    in-process gave back only half. The worker starts on the first search,
+    or when the setting is turned on or the model changed (which is when it
+    downloads), and is killed after three idle minutes, so the system gets
+    all of it back. A crash in native code lands there rather than in the
+    process holding every terminal. Like every child, it has its own
+    process group and a timeout on every reply (invariant 1). Until it is
+    ready, searches are literal only, and `screen-search-status` going to
+    `ready` searches again.
+  - **The models** (`MODELS`: all-MiniLM-L6-v2, all-MiniLM-L12-v2,
+    all-mpnet-base-v2, as Small, Medium and Large) are all sentence-
+    transformers models. These spread their scores widely (unrelated
+    screens ~0.1, the right one 0.4 and up), so a fixed floor separates a
+    match from noise. BGE and Arctic ranked about as well on the same
+    screens, but they crowd everything into 0.45–0.75, where no threshold
+    works. A dynamically quantized model (most `…Q` variants) is
+    excluded, which a test checks: it rescales each batch, so a query
+    embedded on its own isn't comparable with chunks embedded earlier.
+    Each model's floor and ceiling come from
+    `cargo run --release --example screen_search -- <model dir>`, which
+    scores fixture screens against queries about them and about none of
+    them. Recalibrate when adding a model.
+  - **`build.rs` links clang's runtime** (`libclang_rt.osx.a`). ONNX
+    Runtime's static library calls `__isPlatformVersionAtLeast`, which
+    Rust's std provides, except that the release profile's `lto = true`
+    drops it as unused and the link fails.
+  - The demo answers literally only, as the real one does before its model
+    is ready. There is no model to run in a page.
 - **The attention queue** (the AQ; `src/attention.ts`, `AttentionQueue.vue`) is a
   strip under all three columns with one card per terminal waiting for the
   user — blocked, or ready — in the order they started waiting: oldest on
@@ -851,6 +910,13 @@ also writes the overview as JSON, exactly as the frontend receives it, so UI
 logic like `src/status.ts` can be run against real data (bundle it with the
 esbuild under `node_modules/.pnpm`).
 
+Screen search can be run the same way, against real shells in ptys and
+through a worker process, as the app runs it:
+
+```sh
+cd src-tauri && cargo run --release --example screen_search -- live <model dir> [model id]
+```
+
 To check SVG or other rendered output, `qlmanage -t -s 900 -o <dir> file.svg`
 renders through WebKit, the same engine the app uses. ImageMagick's built-in SVG
 renderer is too limited to be a useful check.
@@ -928,6 +994,9 @@ access and fails without it. The `.app` is the deliverable.
 ## Configuration
 
 - App config: `~/Library/Application Support/com.jmversteeg.parallelist/config.json`
+- Screen search models: `~/Library/Caches/com.jmversteeg.parallelist/models`
+  (hf-hub's layout, so its blobs are symlinked from `snapshots/`; `du -L`
+  counts them twice)
 - Per-project override: `.parallelist.json` committed at a project's root, which
   wins field by field over the app config.
 - **The app used to be called Switcheroo, and two traces of that are

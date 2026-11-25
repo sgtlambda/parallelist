@@ -69,6 +69,11 @@ disk.
 - **`⌘P` jumps to any branch of any project**, with what's waiting first. A
   branch with a terminal waiting on you opens on that terminal. `⌘↵` there
   goes into the branch's shell, as double-clicking it does.
+- **Searching what terminals show**, once it is turned on in Settings: `⌘P`
+  also matches each terminal's screen, by its words and by meaning, and puts
+  the line that matched under the branch. The model runs on your machine. It
+  comes in three sizes (a 90 to 440 MB download), and runs only while you
+  search and for a few minutes after.
 - **A folder dropped on the window** goes to the branch it holds, or is
   added as a project. A worktree of a clone that isn't a project yet brings
   in the clone. Dropped on a terminal, a file or folder is pasted there as
@@ -90,7 +95,8 @@ disk.
 
 - `git`
 - `gh`, authenticated with `gh auth login` (optional, for pull request data)
-- [Rust](https://rustup.rs) and [pnpm](https://pnpm.io) to build
+- [Rust](https://rustup.rs) and [pnpm](https://pnpm.io) to build. The first
+  build downloads ONNX Runtime, which runs the screen search model.
 
 ## Running
 
@@ -102,6 +108,14 @@ pnpm typecheck      # vue-tsc
 pnpm test           # cargo test
 pnpm lint           # cargo clippy
 pnpm dev:demo       # the landing page's demo: this frontend, in a browser
+```
+
+Screen search's models are calibrated, and the search tried on real
+terminals, with an example in `src-tauri`:
+
+```sh
+cargo run --release --example screen_search -- <model dir>        # each model's scores
+cargo run --release --example screen_search -- live <model dir>   # real shells, as the app searches
 ```
 
 Run from any branch but `main`, `run.sh` puts the branch name in the top-left
@@ -118,6 +132,10 @@ Settings are edited in the app and stored in
 `~/Library/Application Support/com.jmversteeg.parallelist/config.json`. A
 project can commit a `.parallelist.json` at its root to override `baseBranch`,
 `pathTemplate`, `setupSteps` and `openTargets`.
+
+The screen search model is downloaded to
+`~/Library/Caches/com.jmversteeg.parallelist/models` when the setting is
+first turned on, or another model chosen.
 
 A first launch starts with no "Open in" targets. Before the first project is
 added, it offers the coding agents, editors, terminal apps and git clients it

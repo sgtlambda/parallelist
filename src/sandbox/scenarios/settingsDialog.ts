@@ -1,5 +1,6 @@
 import SettingsDialog from '../../components/SettingsDialog.vue'
-import type { ProjectFile } from '../../api'
+import type { ProjectFile, ScreenSearchModel, ScreenSearchStatus } from '../../api'
+import { screenStatus } from '../../screenSearch'
 import { backend } from '../backend'
 import { boot } from '../seed'
 import { defineGroup } from '../define'
@@ -49,9 +50,25 @@ const settingsConfig = (selected: string | null) =>
     ],
   })
 
-async function open(selected: string | null, files: Record<string, ProjectFile> = {}, click?: string) {
-  await boot({ config: settingsConfig(selected) })
-  backend.handle({ project_files: () => files, save_config: () => {} })
+const MODELS: ScreenSearchModel[] = [
+  { id: 'minilm-l6', label: 'Small', name: 'all-MiniLM-L6-v2', downloadMb: 90, memoryMb: 500 },
+  { id: 'minilm-l12', label: 'Medium', name: 'all-MiniLM-L12-v2', downloadMb: 135, memoryMb: 550 },
+  { id: 'mpnet-base', label: 'Large', name: 'all-mpnet-base-v2', downloadMb: 440, memoryMb: 1200 },
+]
+
+async function open(
+  selected: string | null,
+  files: Record<string, ProjectFile> = {},
+  click?: string,
+  screen?: { status: ScreenSearchStatus },
+) {
+  await boot({ config: { ...settingsConfig(selected), screenSearch: !!screen } })
+  backend.handle({
+    project_files: () => files,
+    save_config: () => {},
+    screen_search_models: () => MODELS,
+  })
+  if (screen) screenStatus.value = screen.status
   if (click) {
     // The dialog opens on the project on screen; another section is a click.
     setTimeout(() => {
@@ -119,6 +136,24 @@ export default defineGroup('Settings', [
     component: SettingsDialog,
     props: { open: true },
     setup: () => open('app', {}, 'General'),
+  },
+  {
+    id: 'screen-search',
+    title: 'Screen search, its model starting',
+    note: 'The model picked, and what it is doing while it gets ready. A failure says why in red.',
+    component: SettingsDialog,
+    props: { open: true },
+    setup: () => open('app', {}, 'General', { status: { state: 'loading', model: 'minilm-l6' } }),
+  },
+  {
+    id: 'screen-search-failed',
+    title: 'Screen search, its model failed',
+    component: SettingsDialog,
+    props: { open: true },
+    setup: () =>
+      open('app', {}, 'General', {
+        status: { state: 'failed', model: 'minilm-l6', error: 'Failed to retrieve model.onnx: network unreachable' },
+      }),
   },
   {
     id: 'targets',

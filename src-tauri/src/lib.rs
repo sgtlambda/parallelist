@@ -5,6 +5,7 @@ pub mod gh;
 pub mod git;
 pub mod link;
 pub mod proc;
+pub mod screen_search;
 pub mod status;
 pub mod targets;
 pub mod tasks;
@@ -34,6 +35,7 @@ struct AppState {
     /// One per project, so overlapping refreshes of it share runs.
     refreshes: Mutex<HashMap<String, Arc<RefreshSlot>>>,
     terminals: Arc<terminal::Terminals>,
+    screen_search: Arc<screen_search::ScreenSearch>,
     /// Set once the user has confirmed quitting with terminals running.
     quit_confirmed: AtomicBool,
 }
@@ -53,7 +55,16 @@ impl AppState {
 
     fn persist(&self, next: AppConfig) -> Result<(), String> {
         next.save(&self.dir)?;
-        *self.config.lock().unwrap() = next;
+        let mut config = self.config.lock().unwrap();
+        let wanted = |c: &AppConfig| c.screen_search.then(|| c.screen_search_model.clone());
+        let (before, after) = (wanted(&config), wanted(&next));
+        *config = next;
+        drop(config);
+        // Turned on, or a model chosen: start it now, so a first download
+        // begins while the user is still in Settings.
+        if before != after {
+            self.screen_search.configure(after.as_deref(), after.is_some());
+        }
         Ok(())
     }
 
@@ -928,6 +939,33 @@ fn terminal_question(state: State<AppState>, path: String) -> Option<String> {
     transcript::question(state.terminals.foreground(&path)?)
 }
 
+/// Terminals whose screen matches `query`, literally or by meaning
+/// (`screen_search.rs`), for the palette. Empty while the setting is off.
+#[tauri::command]
+async fn screen_search(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<screen_search::Found, String> {
+    let terminals = Arc::clone(&state.terminals);
+    let search = Arc::clone(&state.screen_search);
+    tauri::async_runtime::spawn_blocking(move || search.search(&query, &terminals.screens()))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Where the screen search model is, for Settings. Changes arrive as
+/// `screen-search-status` events.
+#[tauri::command]
+fn screen_search_status(state: State<AppState>) -> screen_search::ModelStatus {
+    state.screen_search.status()
+}
+
+/// The models Settings offers.
+#[tauri::command]
+fn screen_search_models() -> Vec<screen_search::ModelInfo> {
+    screen_search::models()
+}
+
 /// Running terminals, for a webview that has just (re)loaded to mark.
 #[tauri::command]
 fn terminal_list(state: State<AppState>) -> Vec<terminal::TerminalInfo> {
@@ -1159,6 +1197,18 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             let config = AppConfig::load(&dir);
+            let status_handle = app.handle().clone();
+            let screen_search = screen_search::ScreenSearch::new(
+                app.path().app_cache_dir()?.join("models"),
+                Box::new(move |status| {
+                    let _ = status_handle.emit("screen-search-status", status);
+                }),
+            );
+            // Not started until a search asks for it.
+            screen_search.configure(
+                config.screen_search.then_some(config.screen_search_model.as_str()),
+                false,
+            );
             // One shell spawn; do it off the critical path so the window
             // isn't waiting on it.
             std::thread::spawn(|| {
@@ -1182,6 +1232,7 @@ pub fn run() {
                 tasks,
                 refreshes: Mutex::default(),
                 quit_confirmed: AtomicBool::new(false),
+                screen_search,
                 terminals: Arc::new(terminal::Terminals::new(Arc::new(move |event| {
                     let _ = match event {
                         terminal::TerminalEvent::Exit(info) => {
@@ -1232,6 +1283,9 @@ pub fn run() {
             terminal_viewing,
             terminal_mark,
             terminal_question,
+            screen_search,
+            screen_search_status,
+            screen_search_models,
             quit_app,
         ])
         .build(tauri::generate_context!())

@@ -310,6 +310,21 @@ export function list(): TerminalInfo[] {
 
 export const question = (path: string) => sessions.get(path)?.question ?? null
 
+/** Roughly what each terminal shows: the last lines of its backlog, without
+ *  escape sequences. The real one replays the backlog into a screen. */
+export function screens(rows = 40): { path: string; lines: string[] }[] {
+  return [...sessions.values()].map((s) => ({
+    path: s.path,
+    lines: s.backlog
+      // eslint-disable-next-line no-control-regex
+      .replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07/g, '')
+      .split(/\r?\n/)
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .filter((line) => (line.match(/[\p{L}\p{N}]/gu)?.length ?? 0) >= 3)
+      .slice(-rows),
+  }))
+}
+
 /** "Mark unread" and "Mark blocked" in a row's menu, as if the program had
  *  reported them, each taking the other's place, "Clear", which lifts both,
  *  and "Snooze", which starts a wait over from now. */

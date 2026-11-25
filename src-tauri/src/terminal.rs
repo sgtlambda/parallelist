@@ -669,6 +669,28 @@ impl Terminals {
             .collect()
     }
 
+    /// What each terminal shows right now, as text: its backlog replayed
+    /// into a screen of its current size. Only asked for by the palette's
+    /// screen search, so nothing is parsed while no one searches. The
+    /// backlog starts at a line break somewhere in the past rather than at
+    /// the shell's start, which can leave a full-screen program's first
+    /// frame off; the newest output, which is what a screen shows, is whole.
+    pub fn screens(&self) -> Vec<crate::screen_search::Screen> {
+        let terms: Vec<Arc<Terminal>> = self.by_path.lock().unwrap().values().cloned().collect();
+        let snapshots: Vec<(String, Vec<u8>, Option<PtySize>)> = terms
+            .iter()
+            .map(|term| {
+                let backlog = term.output.lock().unwrap().backlog.clone();
+                let size = term.master.lock().unwrap().get_size().ok();
+                (term.info.path.clone(), backlog, size)
+            })
+            .collect();
+        crate::proc::parallel_map(snapshots, |(path, backlog, size)| crate::screen_search::Screen {
+            path: path.clone(),
+            text: screen_text(backlog, size.map_or((24, 80), |s| (s.rows, s.cols))),
+        })
+    }
+
     /// How many terminals wait for the user: blocked on an answer, or with a
     /// turn that ended and got no reply. The ones `terminalMark` draws a box
     /// around.
@@ -805,6 +827,15 @@ fn parse_status(payload: &str) -> Option<Report> {
         state: (state != "clear").then(|| state.to_string()),
         message,
     })
+}
+
+/// The text a terminal of `rows` × `cols` shows after `output`, its
+/// wrapped lines joined.
+fn screen_text(output: &[u8], (rows, cols): (u16, u16)) -> String {
+    let size = |n: u16| std::num::NonZeroU16::new(n).unwrap_or(std::num::NonZeroU16::MIN);
+    let mut parser = vt100::Parser::new(size(rows), size(cols), 0);
+    parser.process(output);
+    parser.screen().contents()
 }
 
 /// Keep the newest `BACKLOG` bytes, cut at a line break so a replay doesn't
@@ -990,6 +1021,33 @@ mod tests {
         assert!(backlog.len() <= BACKLOG);
         assert!(backlog.ends_with(b"last\n"));
         assert!(backlog[..8].ends_with(b"\n") && backlog[..7].iter().all(u8::is_ascii_digit));
+    }
+
+    /// What is on screen, not everything that went by: a line redrawn in
+    /// place shows once, and a full-screen program shows its own screen.
+    #[test]
+    fn a_screen_is_what_the_output_leaves_on_it() {
+        let output = b"$ build\r\nstep 1/3\r\x1b[2Kstep 2/3\r\x1b[2Kstep 3/3\r\nok\r\n$ ";
+        let text = screen_text(output, (24, 80));
+        assert_eq!(text.lines().collect::<Vec<_>>(), ["$ build", "step 3/3", "ok", "$ "]);
+        let full = b"before\r\n\x1b[?1049h\x1b[H\x1b[2Jin the editor";
+        assert_eq!(screen_text(full, (24, 80)).trim(), "in the editor");
+    }
+
+    #[test]
+    fn screens_are_read_from_running_terminals() {
+        let dir = temp_dir("screens");
+        let path = dir.to_string_lossy().to_string();
+        let terminals = Terminals::default();
+        let (tx, rx) = sink();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.write(&path, b"echo on-screen-$((40+2))\n").unwrap();
+        read_until(&rx, "on-screen-42");
+        let screens = terminals.screens();
+        assert_eq!(screens.len(), 1);
+        assert_eq!(screens[0].path, path);
+        assert!(screens[0].text.contains("on-screen-42"), "{:?}", screens[0].text);
+        terminals.close(&path);
     }
 
     #[test]

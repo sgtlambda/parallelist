@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { api, type AppConfig, type ProjectFile } from '../api'
+import { api, type AppConfig, type ProjectFile, type ScreenSearchModel } from '../api'
 import { shortPath, templatePath } from '../format'
+import { screenStatus } from '../screenSearch'
 import { refresh, saveConfig, state } from '../store'
 import { useEscape } from '../useEscape'
 import Icon from './Icon.vue'
@@ -16,6 +17,7 @@ const draft = ref<AppConfig | null>(null)
 /** The draft as it was opened, to tell whether anything changed. */
 const baseline = ref('')
 const files = ref<Record<string, ProjectFile>>({})
+const models = ref<ScreenSearchModel[]>([])
 const saving = ref(false)
 const error = ref<string | null>(null)
 /** Times Esc or the scrim was refused over unsaved changes; replays the notice. */
@@ -51,8 +53,34 @@ watch(
       (found) => (files.value = found),
       () => (files.value = {}),
     )
+    if (!models.value.length) {
+      api.screenSearchModels().then(
+        (found) => (models.value = found),
+        () => {},
+      )
+    }
   },
 )
+
+/** The model picked in the draft: its name, and the memory it takes. */
+const modelDetail = computed(() => {
+  const m = models.value.find((m) => m.id === draft.value?.screenSearchModel)
+  if (!m) return null
+  const memory = m.memoryMb >= 1000 ? `${(m.memoryMb / 1000).toFixed(1)} GB` : `${m.memoryMb} MB`
+  return `${m.name}, about ${memory} of memory while searching`
+})
+
+/** What the saved model is doing, worth saying: getting ready, or failed.
+ *  Only for the model saved, not one picked in the draft and not saved. */
+const modelNote = computed(() => {
+  const status = screenStatus.value
+  const saved = state.config
+  if (!saved?.screenSearch || !draft.value?.screenSearch) return null
+  if (draft.value.screenSearchModel !== saved.screenSearchModel) return null
+  if (status.state === 'loading') return { error: false, text: 'Getting the model ready…' }
+  if (status.state === 'failed') return { error: true, text: `The model couldn't start: ${status.error}` }
+  return null
+})
 
 watch(section, () => {
   if (body.value) body.value.scrollTop = 0
@@ -248,6 +276,36 @@ function onKey(event: KeyboardEvent) {
                     />
                     <span>sec</span>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="set-group">
+              <h3>Command palette</h3>
+              <div class="set-card">
+                <label class="set-row clickable">
+                  <div class="set-row-text">
+                    <span class="set-label">Search what terminals show</span>
+                    <p>
+                      Matches each terminal's screen by its words and by meaning, with a model that
+                      runs on this machine.
+                    </p>
+                  </div>
+                  <input v-model="draft.screenSearch" type="checkbox" class="switch" />
+                </label>
+                <div v-if="draft.screenSearch" class="set-row">
+                  <div class="set-row-text">
+                    <label for="set-model">Model</label>
+                    <p v-if="modelDetail">{{ modelDetail }}</p>
+                    <p v-if="modelNote" :class="{ 'set-error': modelNote.error }">
+                      {{ modelNote.text }}
+                    </p>
+                  </div>
+                  <select id="set-model" v-model="draft.screenSearchModel" class="set-select">
+                    <option v-for="m in models" :key="m.id" :value="m.id">
+                      {{ m.label }} · {{ m.downloadMb }} MB download
+                    </option>
+                  </select>
                 </div>
               </div>
             </div>

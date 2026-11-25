@@ -71,6 +71,48 @@ export interface AppConfig {
   detailWidth: number
   /** Every terminal's, so zooming one zooms them all. */
   terminalFontSize: number
+  /** Whether the palette also searches what the terminals show. */
+  screenSearch: boolean
+  /** Which model it uses, a `ScreenSearchModel` id. */
+  screenSearchModel: string
+}
+
+/** A model screen search can use, as Settings offers it. */
+export interface ScreenSearchModel {
+  id: string
+  /** Small, Medium, Large. */
+  label: string
+  /** The model's own name. */
+  name: string
+  /** Downloaded once, in MB. */
+  downloadMb: number
+  /** Taken while it runs, which is while searching and a few minutes
+   *  after, in MB. */
+  memoryMb: number
+}
+
+/** Where the screen search model is. `idle`: on, with nothing loaded until
+ *  a search asks for it. */
+export type ScreenSearchStatus =
+  | { state: 'off' }
+  | { state: 'idle' | 'loading' | 'ready'; model: string }
+  | { state: 'failed'; model: string; error: string }
+
+/** A terminal whose screen matches a query. */
+export interface ScreenHit {
+  path: string
+  /** 0..1: the better of how many of the query's words are on its screen
+   *  and how close in meaning its best few lines are. */
+  relevance: number
+  /** The text that matched. */
+  snippet: string
+}
+
+export interface ScreenFound {
+  /** The query as searched, trimmed. */
+  query: string
+  status: ScreenSearchStatus
+  hits: ScreenHit[]
 }
 
 export type TargetCategory = 'agent' | 'editor' | 'terminal' | 'git' | 'other'
@@ -329,6 +371,11 @@ export const api = {
    *  back of the queue. */
   terminalMark: (path: string, mark: TerminalMarkKind) =>
     invoke<void>('terminal_mark', { path, mark }),
+  /** Terminals whose screen matches `query`, literally or by meaning. Starts
+   *  the model if it isn't running; until it is, matches are literal. */
+  screenSearch: (query: string) => invoke<ScreenFound>('screen_search', { query }),
+  screenSearchStatus: () => invoke<ScreenSearchStatus>('screen_search_status'),
+  screenSearchModels: () => invoke<ScreenSearchModel[]>('screen_search_models'),
 }
 
 export type TerminalMarkKind = 'unread' | 'blocked' | 'clear' | 'snooze'
@@ -370,6 +417,11 @@ export function onTerminalExit(handler: (path: string) => void) {
 /** The program in a terminal reported a new status, or stopped having one. */
 export function onTerminalStatus(handler: (info: TerminalInfo) => void) {
   return listen<TerminalInfo>('terminal-status', (e) => handler(e.payload))
+}
+
+/** The screen search model started, stopped, or failed. */
+export function onScreenSearchStatus(handler: (status: ScreenSearchStatus) => void) {
+  return listen<ScreenSearchStatus>('screen-search-status', (e) => handler(e.payload))
 }
 
 /** The application menu's "Settings…" was chosen (or ⌘, pressed). */
