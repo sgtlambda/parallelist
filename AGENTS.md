@@ -190,8 +190,16 @@ redundant complexity and are not.
    TCP connection leaves `git fetch` blocked in `packet_reader_read` forever —
    no data, no error, no recovery. Killing git alone provably leaves its `ssh`
    child alive holding the dead socket (observed surviving 7 minutes after its
-   parent died), so the timeout `killpg`s the whole group. Covered by
-   `a_timeout_takes_grandchildren_with_it`.
+   parent died), so the timeout `killpg`s the whole group. **Once is not
+   enough**: on macOS a single `killpg(SIGKILL)` now and then misses a member
+   (15% of timeouts with 40 at once), and that shell runs its next command
+   at once. So `kill_group` stops the group first, then sends `SIGKILL`
+   until nothing in it is left, and reaps the leader last, which keeps the
+   group's id from going to another process meanwhile. Don't fold it back
+   into one call. Covered by `a_timeout_takes_grandchildren_with_it`, which
+   times out 96 commands so that it catches a single `killpg` every time;
+   with one command it failed about one run in ten. The terminal relay is the one
+   deliberate exception: it is meant to outlive the app, and ends itself.
 
 2. **`PATH` comes from the login shell**, resolved once at startup via
    `$SHELL -lc`. An app launched from Finder inherits launchd's minimal `PATH`
@@ -411,10 +419,105 @@ redundant complexity and are not.
   workspace card swaps the pane to that workspace's terminal; every button on
   the card stops its click. What each workspace shows (overview or
   terminal) is remembered per directory, in memory only.
-  - The shells are a backend registry (`src-tauri/src/terminal.rs`, portable-pty),
+  - The shells are a backend registry (`src-tauri/src/terminal.rs`),
     keyed by workspace path, for the same reason tasks are: a webview reload
     must not orphan a shell running a dev server. Each keeps a 512 KB backlog;
     opening a live one attaches and replays it instead of starting another.
+  - **The ptys live in a relay process, so shells outlive the app**
+    (`src-tauri/src/relay.rs`). Quitting, a crash, or `run.sh --build`
+    replacing the app used to hang up on every shell, because the app held
+    each pty's master side. The relay is the app's own binary run with
+    `--relay`, in its own session (`setsid`), and is deliberately simple: a
+    `pty::Local` behind a Unix socket that starts shells, keeps backlogs,
+    answers the OSC 7501 probe and passes bytes through. `terminal.rs` runs
+    on a `pty::Host`, which is the relay's `Client` in the app and an
+    in-process `Local` in tests or when no relay can be had. It was rebuilt
+    once, after a review found a dozen ways to lose a shell or hang the app;
+    each rule below answers one of them, and each has a test in `relay.rs`.
+    - **The status is worked out from a log the host keeps.** Everything
+      that changes a terminal's status is a numbered entry (`pty::Note`): a
+      status its program printed, the foreground changing hands (polled
+      every 250 ms as well as read with output), the user typing, a mark.
+      The app applies them in order (`Status::apply`) and saves what it has
+      as a checkpoint (`Kept`, through `Host::checkpoint`); the host keeps
+      every entry after it. So what the statuses mean stays in the app, and
+      changing it needs no new relay, while nothing is lost between the
+      relay and the app: a turn that ended while no app was attached, or
+      just as one quit, typing that changed no status, or another build's
+      terminal seen from Manage Terminals all come out of the same replay
+      (`what_the_app_had_not_saved_comes_back_from_the_log`,
+      `another_build_is_seen_as_it_is_now`). Typing and marks go to the
+      host and come back as entries, rather than being applied on the
+      spot, so there is one order for everything. It used to be an opaque
+      value the app overwrote, plus statuses logged only while no app was
+      attached, and whatever fell between the two was lost.
+    - **Output carries its offset** in everything the shell has printed, so
+      an app that catches up takes exactly what it hasn't seen, and marks
+      where more went by than the relay keeps.
+    - **A lost connection is not a lost relay.** The client reconnects and
+      the relay sends every terminal it has, as at startup; the app keeps
+      the ones it knows and catches them up, takes in the ones it doesn't
+      (`Event::Adopt`), and reports as exited only those the relay no longer
+      has (`Event::Resync`, `a_lost_connection_loses_no_terminal_and_no_output`).
+      It used to take any end of the connection for the relay dying, report
+      every terminal exited, and then drop the shells the live relay sent
+      back on redialling, out of reach for good. A shell that exited
+      meanwhile is reported with its code and the last 16 KB it printed
+      (`a_shell_that_exits_while_the_app_is_away_still_says_why`), and a
+      relay left with nothing stays 5 s after its app goes, so an app that is
+      reconnecting still finds it. A relay that is running but doesn't
+      answer at launch is waited for rather than worked around: the app
+      opens nothing until it answers, since a shell of its own beside the
+      relay's would be a second one in the same workspace
+      (`a_relay_that_answers_late_still_hands_its_terminals_over`).
+    - **Nothing waits on anything else.** Each connection has a queue and a
+      writer thread on both sides, and each pty its own input thread, so a
+      program that stops reading holds up only its own terminal
+      (`a_terminal_that_isnt_reading_holds_up_no_other`), and a side that
+      stops reading is dropped (queue over 32 MB, or a write stalled 10 s)
+      and reconnects, rather than holding up the shells. A failed write
+      closes the connection; it used to leave half a frame on it. The app
+      never holds the registry's lock while it talks to the relay, and asks
+      it nothing it already has: the foreground of each terminal comes from
+      the log, so Manage Terminals' 3 s poll costs the relay nothing. It
+      used to ask the relay with the lock held, and froze the window.
+      `terminal_open` is async, and the handshake has a deadline, so
+      neither can hold up the main thread.
+    - **One terminal per workspace, enforced in the host.** Opening a path
+      that has a terminal answers with it, whatever the id
+      (`a_workspace_never_gets_a_second_shell`). An open that times out is
+      followed by a hang-up of its id, so a shell started after the answer
+      was lost doesn't run on unseen, and a shell started for a connection
+      that is no longer the app's (an app since replaced, a connection
+      being made again) is sent to the app that is.
+    - **The newest app of a build takes its terminals**, and the one before
+      is told (`Superseded`) and lets them go rather than reconnecting:
+      `run.sh --build` launches the new app while the old one still runs.
+    - **One relay per build**: the branch `run.sh` built from
+      (`VITE_PARALLELIST_BRANCH`, seen by cargo through `build.rs`) plus
+      "(dev)" for a dev build (`build_label`). Reinstalling a build gets its
+      terminals back, and a worktree's build has its own, so two windows
+      never share a shell. Files live in the config directory's `relays/`,
+      named by an FNV hash of that label (stable across compilers, unlike
+      `DefaultHasher`); a socket path over macOS's 104-byte limit falls back
+      to `$TMPDIR`.
+    - It exits once it has no terminals and no app attached, 5 s after the
+      last app left (or when no app came within 15 s of starting), removing
+      its socket and metadata.
+    - **A relay is known to be running by the lock it holds** (`flock` on
+      its `<hash>.lock`), never by the pid in its metadata, which can belong
+      to some other process once the relay has gone. It is asked to end
+      with a `Shutdown` frame sent in place of a hello, which every relay
+      from version 2 on understands whatever its version, and a signal
+      goes only to a process that holds the lock, or to a version 1 relay
+      (which held none) whose command line says it is one
+      (`a_relay_is_known_by_its_lock_and_ends_when_asked`).
+    - **A relay of another protocol version is not talked to** (`VERSION`).
+      Its `<hash>.json` says its version without needing its protocol, and
+      `OutdatedRelayDialog` offers "End them and restart" or "Not now", in
+      which case this launch's terminals live in-process and end with it.
+      Bump `VERSION` whenever a message changes shape, and keep `Shutdown`
+      as a first frame meaning the same.
   - The webview side (`src/terminal.ts`, xterm 6 with the default DOM
     renderer) gives each session its own element, `open()`ed once and
     *re-parented* between hosts, never rebuilt — that is what keeps
@@ -429,12 +532,41 @@ redundant complexity and are not.
   - Closing sends SIGHUP to the shell; the kernel hangs up on its foreground
     job when it exits (tested — an explicit `killpg` made no difference).
     Removing a workspace closes its terminal first.
-  - **Quitting with shells running asks first.** ⌘Q reaches
-    `RunEvent::ExitRequested`; with any terminal in the registry the backend
-    calls `prevent_exit`, shows the window and emits `confirm-quit` (shells
-    running, and how many of them wait), and `ConfirmQuitDialog` offers Cancel
-    or Quit. Quit invokes `quit_app`, which sets `quit_confirmed` and exits,
-    so the second request goes through. With no shell the app quits at once.
+  - **File › Manage Terminals… lists every running terminal**
+    (`TerminalsDialog.vue`, opened by `terminalsOpen` in the store, which
+    the menu sets): grouped by project in the sidebar's order,
+    each project's ranked as the branch list ranks them, with the program in
+    its foreground (`terminal_programs`, one `ps` for all of them, asked
+    every 3 s while open) so a dev server reads apart from an idle shell.
+    Any number can be ticked, a project's at once or all with ⌘A, and
+    ending them is `closeTerminal` on each. Nothing starts ticked. Other
+    builds' relays follow, a group each (`other_builds`, which attaches as
+    an observer: no backlogs, and the build's own app stays attached), since
+    a build of a merged branch is never launched again to end its own. One
+    of another version, or one that doesn't answer, can only be ended
+    whole. The dialog takes the keyboard when it opens and catches ⌘A at
+    the window: opened from the menu, the keyboard was still in the
+    terminal behind it, where ⌘A selected text and Return submitted a
+    half-typed prompt.
+  - **Quitting with shells running asks first.** ⌘Q, or any other quit
+    that reaches `RunEvent::ExitRequested`, goes to `ask_before_quitting`;
+    with any terminal in the registry the backend holds the quit back,
+    shows the window and emits `confirm-quit` (shells
+    running, how many of them wait, and whether a relay holds them), and
+    `ConfirmQuitDialog` offers Cancel, "End all and quit" and, focused,
+    "Quit, keep terminals" (just Quit when there is no relay). Both invoke
+    `quit_app`, which hangs up on every shell if asked, sets
+    `quit_confirmed` and exits, so the second request goes through. With no
+    shell the app quits at once. **⌘Q is the app's own menu item**
+    (`QUIT_MENU_ID`), not the default menu's predefined Quit: that one is
+    AppKit's `terminate:`, which ends the app without an `ExitRequested`,
+    so it quit without asking and the check never ran. Both paths go
+    through `ask_before_quitting`.
+  - **The next launch opens on the terminal that was on screen.** "Quit,
+    keep terminals" marks the one the webview last reported as viewed
+    (`keep_view`, `on_screen` in its `Kept`), and the next app to restore
+    it hands it to the webview once (`terminal_restored_view`), which
+    enters it as ⌘↵ would. A webview reload keeps its own place instead.
   - **Closing the window hides it** (`on_window_event` in `lib.rs`), and
     the Dock icon shows it again (`RunEvent::Reopen`). It used to destroy
     the window: the shells lived on in the backend, but nothing could make
@@ -928,6 +1060,7 @@ access and fails without it. The `.app` is the deliverable.
 ## Configuration
 
 - App config: `~/Library/Application Support/com.jmversteeg.parallelist/config.json`
+- Terminal relays: `relays/` next to it, a socket, metadata, lock and log per build.
 - Per-project override: `.parallelist.json` committed at a project's root, which
   wins field by field over the app config.
 - **The app used to be called Switcheroo, and two traces of that are

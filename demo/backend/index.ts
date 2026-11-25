@@ -214,6 +214,10 @@ const handlers: Record<string, Handler> = {
   set_create_menu: () => {},
   // A page has no app to quit.
   quit_app: () => {},
+  relay_outdated: () => null,
+  other_builds: () => [],
+  end_other_terminals: () => {},
+  replace_outdated_relay: () => {},
 
   terminal_open: ({ projectId, branch, path, cols, rows, channel }: any) =>
     terminals.open(projectId, branch, path, cols, rows, channel),
@@ -223,6 +227,7 @@ const handlers: Record<string, Handler> = {
     terminals.resize(path, cols),
   terminal_close: ({ path }: { path: string }) => terminals.close(path),
   terminal_list: () => terminals.list(),
+  terminal_restored_view: () => null,
   // Only reaping a removed workspace's terminal follows from it, and the
   // made-up machine removes none.
   terminal_viewing: () => {},
@@ -231,6 +236,7 @@ const handlers: Record<string, Handler> = {
     await delay(80)
     return terminals.question(path)
   },
+  terminal_programs: () => terminals.programs(),
   terminal_mark: ({ path, mark }: { path: string; mark: 'unread' | 'blocked' | 'clear' | 'snooze' }) =>
     terminals.mark(path, mark),
 }

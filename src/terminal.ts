@@ -270,7 +270,8 @@ async function start(s: Session) {
   channel.onmessage = (message) => {
     if (s.disposed) return
     if (message instanceof ArrayBuffer) s.term.write(new Uint8Array(message))
-    else ended(s, message.exit)
+    else if ('exit' in message) ended(s, message.exit)
+    else ended(s, null, message.ended)
   }
   const at = startOn.get(s.path) ?? running.get(s.path)
   let opened
@@ -292,13 +293,23 @@ async function start(s: Session) {
   send(s, '', false)
 }
 
-function ended(s: Session, code: number | null) {
+/** The shell is gone: with `code`, or, without one, with the relay or to
+ *  another window of this build, which keeps it from here on. */
+function ended(s: Session, code: number | null, how?: 'relay' | 'moved') {
   s.state = 'exited'
   s.pending = ''
   running.delete(s.path)
   statuses.delete(s.path)
-  const why = code === null ? 'No shell' : `Shell exited${code ? ` with ${code}` : ''}`
-  s.term.write(`\r\n\x1b[2m${why}. Press Return to start a new one.\x1b[0m\r\n`)
+  const why =
+    how === 'moved'
+      ? 'This terminal is open in another parallelist window'
+      : how === 'relay'
+        ? 'The terminal relay stopped, and this shell with it'
+        : code === null
+          ? 'No shell'
+          : `Shell exited${code ? ` with ${code}` : ''}`
+  const next = how === 'moved' ? '' : ' Press Return to start a new one.'
+  s.term.write(`\r\n\x1b[2m${why}.${next}\x1b[0m\r\n`)
 }
 
 /** Put a workspace's terminal into `host`, starting its shell the first time,
@@ -445,7 +456,13 @@ export async function syncTerminals(): Promise<() => void> {
       // An attached session hears it on its own channel, with the exit code.
       if (!sessions.has(key)) running.delete(key)
     }),
-    onTerminalStatus(setStatus),
+    onTerminalStatus((t) => {
+      // One taken in from the relay after a reconnect is heard of this way
+      // first.
+      const key = normalizePath(t.path)
+      if (!running.has(key)) running.set(key, homeOf(t))
+      setStatus(t)
+    }),
   ])
   // What a previous webview reported viewing is gone with it.
   viewingSent = undefined

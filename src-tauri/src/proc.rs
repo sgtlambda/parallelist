@@ -218,14 +218,45 @@ pub fn run_detached_timeout(
 }
 
 /// Kill the child and everything it spawned.
+///
+/// One `killpg(SIGKILL)` is not enough on macOS. Now and then it misses a
+/// member of the group: a shell whose parent was the leader lives on, and as
+/// its own child was killed, runs its next command at once. Measured with 40
+/// timeouts at once, 15% left a process running; sending `SIGKILL` again
+/// until nothing is left still let a few through, since the next command can
+/// start within a millisecond. So the group is stopped first: a stopped
+/// process runs nothing, and stopping ends no leader, so no child is caught
+/// being reparented. Then `SIGKILL` goes to the group until nothing in it is
+/// left to signal, and a little longer, for one that was between states. No
+/// process escaped in over 3,500 tries; `a_timeout_takes_grandchildren_with_it`
+/// caught the single `killpg` in 10 runs of 10.
+///
+/// The leader is reaped only after that: until then its pid, which is the
+/// group's id, can't be given to another process, so no signal here can
+/// reach anything else.
 fn kill_group(child: &mut Child) {
-    let pid = child.id() as i32;
+    /// How long the group must stay empty of anything signallable.
+    const SETTLE: Duration = Duration::from_millis(20);
     // `build` put the child in its own group, so its pgid equals its pid.
-    // SAFETY: killpg with a pid we own; a failure here is not actionable.
-    let killed = unsafe { libc::killpg(pid, libc::SIGKILL) };
-    if killed != 0 {
-        let _ = child.kill();
+    let pgid = child.id() as i32;
+    let give_up = Instant::now() + Duration::from_secs(1);
+    let mut quiet_since: Option<Instant> = None;
+    // SAFETY: killpg on the group `build` made, whose leader is unreaped.
+    unsafe { libc::killpg(pgid, libc::SIGSTOP) };
+    loop {
+        // SAFETY: killpg on the group `build` made, whose leader is unreaped.
+        // It fails once only zombies are left (EPERM) or nothing (ESRCH).
+        let hit = unsafe { libc::killpg(pgid, libc::SIGKILL) } == 0;
+        let now = Instant::now();
+        let quiet = if hit { None } else { Some(quiet_since.unwrap_or(now)) };
+        quiet_since = quiet;
+        if quiet.is_some_and(|since| now - since >= SETTLE) || now >= give_up {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
     }
+    // In case the group was never made.
+    let _ = child.kill();
 }
 
 /// Run a program, writing `input` to its stdin.
@@ -398,27 +429,44 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(5));
     }
 
+    /// Times out `trials` commands at once, each a shell whose child shell
+    /// runs `sleep 1; touch <marker>`, and counts the markers made: each is a
+    /// process that outlived its timeout and ran on.
+    fn survivors_of(trials: usize) -> usize {
+        let dir = std::env::temp_dir().join(format!("parallelist-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let markers: Vec<_> = (0..trials).map(|i| dir.join(i.to_string())).collect();
+
+        std::thread::scope(|scope| {
+            for marker in &markers {
+                scope.spawn(move || {
+                    let script =
+                        format!("sh -c 'sleep 1; touch {}' & wait", sh_quote(&marker.to_string_lossy()));
+                    let err = run_timeout("sh", &["-c", &script], None, Duration::from_millis(200))
+                        .expect_err("must time out");
+                    assert!(err.contains("timed out"), "unexpected error: {err}");
+                });
+            }
+        });
+
+        // A process that escaped runs `touch` at once if only its `sleep`
+        // was killed, or a second in if nothing was.
+        std::thread::sleep(Duration::from_millis(1300));
+        let made = markers.iter().filter(|m| m.exists()).count();
+        let _ = std::fs::remove_dir_all(&dir);
+        made
+    }
+
     #[test]
     fn a_timeout_takes_grandchildren_with_it() {
         // Mirrors `git fetch` spawning ssh: killing only the direct child
-        // leaves the grandchild running.
-        let marker = std::env::temp_dir().join(format!("parallelist-test-{}", std::process::id()));
-        let _ = std::fs::remove_file(&marker);
-        let script = format!(
-            "sh -c 'sleep 2; touch {}' & wait",
-            marker.to_string_lossy()
-        );
-
-        let err = run_timeout("sh", &["-c", &script], None, Duration::from_millis(200))
-            .expect_err("must time out");
-        assert!(err.contains("timed out"), "unexpected error: {err}");
-
-        // If the grandchild survived, it creates the marker a second from now.
-        std::thread::sleep(Duration::from_secs(3));
-        assert!(
-            !marker.exists(),
-            "grandchild outlived the timeout and still ran"
-        );
+        // leaves the grandchild running. A single `killpg` also misses a
+        // member of the group now and then, more often in some runs than
+        // others, so this times out 24 commands at once, four times over: a
+        // miss in any of them fails it.
+        let made: usize = (0..4).map(|_| survivors_of(24)).sum();
+        assert_eq!(made, 0, "{made} of 96 timed-out commands left a process running");
     }
 
     #[test]

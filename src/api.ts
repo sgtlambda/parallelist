@@ -283,8 +283,20 @@ export const api = {
   /** Quick Look for a `file:` link, the default browser or mail client for
    *  `http(s):` and `mailto:`; anything else is refused. */
   openLink: (url: string) => invoke<void>('open_link', { url }),
-  /** Quit, shells and all, once the user has confirmed. */
-  quit: () => invoke<void>('quit_app'),
+  /** Quit once the user has confirmed: ending every terminal, or leaving
+   *  them running in the relay for the next launch. */
+  quit: (endTerminals: boolean) => invoke<void>('quit_app', { endTerminals }),
+  /** The build whose older relay holds this build's terminals, found at
+   *  startup, or null. */
+  relayOutdated: () => invoke<string | null>('relay_outdated'),
+  /** End the terminals in that relay and restart with a new one. */
+  replaceOutdatedRelay: () => invoke<void>('replace_outdated_relay'),
+  /** Other builds whose relays are running, with their terminals. */
+  otherBuilds: () => invoke<OtherBuild[]>('other_builds'),
+  /** End some of another build's terminals by id, or all of them with none
+   *  named. */
+  endOtherTerminals: (build: string, ids: string[]) =>
+    invoke<void>('end_other_terminals', { build, ids }),
   copyText: (text: string) => invoke<void>('copy_text', { text }),
   listTasks: () => invoke<Task[]>('list_tasks'),
   getTask: (id: string) => invoke<Task | null>('get_task', { id }),
@@ -319,11 +331,18 @@ export const api = {
     invoke<void>('terminal_resize', { path, cols, rows }),
   terminalClose: (path: string) => invoke<void>('terminal_close', { path }),
   terminalList: () => invoke<TerminalInfo[]>('terminal_list'),
+  /** The terminal that was on screen when the last app quit and left it
+   *  running, once, at startup; else null. */
+  terminalRestoredView: () => invoke<TerminalInfo | null>('terminal_restored_view'),
   /** The terminal on screen in the focused window, or null. */
   terminalViewing: (path: string | null) => invoke<void>('terminal_viewing', { path }),
   /** What the Claude Code in a workspace's terminal last asked, read from
    *  its transcript, or null. */
   terminalQuestion: (path: string) => invoke<string | null>('terminal_question', { path }),
+  /** What runs in the foreground of each terminal, by path: the command line
+   *  of the program there (`npm run dev`, `claude`). A terminal with only its
+   *  shell running is left out. */
+  terminalPrograms: () => invoke<Record<string, string>>('terminal_programs'),
   /** Mark a terminal by hand, as if its program had reported it, clear what
    *  waits there, or snooze its wait: still waiting, but from now, so at the
    *  back of the queue. */
@@ -331,10 +350,21 @@ export const api = {
     invoke<void>('terminal_mark', { path, mark }),
 }
 
+/** Another build's relay: `build` is its branch, with "(dev)" for a dev
+ *  build. `terminals` is null for a relay that can't list them, which can
+ *  only be ended as a whole: one of another version, or, when `answering`
+ *  is false, one that didn't answer. */
+export interface OtherBuild {
+  build: string
+  terminals: (TerminalInfo & { id: string })[] | null
+  answering: boolean
+}
+
 export type TerminalMarkKind = 'unread' | 'blocked' | 'clear' | 'snooze'
 
-/** Output as raw bytes, then the exit code once the shell is gone. */
-export type TerminalMessage = ArrayBuffer | { exit: number }
+/** Output as raw bytes, then once the shell is gone its exit code, or why
+ *  it went without one: with the relay, or to another window of this build. */
+export type TerminalMessage = ArrayBuffer | { exit: number } | { ended: 'relay' | 'moved' }
 
 export interface TerminalInfo {
   path: string
@@ -383,6 +413,11 @@ export function onOpenCreate(handler: (forSelected: boolean) => void) {
   return listen<boolean>('open-create', (e) => handler(e.payload))
 }
 
+/** The File menu's "Manage Terminals…" was chosen. */
+export function onOpenTerminals(handler: () => void) {
+  return listen('open-terminals', () => handler())
+}
+
 /** Something is dragged from Finder over the window, or dropped on it.
  *  Tauri's native handler takes the drop, so the page never sees `dragover`
  *  or `drop`. */
@@ -390,11 +425,16 @@ export function onDragDrop(handler: (event: DragDropEvent) => void) {
   return getCurrentWebview().onDragDropEvent((e) => handler(e.payload))
 }
 
-/** The app was asked to quit while terminals are running: how many, and how
- *  many of those wait for the user. The backend holds the quit until
+/** The app was asked to quit while terminals are running: how many, how
+ *  many of those wait for the user, and whether they can keep running
+ *  without it (they live in a relay). The backend holds the quit until
  *  `api.quit`. */
-export function onConfirmQuit(handler: (running: number, waiting: number) => void) {
-  return listen<[number, number]>('confirm-quit', (e) => handler(e.payload[0], e.payload[1]))
+export function onConfirmQuit(
+  handler: (running: number, waiting: number, persistent: boolean) => void,
+) {
+  return listen<[number, number, boolean]>('confirm-quit', (e) =>
+    handler(e.payload[0], e.payload[1], e.payload[2]),
+  )
 }
 
 export type TaskKind = 'refresh' | 'create' | 'remove' | 'deleteBranch'

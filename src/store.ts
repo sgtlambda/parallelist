@@ -735,6 +735,8 @@ export async function copyToClipboard(text: string, what: string) {
 }
 
 export const settingsOpen = ref(false)
+/** The Terminals dialog: every running terminal, to end any of them. */
+export const terminalsOpen = ref(false)
 export const cleanupOpen = ref(false)
 
 /** What the open Cleanup dialog is working on. Snapshots, not live lists: the

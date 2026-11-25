@@ -21,9 +21,11 @@ const quiet: Record<string, Handler> = {
   save_config: () => undefined,
   ahead_behind: () => ({}),
   terminal_list: () => [],
+  terminal_restored_view: () => null,
   terminal_viewing: () => undefined,
   terminal_mark: () => undefined,
   terminal_close: () => undefined,
+  other_builds: () => [],
   copy_text: () => undefined,
   open_link: () => undefined,
 }

@@ -308,6 +308,17 @@ export function list(): TerminalInfo[] {
   return [...sessions.values()].map(info)
 }
 
+/** What the scripted programs would show in `ps`, for terminals running one. */
+export function programs(): Record<string, string> {
+  const named: Partial<Record<Mode, string>> = { dev: 'pnpm dev', claude: 'agent' }
+  const out: Record<string, string> = {}
+  for (const s of sessions.values()) {
+    const program = named[s.mode]
+    if (program) out[s.path] = program
+  }
+  return out
+}
+
 export const question = (path: string) => sessions.get(path)?.question ?? null
 
 /** "Mark unread" and "Mark blocked" in a row's menu, as if the program had
