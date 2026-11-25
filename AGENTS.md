@@ -412,6 +412,25 @@ redundant complexity and are not.
   own, and drifted: the list said "uncommitted" for unpushed commits while
   the card beside it said "unpushed". The numbers behind them come from
   `src-tauri/src/status.rs`.
+- **`src/themes.ts` is the only place a colour is defined.** Each theme
+  is a light and a dark palette of the same tokens (`Palette`, so a theme
+  missing one doesn't compile), written out at startup as a stylesheet:
+  `:root[data-theme=…]`, and the same inside `prefers-color-scheme: dark`,
+  so the OS appearance still picks light or dark and the theme only picks
+  which light and which dark. The first theme is also plain `:root`.
+  `styles.css` keeps only the tokens that aren't colours, and components
+  use the tokens, never a colour of their own. The theme's id is `theme` in
+  `config.json`; the store shows it whenever the config changes
+  (`showTheme`), Settings shows its draft's while open and puts the saved
+  one back on close, and the last one shown is kept in `localStorage` so a
+  launch doesn't open in the default and then change colour. The terminal
+  re-reads its colours on `shownTheme`, and takes its selection from the
+  accent. **`--ready` is not the accent**: the ready mark is blue in every
+  theme, as the onboarding and the site say, and a green or violet accent
+  would otherwise have made it read as something else. Keep the accent
+  hex, since the terminal derives from it, and away from `--orange`, which
+  the blocked mark sits in on a selected (accent) row. The sandbox's
+  "Themes" group shows the whole window in each.
 - **`src/components/Icon.vue` is the only place a glyph is defined.** Call sites
   ask for a semantic name (`<Icon name="worktree" />`), never a picture, so the
   icon set can be swapped by editing one file.
@@ -1021,9 +1040,10 @@ How it works, and what it leaves out:
   default-exports `defineGroup(...)` (from `define.ts`, not `scenarios.ts`:
   that one globs these files and importing it back is a cycle). Fixtures
   are in `fixtures.ts`.
-- **Light and dark** are forced by copying `styles.css`'s `:root` values
-  onto the root element (`theme.ts`), since a page can't flip
-  `prefers-color-scheme`. xterm's theme still follows the OS.
+- **Light and dark** are forced by setting the shown theme's palette for
+  them on the root element (`src/sandbox/theme.ts`, reading `themes.ts`),
+  since a page can't flip `prefers-color-scheme`. xterm's ANSI colours
+  still follow the OS.
 - **It is Chrome, not WKWebView.** Layout is close, not proof. The native
   menu is a drawn lookalike, `open`ed dialogs return nothing, and there is
   no pty, window dragging or menu bar.

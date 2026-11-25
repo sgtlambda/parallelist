@@ -313,6 +313,7 @@ export const config: AppConfig = {
   listWidth: 262,
   detailWidth: 360,
   terminalFontSize: 12,
+  theme: 'graphite',
 }
 
 /** What the frontend receives is always a copy, so its reactive proxies never

@@ -1,6 +1,9 @@
 import { createApp } from 'vue'
 import '../styles.css'
+import { installThemes } from '../themes'
 import { applyTheme, storedTheme, type Theme } from './theme'
+
+installThemes()
 
 // One page, two modes: the shell with its list of scenarios, and — inside
 // that shell's iframe, so each scenario starts from a clean slate and the

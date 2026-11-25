@@ -66,6 +66,7 @@ export const config = (overrides: Partial<AppConfig> = {}): AppConfig => ({
   listWidth: 360,
   detailWidth: 640,
   terminalFontSize: 13,
+  theme: 'graphite',
   ...overrides,
 })
 
