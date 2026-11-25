@@ -2724,6 +2724,16 @@ p.set-overridden,
   font-size: 11px;
 }
 
+/* Where the search model is, while it isn't ready. */
+.palette-note {
+  margin-left: auto;
+  min-width: 0;
+}
+
+.palette-note.err {
+  color: var(--red);
+}
+
 .palette-footer kbd {
   font: inherit;
   margin-right: 3px;

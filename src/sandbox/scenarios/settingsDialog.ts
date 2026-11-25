@@ -139,11 +139,13 @@ export default defineGroup('Settings', [
   },
   {
     id: 'screen-search',
-    title: 'Screen search, its model starting',
-    note: 'The model picked, and what it is doing while it gets ready. A failure says why in red.',
+    title: 'Screen search, its model downloading',
+    note: 'The model picked, and how far its download has got. A failure says why in red.',
     component: SettingsDialog,
     props: { open: true },
-    setup: () => open('app', {}, 'Screen search', { status: { state: 'loading', model: 'minilm-l6' } }),
+    setup: () => open('app', {}, 'Screen search', {
+      status: { state: 'loading', model: 'minilm-l6', downloaded: 45_000_000, size: 90_000_000 },
+    }),
   },
   {
     id: 'screen-search-failed',

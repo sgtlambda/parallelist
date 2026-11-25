@@ -237,19 +237,19 @@ const handlers: Record<string, Handler> = {
   terminal_mark: ({ path, mark }: { path: string; mark: 'unread' | 'blocked' | 'clear' | 'snooze' }) =>
     terminals.mark(path, mark),
 
-  // A page has no model to run, so the demo's screen search is literal
-  // only, as the real one is until its model is ready.
+  // A page has no model to run, so the demo's screen search matches
+  // literally, standing in for one that is always ready.
   screen_search_models: (): ScreenSearchModel[] => [
     { id: 'minilm-l6', label: 'Small', name: 'all-MiniLM-L6-v2', downloadMb: 90, memoryMb: 500 },
     { id: 'minilm-l12', label: 'Medium', name: 'all-MiniLM-L12-v2', downloadMb: 135, memoryMb: 550 },
     { id: 'mpnet-base', label: 'Large', name: 'all-mpnet-base-v2', downloadMb: 440, memoryMb: 1200 },
   ],
   screen_search_status: (): ScreenSearchStatus =>
-    config.screenSearch ? { state: 'idle', model: config.screenSearchModel } : { state: 'off' },
+    config.screenSearch ? { state: 'ready', model: config.screenSearchModel } : { state: 'off' },
   screen_search: ({ query }: { query: string }): ScreenFound => {
     const q = query.trim()
     const status: ScreenSearchStatus = config.screenSearch
-      ? { state: 'idle', model: config.screenSearchModel }
+      ? { state: 'ready', model: config.screenSearchModel }
       : { state: 'off' }
     const words = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 3)
     if (!config.screenSearch || q.length < 3 || !words.length) return { query: q, status, hits: [] }

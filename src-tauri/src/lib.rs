@@ -1197,18 +1197,6 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             let config = AppConfig::load(&dir);
-            let status_handle = app.handle().clone();
-            let screen_search = screen_search::ScreenSearch::new(
-                app.path().app_cache_dir()?.join("models"),
-                Box::new(move |status| {
-                    let _ = status_handle.emit("screen-search-status", status);
-                }),
-            );
-            // Not started until a search asks for it.
-            screen_search.configure(
-                config.screen_search.then_some(config.screen_search_model.as_str()),
-                false,
-            );
             // One shell spawn; do it off the critical path so the window
             // isn't waiting on it.
             std::thread::spawn(|| {
@@ -1226,6 +1214,19 @@ pub fn run() {
                     TaskEvent::Removed(id) => handle.emit("task-removed", id),
                 };
             }));
+            let status_handle = app.handle().clone();
+            let screen_search = screen_search::ScreenSearch::new(
+                app.path().app_cache_dir()?.join("models"),
+                Arc::clone(&tasks),
+                Box::new(move |status| {
+                    let _ = status_handle.emit("screen-search-status", status);
+                }),
+            );
+            // Not started until a search asks for it.
+            screen_search.configure(
+                config.screen_search.then_some(config.screen_search_model.as_str()),
+                false,
+            );
             app.manage(AppState {
                 config: Mutex::new(config),
                 dir,

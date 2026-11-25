@@ -1,6 +1,6 @@
 import { nextTick } from 'vue'
 import CommandPalette from '../../components/CommandPalette.vue'
-import type { ScreenFound } from '../../api'
+import type { ScreenFound, ScreenSearchStatus } from '../../api'
 import { paletteOpen } from '../../palette'
 import { backend } from '../backend'
 import { boot, terminals } from '../seed'
@@ -13,12 +13,17 @@ const billing = `${WS}/app-billing`
 const search = `${WS}/app-search`
 
 /** Open the palette and type `query`, as the user would. */
-async function open(query: string, found: (query: string) => ScreenFound['hits'], screenSearch = true) {
+async function open(
+  query: string,
+  found: (query: string) => ScreenFound['hits'],
+  screenSearch = true,
+  status: ScreenSearchStatus = { state: 'ready', model: 'minilm-l6' },
+) {
   await boot({ config: config({ screenSearch }) })
   backend.handle({
     screen_search: ({ query }: { query: string }): ScreenFound => ({
       query: query.trim(),
-      status: { state: 'ready', model: 'minilm-l6' },
+      status,
       hits: found(query),
     }),
   })
@@ -66,6 +71,30 @@ export default defineGroup('Palette', [
       open('header', () => [
         { path: search, relevance: 1, snippet: '5:12:01 PM [vite] hmr update /src/components/Header.vue' },
       ]),
+  },
+  {
+    id: 'downloading',
+    title: 'Its model still downloading',
+    note: 'No terminal is searched until the model is ready; the footer says how far it has got.',
+    component: CommandPalette,
+    setup: () =>
+      open('stripe webhook', () => [], true, {
+        state: 'loading',
+        model: 'minilm-l6',
+        downloaded: 38_000_000,
+        size: 90_000_000,
+      }),
+  },
+  {
+    id: 'failed',
+    title: 'Its model failed to start',
+    component: CommandPalette,
+    setup: () =>
+      open('stripe webhook', () => [], true, {
+        state: 'failed',
+        model: 'minilm-l6',
+        error: 'Failed to retrieve model.onnx: network unreachable',
+      }),
   },
   {
     id: 'off',

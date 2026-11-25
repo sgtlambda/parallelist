@@ -92,10 +92,12 @@ export interface ScreenSearchModel {
 }
 
 /** Where the screen search model is. `idle`: on, with nothing loaded until
- *  a search asks for it. */
+ *  a search asks for it. `loading` while downloading carries how many bytes
+ *  are in, of roughly how many; reading it from disk carries neither. */
 export type ScreenSearchStatus =
   | { state: 'off' }
-  | { state: 'idle' | 'loading' | 'ready'; model: string }
+  | { state: 'idle' | 'ready'; model: string }
+  | { state: 'loading'; model: string; downloaded: number | null; size: number | null }
   | { state: 'failed'; model: string; error: string }
 
 /** A terminal whose screen matches a query. */
@@ -449,7 +451,9 @@ export function onConfirmQuit(handler: (running: number, waiting: number) => voi
   return listen<[number, number]>('confirm-quit', (e) => handler(e.payload[0], e.payload[1]))
 }
 
-export type TaskKind = 'refresh' | 'create' | 'remove' | 'deleteBranch'
+/** `download` is the screen search model's, and belongs to no project: its
+ *  `projectId` is empty. */
+export type TaskKind = 'refresh' | 'create' | 'remove' | 'deleteBranch' | 'download'
 export type TaskStatus = 'queued' | 'running' | 'done' | 'failed'
 
 export interface TaskLine {

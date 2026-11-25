@@ -38,6 +38,22 @@ export default defineGroup('Task box', [
     setup: () => withTasks(creating()),
   },
   {
+    id: 'model-download',
+    title: 'The screen search model downloading',
+    note: 'Belongs to no project. Its line counts up as the download goes.',
+    component: TaskBox,
+    setup: () =>
+      withTasks(
+        task({
+          kind: 'download',
+          projectId: '',
+          title: 'Downloading the screen search model',
+          status: 'running',
+          log: [line(0, 'all-MiniLM-L6-v2 · 38 of 90 MB')],
+        }),
+      ),
+  },
+  {
     id: 'short',
     title: 'Short title and line: the box fits them',
     component: TaskBox,

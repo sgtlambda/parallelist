@@ -1,5 +1,6 @@
 //! Background work the window reports in its task box: refreshing a project,
-//! creating a workspace, removing one, deleting a branch.
+//! creating a workspace, removing one, deleting a branch, and downloading the
+//! screen search model.
 //!
 //! The registry lives here rather than in the webview so a task and its log
 //! outlive the page: a webview reload in the middle of `pnpm install` finds
@@ -31,6 +32,9 @@ pub enum TaskKind {
     Create,
     Remove,
     DeleteBranch,
+    /// The screen search model, downloaded the first time it is used
+    /// (`screen_search.rs`). Belongs to no project: its `project_id` is "".
+    Download,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

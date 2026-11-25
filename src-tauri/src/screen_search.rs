@@ -49,6 +49,8 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use crate::tasks::{TaskContext, TaskKind, TaskStatus, Tasks};
+
 /// A model the user can choose in Settings.
 pub struct Model {
     pub id: &'static str,
@@ -163,8 +165,9 @@ pub enum ModelStatus {
     /// launch, or it was stopped for being idle.
     Idle { model: String },
     /// The worker is starting: downloading the model, the first time, or
-    /// reading it from disk.
-    Loading { model: String },
+    /// reading it from disk. While downloading, how many bytes are in, of
+    /// roughly how many.
+    Loading { model: String, downloaded: Option<u64>, size: Option<u64> },
     Ready { model: String },
     Failed { model: String, error: String },
 }
@@ -204,9 +207,13 @@ const RETRY_AFTER: Duration = Duration::from_secs(60);
 /// that opening the palette again a minute later finds it running.
 const IDLE: Duration = Duration::from_secs(180);
 
-/// How long a worker may take to start: the first time, that includes
-/// downloading the model.
-const START_TIMEOUT: Duration = Duration::from_secs(600);
+/// How long a worker may take to load a model it has on disk. The large
+/// one takes two seconds.
+const LOAD_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// How long a download may go without a byte before it is given up. Not a
+/// limit on the whole download, which on a slow connection takes minutes.
+const STALL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// How long one batch of chunks may take. A full screen on the large model
 /// takes a few seconds.
@@ -245,8 +252,16 @@ pub type OnStatus = Box<dyn Fn(&ModelStatus) + Send + Sync>;
 /// How a worker is started: the app's own binary, or a stand-in in tests.
 type Spawn = Box<dyn Fn(&Model) -> Command + Send + Sync>;
 
+/// Where models are kept, and the task registry a download is shown in.
+struct Downloads {
+    cache_dir: PathBuf,
+    tasks: Arc<Tasks>,
+}
+
 pub struct ScreenSearch {
     inner: Mutex<Inner>,
+    /// `None` in tests, which have no cache and no tasks.
+    downloads: Option<Downloads>,
     /// Embeddings by chunk text, for the model in `inner`. Holds only what
     /// the last search saw, and outlives the worker, so one started again
     /// after being idle embeds only what changed meanwhile.
@@ -257,20 +272,23 @@ pub struct ScreenSearch {
 
 impl ScreenSearch {
     /// Workers are this binary, started with `WORKER_FLAG`, keeping models
-    /// in `cache_dir`.
-    pub fn new(cache_dir: PathBuf, on_status: OnStatus) -> Arc<Self> {
+    /// in `cache_dir`. A model that has to be downloaded first is a task in
+    /// `tasks`.
+    pub fn new(cache_dir: PathBuf, tasks: Arc<Tasks>, on_status: OnStatus) -> Arc<Self> {
+        let dir = cache_dir.clone();
         Self::with_spawn(
+            Some(Downloads { cache_dir, tasks }),
             on_status,
             Box::new(move |model: &Model| {
                 let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("parallelist"));
                 let mut cmd = Command::new(exe);
-                cmd.arg(WORKER_FLAG).arg(model.id).arg(&cache_dir);
+                cmd.arg(WORKER_FLAG).arg(model.id).arg(&dir);
                 cmd
             }),
         )
     }
 
-    fn with_spawn(on_status: OnStatus, spawn: Spawn) -> Arc<Self> {
+    fn with_spawn(downloads: Option<Downloads>, on_status: OnStatus, spawn: Spawn) -> Arc<Self> {
         let search = Arc::new(Self {
             inner: Mutex::new(Inner {
                 wanted: None,
@@ -280,6 +298,7 @@ impl ScreenSearch {
                 last_used: Instant::now(),
                 generation: 0,
             }),
+            downloads,
             embeddings: Mutex::default(),
             on_status,
             spawn,
@@ -339,10 +358,41 @@ impl ScreenSearch {
             _ => {}
         }
         let generation = inner.generation;
-        self.set_status(inner, ModelStatus::Loading { model: model.id.into() });
+        let download = self
+            .downloads
+            .as_ref()
+            .filter(|d| !d.has(model))
+            .map(|d| Download::start(d, model));
+        let size = download.as_ref().map(|d| d.size);
+        self.set_status(
+            inner,
+            ModelStatus::Loading { model: model.id.into(), downloaded: size.map(|_| 0), size },
+        );
         let this = Arc::clone(self);
         std::thread::spawn(move || {
-            let started = Worker::start((this.spawn)(model));
+            let begun = Instant::now();
+            let mut progress = (0, Instant::now());
+            let started = Worker::start((this.spawn)(model), &mut || {
+                if this.inner.lock().unwrap().generation != generation {
+                    return Some(StartError::Cancelled);
+                }
+                let Some(download) = &download else {
+                    return (begun.elapsed() > LOAD_TIMEOUT)
+                        .then(|| StartError::Failed(format!("{} took too long to load", model.name)));
+                };
+                let bytes = download.bytes();
+                if bytes > progress.0 {
+                    progress = (bytes, Instant::now());
+                    download.report(bytes);
+                    this.downloading(generation, model, bytes, download.size);
+                } else if progress.1.elapsed() > STALL_TIMEOUT {
+                    return Some(StartError::Failed("the download stalled".into()));
+                }
+                None
+            });
+            if let Some(download) = download {
+                download.finish(&started);
+            }
             let mut inner = this.inner.lock().unwrap();
             if inner.generation != generation {
                 return;
@@ -353,7 +403,8 @@ impl ScreenSearch {
                     inner.last_used = Instant::now();
                     ModelStatus::Ready { model: model.id.into() }
                 }
-                Err(error) => {
+                Err(StartError::Cancelled) => return,
+                Err(StartError::Failed(error)) => {
                     inner.failed_at = Some(Instant::now());
                     ModelStatus::Failed { model: model.id.into(), error }
                 }
@@ -362,23 +413,37 @@ impl ScreenSearch {
         });
     }
 
-    /// A worker that failed mid-search is gone; the next search after
-    /// `RETRY_AFTER` starts another.
-    fn worker_failed(&self, generation: u64, error: String) {
+    /// How far a download has got, for the palette and Settings.
+    fn downloading(&self, generation: u64, model: &Model, bytes: u64, size: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.generation == generation {
+            let status = ModelStatus::Loading {
+                model: model.id.into(),
+                downloaded: Some(bytes.min(size)),
+                size: Some(size),
+            };
+            self.set_status(&mut inner, status);
+        }
+    }
+
+    /// A worker that stopped answering mid-search is gone. Its model loaded
+    /// once, so the next search starts another straight away; one that
+    /// then fails to load waits `RETRY_AFTER` like any other.
+    fn worker_died(&self, generation: u64) {
         let mut inner = self.inner.lock().unwrap();
         if inner.generation != generation {
             return;
         }
         inner.worker = None;
-        inner.failed_at = Some(Instant::now());
         if let Some(model) = inner.wanted {
-            self.set_status(&mut inner, ModelStatus::Failed { model: model.id.into(), error });
+            self.set_status(&mut inner, ModelStatus::Idle { model: model.id.into() });
         }
     }
 
-    /// Score every screen against `query`. Literal matching always runs;
-    /// matching by meaning once the worker is ready, which this starts if
-    /// it isn't.
+    /// Score every screen against `query`, once the worker is ready, which
+    /// this starts if it isn't. Until then nothing is found: the palette
+    /// says where the model is instead (`Found::status`). Once it is ready
+    /// a screen counts by the better of its words and its meaning.
     pub fn search(self: &Arc<Self>, query: &str, screens: &[Screen]) -> Found {
         let (status, worker, model, generation) = {
             let mut inner = self.inner.lock().unwrap();
@@ -388,20 +453,16 @@ impl ScreenSearch {
         };
         let query = query.trim();
         let mut hits = Vec::new();
-        if status != ModelStatus::Off && query.chars().count() >= MIN_QUERY {
+        let ready = worker.zip(model).filter(|_| matches!(status, ModelStatus::Ready { .. }));
+        if let Some((worker, model)) = ready.filter(|_| query.chars().count() >= MIN_QUERY) {
             let words = query_words(query);
             let prepared: Vec<Prepared> = screens.iter().map(prepare).collect();
-            let meaning = match (worker, model) {
-                (Some(worker), Some(model)) => {
-                    match self.by_meaning(&worker, model, query, &prepared) {
-                        Ok(meaning) => meaning,
-                        Err(error) => {
-                            self.worker_failed(generation, error);
-                            Vec::new()
-                        }
-                    }
+            let meaning = match self.by_meaning(&worker, model, query, &prepared) {
+                Ok(meaning) => meaning,
+                Err(_) => {
+                    self.worker_died(generation);
+                    return Found { query: query.to_string(), status: self.status(), hits };
                 }
-                _ => Vec::new(),
             };
             for (i, screen) in prepared.iter().enumerate() {
                 let (share, line) = literal(&words, &screen.lines);
@@ -502,6 +563,111 @@ struct Worker {
     lines: Receiver<String>,
 }
 
+/// Why a worker didn't start.
+#[derive(Debug)]
+enum StartError {
+    /// The setting changed while it started: off, or another model.
+    Cancelled,
+    Failed(String),
+}
+
+/// A model being downloaded, shown as a task.
+struct Download {
+    tasks: Arc<Tasks>,
+    id: String,
+    name: &'static str,
+    /// Where hf-hub writes it, `.part` files included, so its size is the
+    /// progress.
+    blobs: PathBuf,
+    /// Roughly what it comes to, in bytes.
+    size: u64,
+}
+
+const MB: u64 = 1_000_000;
+
+impl Download {
+    fn start(downloads: &Downloads, model: &'static Model) -> Self {
+        let id = downloads.tasks.add(
+            "",
+            TaskKind::Download,
+            "Downloading the screen search model".into(),
+            TaskContext::default(),
+            TaskStatus::Running,
+        );
+        let download = Download {
+            tasks: Arc::clone(&downloads.tasks),
+            id,
+            name: model.name,
+            blobs: repo_dir(&downloads.cache_dir, model).join("blobs"),
+            size: u64::from(model.download_mb) * MB,
+        };
+        download.report(download.bytes());
+        download
+    }
+
+    fn bytes(&self) -> u64 {
+        std::fs::read_dir(&self.blobs)
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter_map(|e| e.metadata().ok())
+                    .filter(|m| m.is_file())
+                    .map(|m| m.len())
+                    .sum()
+            })
+            .unwrap_or(0)
+    }
+
+    fn report(&self, bytes: u64) {
+        let line = format!("{} · {} of {} MB", self.name, bytes.min(self.size) / MB, self.size / MB);
+        self.tasks.keyed_line(&self.id, "progress", &line, false);
+    }
+
+    fn finish(self, started: &Result<Worker, StartError>) {
+        let result = match started {
+            Ok(_) => {
+                let line = format!("Downloaded {}, {} MB", self.name, self.bytes() / MB);
+                self.tasks.keyed_line(&self.id, "progress", &line, false);
+                Ok(())
+            }
+            Err(StartError::Cancelled) => {
+                // A part file stays behind, and the next download resumes it.
+                let line = "Stopped, as the setting changed";
+                self.tasks.keyed_line(&self.id, "progress", line, false);
+                Ok(())
+            }
+            Err(StartError::Failed(error)) => Err(error.clone()),
+        };
+        self.tasks.finish(&self.id, result);
+    }
+}
+
+impl Downloads {
+    /// Whether the model's files are all on disk, so starting it downloads
+    /// nothing.
+    fn has(&self, model: &Model) -> bool {
+        let Ok(info) = TextEmbedding::get_model_info(&model.embedding) else {
+            return false;
+        };
+        let Ok(snapshots) = std::fs::read_dir(repo_dir(&self.cache_dir, model).join("snapshots")) else {
+            return false;
+        };
+        snapshots.flatten().any(|snapshot| {
+            std::iter::once(&info.model_file)
+                .chain(&info.additional_files)
+                .all(|file| snapshot.path().join(file).exists())
+        })
+    }
+}
+
+/// Where hf-hub keeps a model's repository: `models--<org>--<name>`.
+fn repo_dir(cache_dir: &std::path::Path, model: &Model) -> PathBuf {
+    let code = TextEmbedding::get_model_info(&model.embedding)
+        .map(|info| info.model_code.replace('/', "--"))
+        .unwrap_or_default();
+    cache_dir.join(format!("models--{code}"))
+}
+
 /// What a worker answers, one line each.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -512,15 +678,22 @@ enum Reply {
 }
 
 impl Worker {
-    /// Start `cmd` and wait until it says its model is loaded.
-    fn start(mut cmd: Command) -> Result<Self, String> {
+    /// Start `cmd` and wait until it says its model is loaded. `check` is
+    /// asked twice a second meanwhile, and stops the wait, and the worker,
+    /// when it says why.
+    fn start(
+        mut cmd: Command,
+        check: &mut dyn FnMut() -> Option<StartError>,
+    ) -> Result<Self, StartError> {
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .process_group(0);
-        let mut child = cmd.spawn().map_err(|e| format!("could not start the model: {e}"))?;
-        let stdin = child.stdin.take().ok_or("no stdin")?;
-        let stdout = child.stdout.take().ok_or("no stdout")?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| StartError::Failed(format!("could not start the model: {e}")))?;
+        let stdin = child.stdin.take().ok_or(StartError::Failed("no stdin".into()))?;
+        let stdout = child.stdout.take().ok_or(StartError::Failed("no stdout".into()))?;
         let (tx, lines) = mpsc::channel();
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -530,19 +703,30 @@ impl Worker {
             }
         });
         let mut worker = Worker { child, stdin, lines };
-        match worker.reply(START_TIMEOUT)? {
-            Reply::Ready => Ok(worker),
-            Reply::Error(e) => Err(e),
-            Reply::Vectors(_) => Err("the model answered before it was asked".into()),
+        loop {
+            match worker.reply(Duration::from_millis(500)) {
+                Ok(Reply::Ready) => return Ok(worker),
+                Ok(Reply::Error(e)) => return Err(StartError::Failed(e)),
+                Ok(Reply::Vectors(_)) => {
+                    return Err(StartError::Failed("the model answered before it was asked".into()))
+                }
+                Err(Silence::Waiting) => {}
+                Err(Silence::Gone(e)) => return Err(StartError::Failed(e)),
+            }
+            // Dropping the worker kills it.
+            if let Some(stop) = check() {
+                return Err(stop);
+            }
         }
     }
 
-    fn reply(&mut self, timeout: Duration) -> Result<Reply, String> {
+    fn reply(&mut self, timeout: Duration) -> Result<Reply, Silence> {
         let line = self.lines.recv_timeout(timeout).map_err(|e| match e {
-            RecvTimeoutError::Timeout => "the model stopped responding".to_string(),
-            RecvTimeoutError::Disconnected => "the model stopped".to_string(),
+            RecvTimeoutError::Timeout => Silence::Waiting,
+            RecvTimeoutError::Disconnected => Silence::Gone("the model stopped".into()),
         })?;
-        serde_json::from_str(&line).map_err(|e| format!("the model answered nonsense: {e}"))
+        serde_json::from_str(&line)
+            .map_err(|e| Silence::Gone(format!("the model answered nonsense: {e}")))
     }
 
     /// One vector per text, in order.
@@ -553,13 +737,23 @@ impl Worker {
             .write_all(request.as_bytes())
             .and_then(|()| self.stdin.flush())
             .map_err(|_| "the model stopped".to_string())?;
-        match self.reply(EMBED_TIMEOUT)? {
+        let reply = self.reply(EMBED_TIMEOUT).map_err(|silence| match silence {
+            Silence::Waiting => "the model stopped responding".to_string(),
+            Silence::Gone(e) => e,
+        })?;
+        match reply {
             Reply::Vectors(vectors) if vectors.len() == texts.len() => Ok(vectors),
             Reply::Vectors(_) => Err("the model answered for the wrong number of texts".into()),
             Reply::Error(e) => Err(e),
             Reply::Ready => Err("the model answered out of turn".into()),
         }
     }
+}
+
+/// No reply: none yet, or none coming.
+enum Silence {
+    Waiting,
+    Gone(String),
 }
 
 impl Drop for Worker {
@@ -863,15 +1057,16 @@ mod tests {
 
     #[test]
     fn off_finds_nothing_and_short_queries_are_left_to_branch_names() {
-        let search = ScreenSearch::with_spawn(Box::new(|_| {}), Box::new(|_| fake_worker()));
+        let search = ScreenSearch::with_spawn(None, Box::new(|_| {}), Box::new(|_| fake_worker()));
         assert!(search.search("failed", &screens()).hits.is_empty());
         search.configure(Some("minilm-l6"), false);
         assert!(search.search("te", &screens()).hits.is_empty());
     }
 
     #[test]
-    fn until_the_worker_is_ready_the_search_is_literal() {
+    fn until_the_worker_is_ready_nothing_is_found() {
         let search = ScreenSearch::with_spawn(
+            None,
             Box::new(|_| {}),
             Box::new(|_| {
                 let mut cmd = Command::new("/bin/sh");
@@ -881,11 +1076,11 @@ mod tests {
         );
         search.configure(Some("minilm-l6"), false);
         let found = search.search("test failed", &screens());
-        assert_eq!(found.status, ModelStatus::Loading { model: "minilm-l6".into() });
-        assert_eq!(found.hits.len(), 1);
-        assert_eq!(found.hits[0].path, "/a");
-        assert_eq!(found.hits[0].relevance, 1.0);
-        assert_eq!(found.hits[0].snippet, "test result: FAILED. 41 passed; 1 failed");
+        assert_eq!(
+            found.status,
+            ModelStatus::Loading { model: "minilm-l6".into(), downloaded: None, size: None }
+        );
+        assert!(found.hits.is_empty(), "not even the literal match: {:?}", found.hits);
         search.configure(None, false);
     }
 
@@ -894,6 +1089,7 @@ mod tests {
         let statuses = Arc::new(Mutex::new(Vec::new()));
         let seen = Arc::clone(&statuses);
         let search = ScreenSearch::with_spawn(
+            None,
             Box::new(move |s| seen.lock().unwrap().push(s.clone())),
             Box::new(|_| fake_worker()),
         );
@@ -909,7 +1105,7 @@ mod tests {
             *statuses.lock().unwrap(),
             [
                 ModelStatus::Idle { model: "minilm-l6".into() },
-                ModelStatus::Loading { model: "minilm-l6".into() },
+                ModelStatus::Loading { model: "minilm-l6".into(), downloaded: None, size: None },
                 ModelStatus::Ready { model: "minilm-l6".into() },
             ]
         );
@@ -919,10 +1115,14 @@ mod tests {
     }
 
     #[test]
-    fn a_worker_that_dies_fails_and_the_search_goes_on_literally() {
+    fn a_worker_that_dies_is_started_again_on_the_next_search() {
+        let starts = Arc::new(Mutex::new(0));
+        let counted = Arc::clone(&starts);
         let search = ScreenSearch::with_spawn(
+            None,
             Box::new(|_| {}),
-            Box::new(|_| {
+            Box::new(move |_| {
+                *counted.lock().unwrap() += 1;
                 let mut cmd = Command::new("/bin/sh");
                 cmd.args(["-c", "echo '\"ready\"'; read -r line; exit 3"]);
                 cmd
@@ -931,15 +1131,124 @@ mod tests {
         search.configure(Some("minilm-l6"), true);
         wait_for(&search, |s| matches!(s, ModelStatus::Ready { .. }));
         let found = search.search("hmr update", &screens());
-        assert!(matches!(found.status, ModelStatus::Failed { .. }), "{:?}", found.status);
-        assert_eq!(found.hits.len(), 1, "literal still: {:?}", found.hits);
-        // Not started again on the next keystroke.
-        assert!(matches!(search.search("hmr updates", &screens()).status, ModelStatus::Failed { .. }));
+        assert!(found.hits.is_empty(), "{:?}", found.hits);
+        assert_eq!(found.status, ModelStatus::Idle { model: "minilm-l6".into() });
+        // Loaded once, so not held back as a failure would be.
+        search.search("hmr updates", &screens());
+        wait_for(&search, |s| matches!(s, ModelStatus::Ready { .. }));
+        assert_eq!(*starts.lock().unwrap(), 2);
+    }
+
+    /// A stand-in for a worker downloading its model: it writes `chunks`
+    /// MB into the model's blobs folder, a chunk at a time, then says it is
+    /// ready.
+    fn downloading_worker(blobs: PathBuf, chunks: u32) -> Spawn {
+        Box::new(move |_| {
+            let mut cmd = Command::new("/bin/sh");
+            cmd.arg("-c").arg(format!(
+                "mkdir -p '{dir}'; i=0; while [ $i -lt {chunks} ]; do \
+                 head -c 1000000 /dev/zero >> '{dir}/blob.sync.part'; sleep 0.6; i=$((i+1)); done; \
+                 echo '\"ready\"'; cat > /dev/null",
+                dir = blobs.display()
+            ));
+            cmd
+        })
+    }
+
+    fn cache(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("parallelist-models-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn wait_for_task(tasks: &Tasks, done: impl Fn(&crate::tasks::Task) -> bool) -> crate::tasks::Task {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(task) = tasks.list().into_iter().find(|t| done(t)) {
+                return task;
+            }
+            assert!(Instant::now() < deadline, "no such task in {:?}", tasks.list().len());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    #[test]
+    fn a_model_not_on_disk_is_downloaded_as_a_task() {
+        let cache_dir = cache("download");
+        let model = &MODELS[0];
+        let blobs = repo_dir(&cache_dir, model).join("blobs");
+        let tasks = Arc::new(Tasks::new(|_| {}));
+        let statuses = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&statuses);
+        let downloads = Downloads { cache_dir: cache_dir.clone(), tasks: Arc::clone(&tasks) };
+        assert!(!downloads.has(model));
+        let search = ScreenSearch::with_spawn(
+            Some(downloads),
+            Box::new(move |s| seen.lock().unwrap().push(s.clone())),
+            downloading_worker(blobs, 3),
+        );
+        search.configure(Some(model.id), true);
+        wait_for_task(&tasks, |t| t.header.status == TaskStatus::Done);
+        wait_for(&search, |s| matches!(s, ModelStatus::Ready { .. }));
+
+        let task = tasks.list().pop().unwrap();
+        assert_eq!(task.header.kind, TaskKind::Download);
+        assert_eq!(task.header.project_id, "");
+        assert_eq!(task.log.back().unwrap().text, "Downloaded all-MiniLM-L6-v2, 3 MB");
+        let progress: Vec<u64> = statuses
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|s| match s {
+                ModelStatus::Loading { downloaded, size, .. } => {
+                    assert_eq!(*size, Some(90 * MB));
+                    *downloaded
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(progress.windows(2).all(|w| w[0] < w[1]), "counts up: {progress:?}");
+        assert!(progress.last() >= Some(&(2 * MB)), "{progress:?}");
+
+        // Once its files are there, nothing is downloaded and no task shown.
+        let info = TextEmbedding::get_model_info(&model.embedding).unwrap();
+        let snapshot = repo_dir(&cache_dir, model).join("snapshots/abc");
+        for file in std::iter::once(&info.model_file).chain(&info.additional_files) {
+            std::fs::create_dir_all(snapshot.join(file).parent().unwrap()).unwrap();
+            std::fs::write(snapshot.join(file), "x").unwrap();
+        }
+        let tasks = Arc::new(Tasks::new(|_| {}));
+        let downloads = Downloads { cache_dir: cache_dir.clone(), tasks: Arc::clone(&tasks) };
+        assert!(downloads.has(model));
+        let search = ScreenSearch::with_spawn(Some(downloads), Box::new(|_| {}), Box::new(|_| fake_worker()));
+        search.configure(Some(model.id), true);
+        wait_for(&search, |s| matches!(s, ModelStatus::Ready { .. }));
+        assert!(tasks.list().is_empty());
+        std::fs::remove_dir_all(&cache_dir).ok();
+    }
+
+    #[test]
+    fn turning_it_off_stops_a_download() {
+        let cache_dir = cache("stopped");
+        let blobs = repo_dir(&cache_dir, &MODELS[0]).join("blobs");
+        let tasks = Arc::new(Tasks::new(|_| {}));
+        let downloads = Downloads { cache_dir: cache_dir.clone(), tasks: Arc::clone(&tasks) };
+        let search = ScreenSearch::with_spawn(Some(downloads), Box::new(|_| {}), downloading_worker(blobs, 100));
+        search.configure(Some(MODELS[0].id), true);
+        std::thread::sleep(Duration::from_millis(800));
+        search.configure(None, false);
+        let task = wait_for_task(&tasks, |t| t.header.status != TaskStatus::Running);
+        assert_eq!(task.header.status, TaskStatus::Done, "not a failure to point out");
+        assert_eq!(task.log.back().unwrap().text, "Stopped, as the setting changed");
+        assert_eq!(search.status(), ModelStatus::Off);
+        std::fs::remove_dir_all(&cache_dir).ok();
     }
 
     #[test]
     fn a_worker_that_cannot_load_says_why() {
         let search = ScreenSearch::with_spawn(
+            None,
             Box::new(|_| {}),
             Box::new(|_| {
                 let mut cmd = Command::new("/bin/sh");

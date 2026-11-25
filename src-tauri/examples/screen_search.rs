@@ -15,7 +15,9 @@
 
 use parallelist_lib::git::WorkspaceKind;
 use parallelist_lib::screen_search::{self, similarities, Screen, ScreenSearch, MODELS};
+use parallelist_lib::tasks::{TaskEvent, Tasks};
 use parallelist_lib::terminal::{Home, Terminals};
+use std::sync::Arc;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -166,12 +168,17 @@ fn live(cache: PathBuf, model: &str) {
     std::thread::sleep(Duration::from_millis(500));
     let name_of = |path: &str| paths.iter().find(|(p, _)| p == path).map_or("?", |(_, n)| *n);
 
-    let search = ScreenSearch::new(cache, Box::new(|status| println!("  status: {status:?}")));
+    let tasks = Arc::new(Tasks::new(|event| {
+        if let TaskEvent::Line { line, .. } = event {
+            println!("  task: {}", line.text);
+        }
+    }));
+    let search = ScreenSearch::new(cache, tasks, Box::new(|status| println!("  status: {status:?}")));
     search.configure(Some(model), false);
-    // The first search starts the worker and is literal only.
+    // The first search starts the worker, and finds nothing until it is ready.
     let started = Instant::now();
     let found = search.search("payment signature", &terminals.screens());
-    println!("first search, worker starting: {:?}, {} literal hits", started.elapsed(), found.hits.len());
+    println!("first search, worker starting: {:?}, {} hits", started.elapsed(), found.hits.len());
     while !matches!(search.status(), screen_search::ModelStatus::Ready { .. } | screen_search::ModelStatus::Failed { .. }) {
         std::thread::sleep(Duration::from_millis(50));
     }

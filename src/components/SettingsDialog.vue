@@ -2,7 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { api, type AppConfig, type ProjectFile, type ScreenSearchModel } from '../api'
 import { shortPath, templatePath } from '../format'
-import { screenStatus } from '../screenSearch'
+import { modelNote as noteFor, screenStatus } from '../screenSearch'
 import { refresh, saveConfig, state } from '../store'
 import { useEscape } from '../useEscape'
 import Icon from './Icon.vue'
@@ -77,9 +77,7 @@ const modelNote = computed(() => {
   const saved = state.config
   if (!saved?.screenSearch || !draft.value?.screenSearch) return null
   if (draft.value.screenSearchModel !== saved.screenSearchModel) return null
-  if (status.state === 'loading') return { error: false, text: 'Getting the model ready…' }
-  if (status.state === 'failed') return { error: true, text: `The model couldn't start: ${status.error}` }
-  return null
+  return noteFor(status)
 })
 
 watch(section, () => {

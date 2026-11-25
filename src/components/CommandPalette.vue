@@ -8,6 +8,8 @@ import { paletteLoading, paletteOpen, refreshPalette, searchPalette, type Result
 import { goToEntry } from '../attention'
 import { enterShellOf } from '../enterShell'
 import {
+  MIN_SCREEN_QUERY,
+  modelNote,
   screenSearching,
   screenStatus,
   searchScreens,
@@ -63,11 +65,30 @@ watch(query, (q) => {
 
 const screensOn = computed(() => !!state.config?.screenSearch)
 
-const busy = computed(() => paletteLoading.value || (screensOn.value && screenSearching.value))
+/** Whether terminals are searched for this query: on, long enough, and the
+ *  model ready. Until then the footer says where the model is. */
+const screensSearched = computed(
+  () =>
+    screensOn.value &&
+    screenStatus.value.state === 'ready' &&
+    query.value.trim().length >= MIN_SCREEN_QUERY,
+)
+
+const note = computed(() =>
+  screensOn.value && query.value.trim().length >= MIN_SCREEN_QUERY
+    ? modelNote(screenStatus.value)
+    : null,
+)
+
+const busy = computed(
+  () =>
+    paletteLoading.value ||
+    (screensOn.value && (screenSearching.value || screenStatus.value.state === 'loading')),
+)
 
 const busyTitle = computed(() => {
   if (paletteLoading.value) return 'Reading branches'
-  return screenStatus.value.state === 'loading' ? 'Starting the search model' : 'Searching terminals'
+  return note.value?.text ?? 'Searching terminals'
 })
 
 function close() {
@@ -163,7 +184,7 @@ function hover(i: number) {
 
       <div ref="list" class="palette-list">
         <p v-if="!results.length" class="empty">
-          {{ paletteLoading ? 'Reading branches…' : screensOn ? 'No branch or terminal matches.' : 'No branch matches.' }}
+          {{ paletteLoading ? 'Reading branches…' : screensSearched ? 'No branch or terminal matches.' : 'No branch matches.' }}
         </p>
         <button
           v-for="(result, i) in results"
@@ -223,6 +244,9 @@ function hover(i: number) {
 
       <div class="palette-footer faint">
         <span><kbd>⌘↵</kbd> open shell</span>
+        <span v-if="note" class="palette-note truncate" :class="{ err: note.error }" :title="note.text">
+          {{ note.text }}
+        </span>
       </div>
     </div>
   </div>

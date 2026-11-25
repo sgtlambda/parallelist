@@ -335,7 +335,8 @@ redundant complexity and are not.
   Note `OpenTarget.primary` is a third, unrelated meaning: a target shown as
   a button on the workspace card, which Settings calls "Primary".
 - **Slow work is a task, and tasks live in the backend.** Refreshing,
-  creating a workspace, removing one and deleting a branch each run as a task
+  creating a workspace, removing one, deleting a branch and downloading the
+  screen search model each run as a task
   in `src-tauri/src/tasks.rs`: a title, a status and a log. The registry is
   Rust-side so a task and its log survive a webview reload mid-install;
   `src/tasks.ts` mirrors it from `list_tasks` plus the `task` / `task-line` /
@@ -635,9 +636,23 @@ redundant complexity and are not.
     downloads), and is killed after three idle minutes, so the system gets
     all of it back. A crash in native code lands there rather than in the
     process holding every terminal. Like every child, it has its own
-    process group and a timeout on every reply (invariant 1). Until it is
-    ready, searches are literal only, and `screen-search-status` going to
-    `ready` searches again.
+    process group and a timeout on every reply (invariant 1): a minute to
+    load a model on disk, and while downloading, a minute without a byte
+    (a fixed limit would fail a slow connection on the large model). A
+    worker that dies mid-use is started again on the next search.
+  - **Until the model is ready, no terminal is found.** The palette's
+    footer says where it is instead: downloading, with how far it has
+    got, starting, or failed and why (`modelNote`). Matching literally
+    in the meantime was tried, and read as the feature not working.
+    `screen-search-status` turning `ready` searches again.
+  - **A download is a task** (`TaskKind::Download`, with an empty
+    `projectId`), shown only when the model's files aren't all on disk
+    (`Downloads::has`), so loading a downloaded model doesn't flash a
+    task on every first search. Its progress is the size of the model's
+    `blobs/` folder, where hf-hub writes its `.part` files. Turning the
+    setting off or choosing another model mid-download kills the worker
+    and ends the task as stopped, not failed, and the next download
+    resumes the part file.
   - **The models** (`MODELS`: all-MiniLM-L6-v2, all-MiniLM-L12-v2,
     all-mpnet-base-v2, as Small, Medium and Large) are all sentence-
     transformers models. These spread their scores widely (unrelated
@@ -655,8 +670,8 @@ redundant complexity and are not.
     Runtime's static library calls `__isPlatformVersionAtLeast`, which
     Rust's std provides, except that the release profile's `lto = true`
     drops it as unused and the link fails.
-  - The demo answers literally only, as the real one does before its model
-    is ready. There is no model to run in a page.
+  - The demo matches literally and reports its model ready, standing in
+    for a model a page can't run.
 - **The attention queue** (the AQ; `src/attention.ts`, `AttentionQueue.vue`) is a
   strip under all three columns with one card per terminal waiting for the
   user — blocked, or ready — in the order they started waiting: oldest on
