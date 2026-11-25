@@ -1,12 +1,26 @@
 //! Pseudo-terminals and the shells in them, and nothing about what their
 //! programs report: starting a shell, reading what it prints, answering the
 //! OSC 7501 probe, and noticing it exit. `terminal.rs` builds the statuses
-//! on top of the events sent from here.
+//! on top of what is recorded here.
 //!
 //! A [`Host`] is where the ptys live. [`Local`] keeps them in the process
 //! that made it: the relay (`relay.rs`), so shells outlive the app, or the
 //! app itself when no relay can be had, and in tests. `relay::Client` is the
 //! same interface over the relay's socket.
+//!
+//! Everything that changes a terminal's status is an entry in its **log**:
+//! a status its program printed, the foreground changing hands, the user
+//! typing, a mark the app made. The host numbers the entries, and the app
+//! works the status out from them (`Status::apply` in `terminal.rs`), so
+//! what the statuses mean can change without a new relay. The app saves
+//! what it has worked out as a **checkpoint**, and the host keeps every
+//! entry after it. The next app to attach, or an app that lost its
+//! connection, replays those, whatever happened in between: a turn that
+//! ended while no app was attached, or in the moment before one quit.
+//!
+//! Output is numbered too, by its **offset** in everything the shell has
+//! printed, so an app that catches up after a reconnect takes exactly what
+//! it hasn't seen.
 //!
 //! The probe is answered here rather than in `terminal.rs`, so a program
 //! started while no app is attached to the relay still gets its answer, and
@@ -14,12 +28,14 @@
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Mutex, OnceLock, Weak};
 use std::time::Duration;
+
+use crate::tasks::now_ms;
 
 /// How much recent output a terminal keeps for replay on reattach. A few
 /// screens of a noisy build; xterm keeps the real scrollback on its side.
@@ -29,6 +45,27 @@ pub const BACKLOG: usize = 512 * 1024;
 /// job the shell left behind can hold the pty open indefinitely, and the exit
 /// still has to be reported.
 const DRAIN_GRACE: Duration = Duration::from_millis(500);
+
+/// Input waiting for a program that isn't reading it. Past this, typing is
+/// refused rather than queued without end.
+const MAX_QUEUED_INPUT: usize = 1 << 20;
+
+/// Entries kept past a terminal's checkpoint. A program reporting what it
+/// does while no app is attached adds one per report; the oldest go first,
+/// and only the newest decide what the status is now.
+const MAX_ENTRIES: usize = 4096;
+
+/// How often the foreground is looked at between reads. A program that
+/// starts or ends without printing anything still changes hands.
+const LEADER_POLL: Duration = Duration::from_millis(250);
+
+/// How many exits a host remembers, so an app that was away when a shell
+/// exited can still be told its code and see its last output.
+const RECENT_EXITS: usize = 64;
+
+/// How much of an exited shell's last output is kept for that app: the error
+/// a failed build ended on, not the whole build.
+const EXIT_TAIL: usize = 16 * 1024;
 
 const STATUS_OPENER: &[u8] = b"\x1b]7501;";
 
@@ -81,81 +118,260 @@ impl Spawn {
     }
 }
 
-/// What a host reports about its ptys.
-#[derive(Debug, Clone)]
-pub enum Event {
-    Output {
-        id: String,
-        data: Vec<u8>,
-        /// The OSC 7501 payloads completed by this output, the probe left
-        /// out: it has been answered.
-        statuses: Vec<String>,
-        /// The process leading the foreground after this output.
-        leader: Option<i32>,
-    },
-    /// The shell is gone, and the last of its output has been sent.
-    Exit { id: String, code: i32 },
+/// Something that happened to a terminal that may change its status.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "camelCase")]
+pub enum Note {
+    /// An OSC 7501 payload its program printed. The probe isn't one: it has
+    /// been answered.
+    Status(String),
+    /// The process leading its foreground changed: the shell, or a program
+    /// it started.
+    Leader(Option<i32>),
+    /// The user typed into it.
+    Typed,
+    /// Something the app recorded, which only the app interprets (a mark).
+    App(serde_json::Value),
 }
 
-pub type Sink = Arc<dyn Fn(Event) + Send + Sync>;
+/// One numbered entry in a terminal's log.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Entry {
+    pub seq: u64,
+    /// When, in epoch milliseconds.
+    pub at: u64,
+    pub note: Note,
+}
 
-/// A terminal that was running in the relay before this app attached.
-#[derive(Debug, Clone, Default)]
+/// What the app last saved about a terminal, and the last entry it covers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Checkpoint {
+    pub seq: u64,
+    pub state: serde_json::Value,
+}
+
+/// A running terminal as a host describes it to an app that takes it over.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Survivor {
     pub id: String,
     pub path: String,
     pub shell_pid: Option<i32>,
-    /// The process leading its foreground now.
-    pub leader: Option<i32>,
+    /// Where `backlog` starts in everything the shell has printed.
+    pub offset: u64,
+    /// Its recent output. Sent as a frame's body, not in its header.
+    #[serde(skip)]
     pub backlog: Vec<u8>,
-    /// What the app last stored for it (`Host::set_state`).
-    pub state: Option<serde_json::Value>,
-    /// Status payloads that arrived while no app was attached, oldest first,
-    /// each with when, in epoch milliseconds.
-    pub statuses: Vec<(u64, String)>,
+    pub checkpoint: Option<Checkpoint>,
+    /// What happened since the checkpoint, oldest first.
+    pub entries: Vec<Entry>,
+}
+
+/// A shell that exited lately, as an app that was away then is told of it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Exited {
+    pub id: String,
+    pub code: i32,
+    /// Where `tail` starts in everything the shell printed.
+    pub offset: u64,
+    /// The last of its output, base64 in the frame's header.
+    #[serde(with = "base64_bytes")]
+    pub tail: Vec<u8>,
+}
+
+mod base64_bytes {
+    use base64::Engine;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&base64::engine::general_purpose::STANDARD.encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let text = String::deserialize(d)?;
+        base64::engine::general_purpose::STANDARD
+            .decode(text)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+/// Every terminal a host has, and the shells that exited lately.
+#[derive(Debug, Clone, Default)]
+pub struct Snapshot {
+    pub terminals: Vec<Survivor>,
+    /// Oldest first.
+    pub exited: Vec<Exited>,
+}
+
+/// What a host reports.
+#[derive(Debug, Clone)]
+pub enum Event {
+    /// Output from `offset` on in everything the shell has printed.
+    Output { id: String, offset: u64, data: Vec<u8> },
+    Entry { id: String, entry: Entry },
+    /// The shell is gone, and the last of its output has been sent.
+    Exit { id: String, code: i32 },
+    /// A running terminal the app didn't know: one it asked to open in a
+    /// workspace that already had one. Sent before the answer to the open.
+    Adopt(Survivor),
+    /// The connection to the host was lost and made again: everything the
+    /// host has now, which is the truth about which terminals still run.
+    Resync(Snapshot),
+    /// Another app took the terminals over.
+    Superseded,
+}
+
+pub type Sink = Arc<dyn Fn(Event) + Send + Sync>;
+
+/// What `Host::open` did.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Opened {
+    /// Started a shell, with this pid.
+    Started { pid: Option<i32> },
+    /// The workspace already had a terminal, under this id. It has been
+    /// sent as an `Event::Adopt` first.
+    Existing { id: String },
 }
 
 /// Where ptys live. Ids are the caller's, unique for as long as the host
 /// lives (the app uses UUIDs, since a relay outlives the app's counters).
+/// One terminal per path: opening a path that has one answers with it.
 pub trait Host: Send + Sync {
-    /// Start a shell for `path`. Returns the shell's pid.
-    fn open(&self, id: &str, path: &str, spawn: &Spawn, size: PtySize) -> Result<Option<i32>, String>;
-    fn write(&self, id: &str, data: &[u8]) -> Result<(), String>;
+    /// Start a shell for `path`, keeping `state` as its first checkpoint.
+    fn open(
+        &self,
+        id: &str,
+        path: &str,
+        spawn: &Spawn,
+        size: PtySize,
+        state: serde_json::Value,
+    ) -> Result<Opened, String>;
+    /// Send input. `typed_at` when the user typed it, which is logged.
+    fn write(&self, id: &str, data: &[u8], typed_at: Option<u64>) -> Result<(), String>;
     fn resize(&self, id: &str, size: PtySize) -> Result<(), String>;
     /// SIGHUP to the shell. The exit is reported as an event like any other.
     fn hang_up(&self, id: &str);
-    /// The process leading the pty's foreground: the shell, or a program it
-    /// started.
-    fn leader(&self, id: &str) -> Option<i32>;
-    /// Keep an opaque value with the pty, handed back as `Survivor::state`
-    /// to the next app that attaches.
-    fn set_state(&self, _id: &str, _state: serde_json::Value) {}
+    /// Log something only the app interprets.
+    fn note(&self, id: &str, at: u64, value: serde_json::Value) -> Result<(), String>;
+    /// Keep `state` as covering every entry up to `seq`, and drop those.
+    fn checkpoint(&self, id: &str, seq: u64, state: serde_json::Value);
     /// Where events go. Set once; events before it are dropped.
     fn set_sink(&self, sink: Sink);
+    /// Wait until everything sent so far has reached the host: before the
+    /// app quits, so its last checkpoints and hang-ups aren't lost.
+    fn flush(&self) {}
     /// Whether its shells outlive the app.
     fn persistent(&self) -> bool {
         false
     }
 }
 
+/// A terminal's log, checkpoint and output, as the host keeps them.
+#[derive(Default)]
+struct Book {
+    backlog: Vec<u8>,
+    /// Everything the shell has printed, counted: the offset of what comes
+    /// next.
+    end: u64,
+    last_seq: u64,
+    checkpoint: Option<Checkpoint>,
+    entries: VecDeque<Entry>,
+    leader: Option<i32>,
+}
+
+impl Book {
+    /// Log `note`, unless it changes nothing: the same leader again. Typing
+    /// right after typing replaces it, so a busy shell's log stays short.
+    fn push(&mut self, at: u64, note: Note) -> Option<Entry> {
+        if let Note::Leader(leader) = note {
+            if leader == self.leader {
+                return None;
+            }
+            self.leader = leader;
+        }
+        if note == Note::Typed && self.entries.back().is_some_and(|e| e.note == Note::Typed) {
+            self.entries.pop_back();
+        }
+        self.last_seq += 1;
+        let entry = Entry { seq: self.last_seq, at, note };
+        self.entries.push_back(entry.clone());
+        if self.entries.len() > MAX_ENTRIES {
+            self.entries.pop_front();
+        }
+        Some(entry)
+    }
+
+    fn survivor(&self, pty: &Pty, with_backlog: bool) -> Survivor {
+        let backlog = if with_backlog { self.backlog.clone() } else { Vec::new() };
+        Survivor {
+            id: pty.id.clone(),
+            path: pty.path.clone(),
+            shell_pid: pty.shell_pid,
+            offset: self.end - backlog.len() as u64,
+            backlog,
+            checkpoint: self.checkpoint.clone(),
+            entries: self.entries.iter().cloned().collect(),
+        }
+    }
+}
+
 struct Pty {
+    id: String,
     path: String,
     master: Mutex<Box<dyn MasterPty + Send>>,
-    writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     shell_pid: Option<i32>,
-    backlog: Mutex<Vec<u8>>,
+    /// To the thread that writes input, so nothing waits on a program that
+    /// isn't reading: not the relay's requests, not other terminals.
+    input: mpsc::Sender<Vec<u8>>,
+    queued: Arc<AtomicUsize>,
+    book: Mutex<Book>,
+}
+
+struct Shared {
+    ptys: Mutex<HashMap<String, Arc<Pty>>>,
+    /// Held from looking for a path's terminal until a new one is in
+    /// `ptys`, so two opens of one path can't both start a shell.
+    opening: Mutex<()>,
+    sink: OnceLock<Sink>,
+    /// Held while anything is logged or output is kept and sent on, so the
+    /// relay can take every terminal and attach an app between two of
+    /// those: nothing is kept without also going to whoever is attached.
+    gate: Mutex<()>,
+    keep_backlog: bool,
+    exited: Mutex<VecDeque<Exited>>,
+}
+
+impl Shared {
+    fn emit(&self, event: Event) {
+        if let Some(sink) = self.sink.get() {
+            sink(event);
+        }
+    }
+
+    fn get(&self, id: &str) -> Result<Arc<Pty>, String> {
+        self.ptys
+            .lock()
+            .unwrap()
+            .get(id)
+            .cloned()
+            .ok_or_else(|| format!("no terminal {id}"))
+    }
+
+    /// Log `note` and send it on.
+    fn record(&self, pty: &Pty, at: u64, note: Note) {
+        let _gate = self.gate.lock().unwrap();
+        let entry = pty.book.lock().unwrap().push(at, note);
+        if let Some(entry) = entry {
+            self.emit(Event::Entry { id: pty.id.clone(), entry });
+        }
+    }
 }
 
 /// Ptys in this process.
 pub struct Local {
-    ptys: Arc<Mutex<HashMap<String, Arc<Pty>>>>,
-    sink: Arc<OnceLock<Sink>>,
-    /// Held while output is added to a backlog and sent on, so the relay can
-    /// take every backlog and attach an app between two reads: nothing lands
-    /// in a backlog without also going to whoever is attached.
-    gate: Arc<Mutex<()>>,
-    keep_backlog: bool,
+    shared: Arc<Shared>,
 }
 
 impl Default for Local {
@@ -168,58 +384,96 @@ impl Local {
     /// `keep_backlog` for the relay, which replays it to the next app. The app
     /// keeps its own for the webview.
     pub fn new(keep_backlog: bool) -> Self {
-        Local {
-            ptys: Arc::default(),
-            sink: Arc::default(),
-            gate: Arc::default(),
+        let shared = Arc::new(Shared {
+            ptys: Mutex::default(),
+            opening: Mutex::default(),
+            sink: OnceLock::new(),
+            gate: Mutex::default(),
             keep_backlog,
-        }
-    }
-
-    pub fn gate(&self) -> Arc<Mutex<()>> {
-        Arc::clone(&self.gate)
+            exited: Mutex::default(),
+        });
+        watch_leaders(Arc::downgrade(&shared));
+        Local { shared }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.ptys.lock().unwrap().is_empty()
+        self.shared.ptys.lock().unwrap().is_empty()
     }
 
-    /// Every pty, with its backlog. Take the gate first for a snapshot that
-    /// no output slips past.
-    pub fn snapshot(&self) -> Vec<Survivor> {
-        self.ptys
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|(id, pty)| Survivor {
-                id: id.clone(),
-                path: pty.path.clone(),
-                shell_pid: pty.shell_pid,
-                leader: pty.master.lock().unwrap().process_group_leader(),
-                backlog: pty.backlog.lock().unwrap().clone(),
-                ..Survivor::default()
-            })
-            .collect()
+    /// Every terminal, handed to `then` under the gate: whatever `then` sets
+    /// up to receive events gets everything after the snapshot, and nothing
+    /// in it twice.
+    pub fn with_snapshot<R>(&self, backlogs: bool, then: impl FnOnce(Snapshot) -> R) -> R {
+        let _gate = self.shared.gate.lock().unwrap();
+        let ptys: Vec<Arc<Pty>> = self.shared.ptys.lock().unwrap().values().cloned().collect();
+        let snapshot = Snapshot {
+            terminals: ptys
+                .iter()
+                .map(|pty| pty.book.lock().unwrap().survivor(pty, backlogs))
+                .collect(),
+            exited: self.shared.exited.lock().unwrap().iter().cloned().collect(),
+        };
+        then(snapshot)
     }
 
-    fn get(&self, id: &str) -> Result<Arc<Pty>, String> {
-        self.ptys
-            .lock()
-            .unwrap()
-            .get(id)
-            .cloned()
-            .ok_or_else(|| format!("no terminal {id}"))
+    /// Send a terminal to whoever is attached as one to take in
+    /// (`Event::Adopt`): one started for a connection that isn't the app's,
+    /// which the app would otherwise never hear of.
+    pub fn announce(&self, id: &str) {
+        let _gate = self.shared.gate.lock().unwrap();
+        let Ok(pty) = self.shared.get(id) else { return };
+        let survivor = pty.book.lock().unwrap().survivor(&pty, self.shared.keep_backlog);
+        self.shared.emit(Event::Adopt(survivor));
     }
 
-    fn emit(sink: &OnceLock<Sink>, event: Event) {
-        if let Some(sink) = sink.get() {
-            sink(event);
+    /// Hang up on every shell.
+    pub fn hang_up_all(&self) {
+        let ptys: Vec<Arc<Pty>> = self.shared.ptys.lock().unwrap().values().cloned().collect();
+        for pty in ptys {
+            let _ = pty.killer.lock().unwrap().kill();
         }
     }
 }
 
+/// Note each terminal's foreground changing hands, read or no read. Ends
+/// with the host.
+fn watch_leaders(shared: Weak<Shared>) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(LEADER_POLL);
+        let Some(shared) = shared.upgrade() else { return };
+        let ptys: Vec<Arc<Pty>> = shared.ptys.lock().unwrap().values().cloned().collect();
+        for pty in ptys {
+            let leader = pty.master.lock().unwrap().process_group_leader();
+            if pty.book.lock().unwrap().leader != leader {
+                shared.record(&pty, now_ms(), Note::Leader(leader));
+            }
+        }
+    });
+}
+
 impl Host for Local {
-    fn open(&self, id: &str, path: &str, spawn: &Spawn, size: PtySize) -> Result<Option<i32>, String> {
+    fn open(
+        &self,
+        id: &str,
+        path: &str,
+        spawn: &Spawn,
+        size: PtySize,
+        state: serde_json::Value,
+    ) -> Result<Opened, String> {
+        let shared = &self.shared;
+        let _opening = shared.opening.lock().unwrap();
+        {
+            let _gate = shared.gate.lock().unwrap();
+            let ptys = shared.ptys.lock().unwrap();
+            let found = ptys.get(id).or_else(|| ptys.values().find(|p| p.path == path)).cloned();
+            drop(ptys);
+            if let Some(pty) = found {
+                let survivor = pty.book.lock().unwrap().survivor(&pty, shared.keep_backlog);
+                shared.emit(Event::Adopt(survivor));
+                return Ok(Opened::Existing { id: pty.id.clone() });
+            }
+        }
+
         // portable-pty quietly falls back to $HOME for a missing directory; a
         // shell somewhere else than the card says is worse than an error.
         if !spawn.cwd.is_empty() && !Path::new(&spawn.cwd).is_dir() {
@@ -236,89 +490,137 @@ impl Host for Local {
         // open for as long as anything holds its slave side.
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-        let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+        let mut writer = pair.master.take_writer().map_err(|e| e.to_string())?;
         let shell_pid = child.process_id().map(|pid| pid as i32);
+
+        let (input, inputs) = mpsc::channel::<Vec<u8>>();
+        let queued = Arc::new(AtomicUsize::new(0));
+        {
+            let queued = Arc::clone(&queued);
+            std::thread::spawn(move || {
+                for data in inputs {
+                    let written = writer.write_all(&data).and_then(|()| writer.flush());
+                    queued.fetch_sub(data.len(), Ordering::SeqCst);
+                    if written.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+
         let pty = Arc::new(Pty {
+            id: id.to_string(),
             path: path.to_string(),
             master: Mutex::new(pair.master),
-            writer: Mutex::new(writer),
             killer: Mutex::new(child.clone_killer()),
             shell_pid,
-            backlog: Mutex::default(),
+            input,
+            queued,
+            book: Mutex::new(Book {
+                checkpoint: Some(Checkpoint { seq: 0, state }),
+                ..Book::default()
+            }),
         });
-        self.ptys.lock().unwrap().insert(id.to_string(), Arc::clone(&pty));
+        shared.ptys.lock().unwrap().insert(id.to_string(), Arc::clone(&pty));
 
         let (drained_tx, drained_rx) = mpsc::channel::<()>();
         let reading = Arc::clone(&pty);
-        let sink = Arc::clone(&self.sink);
-        let gate = Arc::clone(&self.gate);
-        let keep_backlog = self.keep_backlog;
-        let reader_id = id.to_string();
+        let reading_shared = Arc::clone(shared);
         std::thread::spawn(move || {
+            let shared = reading_shared;
+            let pty = reading;
             let mut buf = vec![0u8; 64 * 1024];
             let mut scanner = StatusScanner::default();
             loop {
-                match reader.read(&mut buf) {
+                let n = match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        let data = &buf[..n];
-                        let mut statuses = scanner.feed(data);
-                        if statuses.iter().any(|p| p.starts_with('?')) {
-                            // The probe. Anything starting with `?` is taken
-                            // as support.
-                            let mut writer = reading.writer.lock().unwrap();
-                            let _ = writer.write_all(b"\x1b]7501;?\x07");
-                            let _ = writer.flush();
-                            statuses.retain(|p| !p.starts_with('?'));
-                        }
-                        let leader = reading.master.lock().unwrap().process_group_leader();
-                        let _gate = gate.lock().unwrap();
-                        if keep_backlog {
-                            append_backlog(&mut reading.backlog.lock().unwrap(), data);
-                        }
-                        Local::emit(
-                            &sink,
-                            Event::Output {
-                                id: reader_id.clone(),
-                                data: data.to_vec(),
-                                statuses,
-                                leader,
-                            },
-                        );
-                    }
+                    Ok(n) => n,
+                };
+                let data = &buf[..n];
+                let mut statuses = scanner.feed(data);
+                if statuses.iter().any(|p| p.starts_with('?')) {
+                    // The probe. Anything starting with `?` is taken as
+                    // support.
+                    let answer = b"\x1b]7501;?\x07".to_vec();
+                    pty.queued.fetch_add(answer.len(), Ordering::SeqCst);
+                    let _ = pty.input.send(answer);
+                    statuses.retain(|p| !p.starts_with('?'));
+                }
+                let leader = pty.master.lock().unwrap().process_group_leader();
+                let at = now_ms();
+                let _gate = shared.gate.lock().unwrap();
+                let mut book = pty.book.lock().unwrap();
+                let offset = book.end;
+                book.end += n as u64;
+                if shared.keep_backlog {
+                    append_backlog(&mut book.backlog, data);
+                }
+                // The foreground first: a status printed by a program that
+                // has already exited is cleared by it.
+                let mut entries: Vec<Entry> = book.push(at, Note::Leader(leader)).into_iter().collect();
+                entries.extend(statuses.into_iter().filter_map(|p| book.push(at, Note::Status(p))));
+                drop(book);
+                shared.emit(Event::Output {
+                    id: pty.id.clone(),
+                    offset,
+                    data: data.to_vec(),
+                });
+                for entry in entries {
+                    shared.emit(Event::Entry { id: pty.id.clone(), entry });
                 }
             }
             let _ = drained_tx.send(());
         });
 
-        let ptys = Arc::clone(&self.ptys);
-        let sink = Arc::clone(&self.sink);
-        let gate = Arc::clone(&self.gate);
-        let id = id.to_string();
+        let exiting_shared = Arc::clone(shared);
         std::thread::spawn(move || {
+            let shared = exiting_shared;
             let code = child.wait().map(|status| status.exit_code() as i32).unwrap_or(-1);
             let _ = drained_rx.recv_timeout(DRAIN_GRACE);
-            let _gate = gate.lock().unwrap();
-            let mut map = ptys.lock().unwrap();
-            if map.get(&id).is_some_and(|p| Arc::ptr_eq(p, &pty)) {
-                map.remove(&id);
+            let _gate = shared.gate.lock().unwrap();
+            let mut ptys = shared.ptys.lock().unwrap();
+            if ptys.get(&pty.id).is_some_and(|p| Arc::ptr_eq(p, &pty)) {
+                ptys.remove(&pty.id);
             }
-            drop(map);
-            Local::emit(&sink, Event::Exit { id, code });
+            drop(ptys);
+            let book = pty.book.lock().unwrap();
+            let tail = book.backlog[book.backlog.len().saturating_sub(EXIT_TAIL)..].to_vec();
+            let offset = book.end - tail.len() as u64;
+            drop(book);
+            let mut exited = shared.exited.lock().unwrap();
+            exited.push_back(Exited {
+                id: pty.id.clone(),
+                code,
+                offset,
+                tail,
+            });
+            if exited.len() > RECENT_EXITS {
+                exited.pop_front();
+            }
+            drop(exited);
+            shared.emit(Event::Exit { id: pty.id.clone(), code });
         });
 
-        Ok(shell_pid)
+        Ok(Opened::Started { pid: shell_pid })
     }
 
-    fn write(&self, id: &str, data: &[u8]) -> Result<(), String> {
-        let pty = self.get(id)?;
-        let mut writer = pty.writer.lock().unwrap();
-        writer.write_all(data).map_err(|e| e.to_string())?;
-        writer.flush().map_err(|e| e.to_string())
+    fn write(&self, id: &str, data: &[u8], typed_at: Option<u64>) -> Result<(), String> {
+        let pty = self.shared.get(id)?;
+        if !data.is_empty() {
+            if pty.queued.load(Ordering::SeqCst) + data.len() > MAX_QUEUED_INPUT {
+                return Err("the program in this terminal isn't reading its input".into());
+            }
+            pty.queued.fetch_add(data.len(), Ordering::SeqCst);
+            pty.input.send(data.to_vec()).map_err(|_| "the terminal has closed".to_string())?;
+        }
+        if let Some(at) = typed_at {
+            self.shared.record(&pty, at, Note::Typed);
+        }
+        Ok(())
     }
 
     fn resize(&self, id: &str, size: PtySize) -> Result<(), String> {
-        let pty = self.get(id)?;
+        let pty = self.shared.get(id)?;
         let master = pty.master.lock().unwrap();
         master.resize(size).map_err(|e| e.to_string())
     }
@@ -329,17 +631,30 @@ impl Host for Local {
     /// that group was tried and made no difference). Jobs the user put in
     /// the background are the shell's to hang up, as in any terminal.
     fn hang_up(&self, id: &str) {
-        if let Ok(pty) = self.get(id) {
+        if let Ok(pty) = self.shared.get(id) {
             let _ = pty.killer.lock().unwrap().kill();
         }
     }
 
-    fn leader(&self, id: &str) -> Option<i32> {
-        self.get(id).ok()?.master.lock().unwrap().process_group_leader()
+    fn note(&self, id: &str, at: u64, value: serde_json::Value) -> Result<(), String> {
+        let pty = self.shared.get(id)?;
+        self.shared.record(&pty, at, Note::App(value));
+        Ok(())
+    }
+
+    fn checkpoint(&self, id: &str, seq: u64, state: serde_json::Value) {
+        if let Ok(pty) = self.shared.get(id) {
+            let mut book = pty.book.lock().unwrap();
+            if book.checkpoint.as_ref().is_some_and(|c| c.seq > seq) {
+                return;
+            }
+            book.entries.retain(|e| e.seq > seq);
+            book.checkpoint = Some(Checkpoint { seq, state });
+        }
     }
 
     fn set_sink(&self, sink: Sink) {
-        let _ = self.sink.set(sink);
+        let _ = self.shared.sink.set(sink);
     }
 }
 
@@ -446,7 +761,6 @@ mod tests {
         assert!(backlog[..8].ends_with(b"\n") && backlog[..7].iter().all(u8::is_ascii_digit));
     }
 
-
     #[test]
     fn status_sequences_are_found_across_reads() {
         let mut scanner = StatusScanner::default();
@@ -462,5 +776,30 @@ mod tests {
         assert!(scanner.feed(b"\x1b]7501;").is_empty());
         assert!(scanner.feed(&vec![b'x'; MAX_STATUS * 2]).is_empty());
         assert!(scanner.carry.is_empty());
+    }
+
+    /// Typing after typing is one entry, the newest; the same foreground
+    /// twice is none; anything in between keeps both.
+    #[test]
+    fn the_log_stays_short_without_losing_order() {
+        let mut book = Book::default();
+        assert!(book.push(1, Note::Leader(Some(10))).is_some());
+        assert!(book.push(2, Note::Leader(Some(10))).is_none());
+        book.push(3, Note::Typed);
+        book.push(4, Note::Typed);
+        book.push(5, Note::Status("state=done".into()));
+        book.push(6, Note::Typed);
+        let kept: Vec<(u64, &Note)> = book.entries.iter().map(|e| (e.at, &e.note)).collect();
+        assert_eq!(
+            kept,
+            [
+                (1, &Note::Leader(Some(10))),
+                (4, &Note::Typed),
+                (5, &Note::Status("state=done".into())),
+                (6, &Note::Typed),
+            ]
+        );
+        let seqs: Vec<u64> = book.entries.iter().map(|e| e.seq).collect();
+        assert!(seqs.windows(2).all(|w| w[0] < w[1]), "numbered in order: {seqs:?}");
     }
 }

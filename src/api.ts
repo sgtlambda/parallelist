@@ -288,6 +288,9 @@ export const api = {
     invoke<void>('terminal_resize', { path, cols, rows }),
   terminalClose: (path: string) => invoke<void>('terminal_close', { path }),
   terminalList: () => invoke<TerminalInfo[]>('terminal_list'),
+  /** The terminal that was on screen when the last app quit and left it
+   *  running, once, at startup; else null. */
+  terminalRestoredView: () => invoke<TerminalInfo | null>('terminal_restored_view'),
   /** The terminal on screen in the focused window, or null. */
   terminalViewing: (path: string | null) => invoke<void>('terminal_viewing', { path }),
   /** What the Claude Code in a workspace's terminal last asked, read from
@@ -305,17 +308,20 @@ export const api = {
 }
 
 /** Another build's relay: `build` is its branch, with "(dev)" for a dev
- *  build. `terminals` is null for a relay of another version, which can
- *  only be ended as a whole. */
+ *  build. `terminals` is null for a relay that can't list them, which can
+ *  only be ended as a whole: one of another version, or, when `answering`
+ *  is false, one that didn't answer. */
 export interface OtherBuild {
   build: string
   terminals: (TerminalInfo & { id: string })[] | null
+  answering: boolean
 }
 
 export type TerminalMarkKind = 'unread' | 'blocked' | 'clear' | 'snooze'
 
-/** Output as raw bytes, then the exit code once the shell is gone. */
-export type TerminalMessage = ArrayBuffer | { exit: number }
+/** Output as raw bytes, then once the shell is gone its exit code, or why
+ *  it went without one: with the relay, or to another window of this build. */
+export type TerminalMessage = ArrayBuffer | { exit: number } | { ended: 'relay' | 'moved' }
 
 export interface TerminalInfo {
   path: string

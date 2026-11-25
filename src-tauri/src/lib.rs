@@ -825,10 +825,14 @@ fn pty_size(cols: u16, rows: u16) -> portable_pty::PtySize {
 
 /// Attach to the workspace's terminal, starting a shell if it has none, at
 /// home on `branch` of the project (`terminal::Home`). Output arrives on
-/// `channel` as raw bytes, then `{ "exit": code }` once.
+/// `channel` as raw bytes, then once `{ "exit": code }`, or
+/// `{ "ended": "relay" | "moved" }` when the shell went with the relay or
+/// another window took it. Off the main thread: starting a shell in the
+/// relay waits for its answer.
 #[tauri::command]
-fn terminal_open(
-    state: State<AppState>,
+#[allow(clippy::too_many_arguments)]
+async fn terminal_open(
+    state: State<'_, AppState>,
     project_id: String,
     branch: String,
     path: String,
@@ -838,23 +842,28 @@ fn terminal_open(
 ) -> Result<terminal::Opened, String> {
     use tauri::ipc::InvokeResponseBody;
     let sink: terminal::Sink = Box::new(move |chunk| {
+        let json = |value: serde_json::Value| InvokeResponseBody::Json(value.to_string());
         let body = match chunk {
             terminal::Chunk::Data(bytes) => InvokeResponseBody::Raw(bytes),
-            terminal::Chunk::Exit(code) => {
-                InvokeResponseBody::Json(serde_json::json!({ "exit": code }).to_string())
-            }
+            terminal::Chunk::Exit(code) => json(serde_json::json!({ "exit": code })),
+            terminal::Chunk::RelayGone => json(serde_json::json!({ "ended": "relay" })),
+            terminal::Chunk::Moved => json(serde_json::json!({ "ended": "moved" })),
         };
         channel.send(body).is_ok()
     });
-    let home = terminal::Home {
-        kind: workspace::kind_at(&state.project(&project_id)?, Path::new(&path)),
-        project_id,
-        branch,
-    };
-    let command = terminal::Terminals::shell_command(&path);
-    state
-        .terminals
-        .open(home, &path, pty_size(cols, rows), command, sink)
+    let project = state.project(&project_id)?;
+    let terminals = Arc::clone(&state.terminals);
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = terminal::Home {
+            kind: workspace::kind_at(&project, Path::new(&path)),
+            project_id,
+            branch,
+        };
+        let command = terminal::Terminals::shell_command(&path);
+        terminals.open(home, &path, pty_size(cols, rows), command, sink)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -905,6 +914,13 @@ async fn terminal_programs(state: State<'_, AppState>) -> Result<HashMap<String,
     tauri::async_runtime::spawn_blocking(move || terminals.programs())
         .await
         .map_err(|e| e.to_string())
+}
+
+/// The terminal that was on screen when the last app quit and left it
+/// running, for this one to open on. Answered once.
+#[tauri::command]
+fn terminal_restored_view(state: State<AppState>) -> Option<terminal::TerminalInfo> {
+    state.terminals.take_restored_view()
 }
 
 /// The terminal on screen, if any.
@@ -1026,6 +1042,7 @@ const SETTINGS_MENU_ID: &str = "settings";
 const ADD_BRANCH_MENU_ID: &str = "add-branch";
 const NEW_WORKSPACE_MENU_ID: &str = "new-workspace";
 const TERMINALS_MENU_ID: &str = "terminals";
+const QUIT_MENU_ID: &str = "quit";
 
 /// The File menu's two ways into the New workspace dialog, kept so the
 /// webview can enable them as the selection changes.
@@ -1050,6 +1067,20 @@ fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             MenuItem::with_id(app, SETTINGS_MENU_ID, "Settings…", true, Some("CmdOrCtrl+,"))?;
         // After "About" and the separator under it.
         app_menu.insert_items(&[&settings, &PredefinedMenuItem::separator(app)?], 2)?;
+        // The predefined Quit is AppKit's `terminate:`, which ends the app
+        // without a `RunEvent::ExitRequested`, so running terminals were
+        // never asked about. Ours goes through `request_quit`.
+        let quit = app_menu.items()?.into_iter().enumerate().find_map(|(i, item)| match item {
+            MenuItemKind::Predefined(p) if p.text().is_ok_and(|t| t.starts_with("Quit")) => {
+                Some((i, p.text().unwrap_or_default()))
+            }
+            _ => None,
+        });
+        if let Some((at, text)) = quit {
+            app_menu.remove_at(at)?;
+            let quit = MenuItem::with_id(app, QUIT_MENU_ID, text, true, Some("CmdOrCtrl+Q"))?;
+            app_menu.insert(&quit, at)?;
+        }
     }
     let file_menu = items.iter().find_map(|item| match item {
         MenuItemKind::Submenu(submenu) if submenu.text().ok().as_deref() == Some("File") => {
@@ -1105,13 +1136,38 @@ fn show_window(app: &tauri::AppHandle) {
     }
 }
 
+/// With shells running, ask the webview to confirm a quit first, since
+/// quitting either hangs up on every one of them or leaves them running in
+/// the relay, and say whether it asked. The window is shown for that, or
+/// the dialog would open in a hidden window and the quit would silently do
+/// nothing. Once confirmed (`quit_app`) it never asks again.
+fn ask_before_quitting(app: &tauri::AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    if state.quit_confirmed.load(Ordering::SeqCst) {
+        return false;
+    }
+    let terminals = state.terminals.list();
+    if terminals.is_empty() {
+        return false;
+    }
+    show_window(app);
+    let waiting = terminals.iter().filter(|t| t.waiting_since.is_some()).count();
+    let persistent = state.terminals.persistent();
+    let _ = app.emit("confirm-quit", (terminals.len(), waiting, persistent));
+    true
+}
+
 /// Quit after the confirmation dialog was accepted, ending every terminal
 /// with `end_terminals`, or leaving them running in the relay without.
 #[tauri::command]
 fn quit_app(app: tauri::AppHandle, state: State<AppState>, end_terminals: bool) {
     if end_terminals {
         state.terminals.close_all();
+    } else {
+        state.terminals.keep_view();
     }
+    // Queued for the relay: they must reach it before the app goes.
+    state.terminals.flush();
     state.quit_confirmed.store(true, Ordering::SeqCst);
     app.exit(0);
 }
@@ -1127,9 +1183,10 @@ fn relay_outdated(state: State<AppState>) -> Option<String> {
 #[tauri::command]
 fn replace_outdated_relay(app: tauri::AppHandle, state: State<AppState>) {
     if let Some(meta) = state.outdated_relay.lock().unwrap().take() {
-        relay::terminate(&meta);
+        relay::terminate(&state.dir.join("relays"), &meta);
     }
     state.terminals.close_all();
+    state.terminals.flush();
     state.quit_confirmed.store(true, Ordering::SeqCst);
     app.restart();
 }
@@ -1144,12 +1201,14 @@ struct OtherTerminal {
 }
 
 /// Another build's relay that is still running, and its terminals: `None`
-/// for a relay of another version, which can only be ended as a whole.
+/// for a relay of another version, or one that didn't answer, which can only
+/// be ended as a whole. `answering` tells the two apart.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct OtherBuild {
     build: String,
     terminals: Option<Vec<OtherTerminal>>,
+    answering: bool,
 }
 
 #[tauri::command]
@@ -1158,17 +1217,29 @@ async fn other_builds(state: State<'_, AppState>) -> Result<Vec<OtherBuild>, Str
     tauri::async_runtime::spawn_blocking(move || {
         relay::others(&dir)
             .into_iter()
-            .map(|other| OtherBuild {
-                build: other.meta.build,
-                terminals: other.terminals.map(|found| {
-                    found
-                        .iter()
-                        .map(|s| OtherTerminal {
-                            id: s.id.clone(),
-                            info: terminal::describe(s),
-                        })
-                        .collect()
-                }),
+            .map(|other| {
+                let (terminals, answering) = match other.found {
+                    relay::Found::Terminals(snapshot) => (
+                        Some(
+                            snapshot
+                                .terminals
+                                .iter()
+                                .map(|s| OtherTerminal {
+                                    id: s.id.clone(),
+                                    info: terminal::describe(s),
+                                })
+                                .collect(),
+                        ),
+                        true,
+                    ),
+                    relay::Found::OtherVersion => (None, true),
+                    relay::Found::NotAnswering => (None, false),
+                };
+                OtherBuild {
+                    build: other.meta.build,
+                    terminals,
+                    answering,
+                }
             })
             .collect()
     })
@@ -1189,7 +1260,7 @@ async fn end_other_terminals(state: State<'_, AppState>, build: String, ids: Vec
             .find(|m| m.build == build)
             .ok_or_else(|| format!("{build} has no terminals running"))?;
         if ids.is_empty() {
-            relay::terminate(&meta);
+            relay::terminate(&dir, &meta);
             Ok(())
         } else {
             relay::hang_up_in(&meta, &ids).map_err(|e| e.to_string())
@@ -1224,6 +1295,8 @@ pub fn run() {
                 let _ = app.emit("open-create", true);
             } else if event.id() == TERMINALS_MENU_ID {
                 let _ = app.emit("open-terminals", ());
+            } else if event.id() == QUIT_MENU_ID && !ask_before_quitting(app) {
+                app.exit(0);
             }
         })
         .setup(|app| {
@@ -1238,15 +1311,15 @@ pub fn run() {
             let terminal_handle = app.handle().clone();
             // The shells live in this build's relay, so they outlive the app.
             // Without one they live here, as they used to, and end with it.
-            let (host, survivors, outdated): (Arc<dyn pty::Host>, _, _) =
+            let (host, snapshot, outdated): (Arc<dyn pty::Host>, _, _) =
                 match relay::attach(&dir.join("relays")) {
-                    relay::Attach::Ready(client, survivors) => (client, survivors, None),
+                    relay::Attach::Ready(client, snapshot) => (client, snapshot, None),
                     relay::Attach::Outdated(meta) => {
-                        (Arc::new(pty::Local::default()), Vec::new(), Some(meta))
+                        (Arc::new(pty::Local::default()), pty::Snapshot::default(), Some(meta))
                     }
                     relay::Attach::Failed(e) => {
                         eprintln!("terminal relay: {e}; terminals will end with the app");
-                        (Arc::new(pty::Local::default()), Vec::new(), None)
+                        (Arc::new(pty::Local::default()), pty::Snapshot::default(), None)
                     }
                 };
             app.manage(dock::Blink::start(app.handle().clone()));
@@ -1278,7 +1351,7 @@ pub fn run() {
                         update_dock(&terminal_handle);
                     })),
                     host,
-                    survivors,
+                    snapshot,
                 )),
                 outdated_relay: Mutex::new(outdated),
             });
@@ -1315,6 +1388,7 @@ pub fn run() {
             terminal_write,
             terminal_resize,
             terminal_close,
+            terminal_restored_view,
             terminal_list,
             terminal_viewing,
             terminal_mark,
@@ -1329,23 +1403,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building parallelist")
         .run(|app, event| match event {
-            // ⌘Q lands here (closing the window only hides it). With shells
-            // running, the webview is asked to confirm first, since quitting
-            // hangs up on every one of them. The window is shown for that,
-            // or the dialog would open in a hidden window and the quit would
-            // silently do nothing.
+            // A quit from anywhere but the app menu's own item (⌘Q goes to
+            // `QUIT_MENU_ID`), where Tauri reports one; closing the window
+            // only hides it.
             tauri::RunEvent::ExitRequested { api, code: None, .. } => {
-                let state = app.state::<AppState>();
-                if state.quit_confirmed.load(Ordering::SeqCst) {
-                    return;
-                }
-                let terminals = state.terminals.list();
-                if !terminals.is_empty() {
+                if ask_before_quitting(app) {
                     api.prevent_exit();
-                    show_window(app);
-                    let waiting = terminals.iter().filter(|t| t.waiting_since.is_some()).count();
-                    let persistent = state.terminals.persistent();
-                    let _ = app.emit("confirm-quit", (terminals.len(), waiting, persistent));
                 }
             }
             // Clicking the Dock icon.

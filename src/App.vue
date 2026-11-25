@@ -23,7 +23,7 @@ import { setHomeDirectory } from './format'
 import { runCreateTargets } from './openIn'
 import { paletteOpen } from './palette'
 import { startTaskSync } from './tasks'
-import { syncTerminals, terminalShown, zoomTerminals } from './terminal'
+import { enterTerminal, syncTerminals, terminalShown, zoomTerminals } from './terminal'
 import {
   DETAIL_MIN,
   LIST_MIN,
@@ -246,7 +246,12 @@ onMounted(async () => {
   })
   outdatedRelay.value = await api.relayOutdated().catch(() => null)
   await loadConfig()
-  await refresh({ fetch: true })
+  // Open on the terminal that was on screen when the last app quit and left
+  // it running. In another project, switching there refreshes it.
+  const view = await api.terminalRestoredView().catch(() => null)
+  const known = view && state.config?.projects.some((p) => p.id === view.projectId)
+  if (view && known) enterTerminal(view.projectId, view.branch, view.path)
+  if (!view || !known || view.projectId === projectId.value) await refresh({ fetch: true })
   startBackgroundSync()
 })
 

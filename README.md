@@ -65,7 +65,8 @@ disk.
   or finished, and the app marks it. Double-clicking a branch goes into its
   shell: the one already running there, or a new one. Quitting can leave
   the terminals running, and they come back with their output on the next
-  launch, as they do after a crash or a reinstall. File › Manage Terminals
+  launch, as they do after a crash or a reinstall. The app then opens on
+  the terminal that was on screen when it quit. File › Manage Terminals
   lists every running terminal across projects, with the program in each,
   to end any number of them at once.
 - **The Dock icon** carries the count of terminals waiting for you on its

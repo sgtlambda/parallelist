@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { api, type OtherBuild, type TerminalInfo } from '../api'
 import TerminalMark from './TerminalMark.vue'
 import { ago, basename, splitWorkspaceName } from '../format'
@@ -29,7 +29,8 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 useEscape(() => props.open, () => emit('close'))
 
 /** Keys of the ticked rows: a path for this build's terminals, and
- *  `build \n id` for another build's (`*` for the whole of an older one). */
+ *  `build \n id` for another build's (`*` for the whole of one that can't
+ *  list them). */
 const selected = ref<Set<string>>(new Set())
 /** What runs in each terminal's foreground, asked for while open. */
 const programs = ref<Record<string, string>>({})
@@ -53,8 +54,9 @@ interface Entry {
   /** `<project>-<rest>` read as the rest, then the project, as the queue
    *  shows it. */
   split: { branch: string; project: string } | null
-  /** An older build's whole relay, which has no terminals to list. */
-  whole: boolean
+  /** Another build's whole relay, which can't list its terminals: an older
+   *  version's, or one that isn't answering. What it is called, if so. */
+  whole: string | null
   /** Another build's state as reported, for its mark; empty when unknown. */
   info: { status?: string | null; ready?: boolean }
 }
@@ -114,7 +116,7 @@ const groups = computed<Group[]>(() => {
       at: activeAt.get(path) ?? 0,
       own: true,
       split: splitName(path, home.projectId, home.branch),
-      whole: false,
+      whole: null,
       info: {},
     })
   }
@@ -139,7 +141,7 @@ const groups = computed<Group[]>(() => {
           at: t.activeAt,
           own: false,
           split: splitName(t.path, t.projectId, t.branch),
-          whole: false,
+          whole: null,
           info: { status: t.status, ready: t.ready },
         }))
       : [
@@ -153,7 +155,7 @@ const groups = computed<Group[]>(() => {
             at: 0,
             own: false,
             split: null,
-            whole: true,
+            whole: other.answering ? 'Terminals from an older version' : 'Terminals that aren\'t answering',
             info: {},
           },
         ]
@@ -171,15 +173,21 @@ const all = computed(() => entries.value.map((e) => e.key))
 const chosen = computed(() => entries.value.filter((e) => selected.value.has(e.key)))
 
 /** The counts are of terminals listed one by one, this build's and other
- *  builds'. An older version's relay can't say how many it holds, so it
- *  is named instead of counted. */
+ *  builds'. A relay that can't list its terminals can't say how many it
+ *  holds, so it is named instead of counted. */
 const listedCount = computed(() => entries.value.filter((e) => !e.whole).length)
 const chosenCount = computed(() => chosen.value.filter((e) => !e.whole).length)
 const chosenWhole = computed(() => chosen.value.filter((e) => e.whole).length)
 
 const endLabel = computed(() => {
-  const older = chosenWhole.value === 1 ? "an older version's terminals" : "older versions' terminals"
-  const parts = [chosenCount.value && plural(chosenCount.value), chosenWhole.value && older].filter(Boolean)
+  const wholes = chosen.value.filter((e) => e.whole)
+  const named =
+    wholes.length === 1
+      ? wholes[0].whole === 'Terminals from an older version'
+        ? "an older version's terminals"
+        : "the terminals that aren't answering"
+      : "other builds' terminals"
+  const parts = [chosenCount.value && plural(chosenCount.value), chosenWhole.value && named].filter(Boolean)
   return parts.length ? `End ${parts.join(' and ')}` : 'End'
 })
 
@@ -203,16 +211,27 @@ function checkState(keys: string[]) {
 }
 
 let poll = 0
+/** A load is under way: the next waits for it rather than piling up behind
+ *  a relay that is slow to answer. */
+let loading = false
 
 async function load() {
-  const [nextPrograms, nextOthers] = await Promise.all([
-    api.terminalPrograms().catch(() => null),
-    api.otherBuilds().catch(() => null),
-  ])
-  if (!props.open) return
-  if (nextPrograms) programs.value = nextPrograms
-  if (nextOthers) others.value = nextOthers
+  if (loading) return
+  loading = true
+  try {
+    const [nextPrograms, nextOthers] = await Promise.all([
+      api.terminalPrograms().catch(() => null),
+      api.otherBuilds().catch(() => null),
+    ])
+    if (!props.open) return
+    if (nextPrograms) programs.value = nextPrograms
+    if (nextOthers) others.value = nextOthers
+  } finally {
+    loading = false
+  }
 }
+
+const modal = ref<HTMLElement | null>(null)
 
 watch(
   () => props.open,
@@ -225,11 +244,27 @@ watch(
     void load()
     // A program started or ended meanwhile; one `ps` for all of them.
     poll = window.setInterval(load, 3000)
+    // Opened from the menu, the keyboard is still in the terminal behind:
+    // ⌘A would select its text, and Return would submit a half-typed prompt.
+    void nextTick(() => modal.value?.focus())
   },
   { immediate: true },
 )
 
-onUnmounted(() => window.clearInterval(poll))
+/** ⌘A ticks every row. On the window, as Escape is (`useEscape`): a press on
+ *  a row's checkbox, or nowhere in particular, still counts. */
+function onKey(event: KeyboardEvent) {
+  if (!props.open || !event.metaKey || event.key !== 'a') return
+  event.preventDefault()
+  event.stopPropagation()
+  toggleMany(all.value)
+}
+window.addEventListener('keydown', onKey)
+
+onUnmounted(() => {
+  window.clearInterval(poll)
+  window.removeEventListener('keydown', onKey)
+})
 
 /** What ending the selection would interrupt, beyond idle shells. */
 const atStake = computed(() => {
@@ -245,13 +280,6 @@ const atStake = computed(() => {
   return !last ? '' : parts.length ? `${parts.join(', ')} and ${last}` : last
 })
 
-function onKey(event: KeyboardEvent) {
-  if (event.metaKey && event.key === 'a') {
-    event.preventDefault()
-    toggleMany(all.value)
-  }
-}
-
 async function end() {
   const byBuild = new Map<string, string[]>()
   for (const { key } of chosen.value) {
@@ -263,7 +291,7 @@ async function end() {
     const build = key.slice(0, at)
     const id = key.slice(at + 1)
     const ids = byBuild.get(build) ?? []
-    // `*`: an older build's relay, ended as a whole.
+    // `*`: a relay that can't list its terminals, ended as a whole.
     if (id !== '*') ids.push(id)
     byBuild.set(build, ids)
   }
@@ -282,7 +310,7 @@ const plural = (n: number) => (n === 1 ? '1 terminal' : `${n} terminals`)
 
 <template>
   <div v-if="open" class="scrim" @click.self="emit('close')">
-    <div class="modal terminals" role="dialog" aria-labelledby="terminals-title" @keydown="onKey">
+    <div ref="modal" class="modal terminals" role="dialog" aria-labelledby="terminals-title" tabindex="-1">
       <div class="modal-header" data-tauri-drag-region="deep">
         <span id="terminals-title">Terminals</span>
         <span class="spacer" />
@@ -327,7 +355,7 @@ const plural = (n: number) => (n === 1 ? '1 terminal' : `${n} terminals`)
                 <TerminalMark v-if="entry.own" :paths="[entry.path]" />
                 <TerminalMark v-else :info="entry.info" />
               </span>
-              <span v-if="entry.whole" class="name truncate">Terminals from an older version</span>
+              <span v-if="entry.whole" class="name truncate">{{ entry.whole }}</span>
               <span v-else class="name" :title="entry.path">
                 <template v-if="entry.split">
                   <span class="truncate name-main">{{ entry.split.branch }}</span>
@@ -378,6 +406,11 @@ const plural = (n: number) => (n === 1 ? '1 terminal' : `${n} terminals`)
 </template>
 
 <style scoped>
+/* Focused only to take the keyboard from the terminal behind it. */
+.terminals:focus {
+  outline: none;
+}
+
 .terminals input[type='checkbox'] {
   width: 14px;
   height: 14px;

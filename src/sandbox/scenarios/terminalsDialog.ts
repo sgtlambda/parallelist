@@ -48,8 +48,10 @@ async function seed() {
             message: null,
           },
         ],
+        answering: true,
       },
-      { build: 'interactive-icon', terminals: null },
+      { build: 'interactive-icon', terminals: null, answering: true },
+      { build: 'close-hides', terminals: null, answering: false },
     ],
   })
 }
