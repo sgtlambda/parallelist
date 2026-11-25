@@ -233,6 +233,10 @@ struct Terminal {
     shared_open: AtomicBool,
     /// Closed while pending: hang up once the shell has started.
     close_asked: AtomicBool,
+    /// The size last asked of the host, which screen search replays the
+    /// backlog at (`Terminals::screens`). `None` for one taken over from an
+    /// earlier app until a window attaches to it.
+    size: Mutex<Option<PtySize>>,
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -441,6 +445,7 @@ impl Terminal {
             pending: AtomicBool::new(false),
             shared_open: AtomicBool::new(false),
             close_asked: AtomicBool::new(false),
+            size: Mutex::new(None),
         });
         (term, on_screen)
     }
@@ -820,6 +825,7 @@ impl Terminals {
                     term.shared_open.store(true, Ordering::SeqCst);
                 }
                 term.attach(sink);
+                *term.size.lock().unwrap() = Some(size);
                 let _ = self.inner.host.resize(&term.id, size);
                 return Ok(Opened {
                     started: false,
@@ -867,6 +873,7 @@ impl Terminals {
             pending: AtomicBool::new(true),
             shared_open: AtomicBool::new(false),
             close_asked: AtomicBool::new(false),
+            size: Mutex::new(Some(size)),
         });
         map.insert(key.clone(), Arc::clone(&term));
         drop(map);
@@ -899,6 +906,7 @@ impl Terminals {
                 if let Some(sink) = sink {
                     existing.attach(sink);
                 }
+                *existing.size.lock().unwrap() = Some(size);
                 let _ = self.inner.host.resize(&existing.id, size);
                 Ok(Opened {
                     started: false,
@@ -958,6 +966,7 @@ impl Terminals {
 
     pub fn resize(&self, path: &str, size: PtySize) -> Result<(), String> {
         let term = self.get(path)?;
+        *term.size.lock().unwrap() = Some(size);
         self.inner.host.resize(&term.id, size)
     }
 
@@ -1084,6 +1093,29 @@ impl Terminals {
         self.inner.all().iter().map(|t| t.info()).collect()
     }
 
+    /// What each terminal shows right now, as text: its backlog replayed
+    /// into a screen of its current size. Only asked for by the palette's
+    /// screen search, so nothing is parsed while no one searches. The
+    /// backlog starts at a line break somewhere in the past rather than at
+    /// the shell's start, which can leave a full-screen program's first
+    /// frame off; the newest output, which is what a screen shows, is whole.
+    pub fn screens(&self) -> Vec<crate::screen_search::Screen> {
+        let snapshots: Vec<(String, Vec<u8>, Option<PtySize>)> = self
+            .inner
+            .all()
+            .iter()
+            .map(|term| {
+                let backlog = term.output.lock().unwrap().backlog.clone();
+                let size = *term.size.lock().unwrap();
+                (term.info.path.clone(), backlog, size)
+            })
+            .collect();
+        crate::proc::parallel_map(snapshots, |(path, backlog, size)| crate::screen_search::Screen {
+            path: path.clone(),
+            text: screen_text(backlog, size.map_or(UNSIZED, |s| (s.rows, s.cols))),
+        })
+    }
+
     /// How many terminals wait for the user: blocked on an answer, or with a
     /// turn that ended and got no reply. The ones `terminalMark` draws a box
     /// around.
@@ -1141,6 +1173,19 @@ fn parse_status(payload: &str) -> Option<Report> {
         state: (state != "clear").then(|| state.to_string()),
         message,
     })
+}
+
+/// What a terminal no window has given a size since this app started is
+/// replayed at: wide, so long lines wrap no more than they did.
+const UNSIZED: (u16, u16) = (40, 120);
+
+/// The text a terminal of `rows` × `cols` shows after `output`, its
+/// wrapped lines joined.
+fn screen_text(output: &[u8], (rows, cols): (u16, u16)) -> String {
+    let size = |n: u16| std::num::NonZeroU16::new(n).unwrap_or(std::num::NonZeroU16::MIN);
+    let mut parser = vt100::Parser::new(size(rows), size(cols), 0);
+    parser.process(output);
+    parser.screen().contents()
 }
 
 /// The file a process was started from, as the kernel has it.
@@ -1379,6 +1424,33 @@ pub(crate) mod tests {
             .open(home(), missing, SIZE, sh(Path::new(missing)), tx)
             .unwrap_err();
         assert!(err.contains("does not exist"), "{err}");
+    }
+
+    /// What is on screen, not everything that went by: a line redrawn in
+    /// place shows once, and a full-screen program shows its own screen.
+    #[test]
+    fn a_screen_is_what_the_output_leaves_on_it() {
+        let output = b"$ build\r\nstep 1/3\r\x1b[2Kstep 2/3\r\x1b[2Kstep 3/3\r\nok\r\n$ ";
+        let text = screen_text(output, (24, 80));
+        assert_eq!(text.lines().collect::<Vec<_>>(), ["$ build", "step 3/3", "ok", "$ "]);
+        let full = b"before\r\n\x1b[?1049h\x1b[H\x1b[2Jin the editor";
+        assert_eq!(screen_text(full, (24, 80)).trim(), "in the editor");
+    }
+
+    #[test]
+    fn screens_are_read_from_running_terminals() {
+        let dir = temp_dir("screens");
+        let path = dir.to_string_lossy().to_string();
+        let terminals = Terminals::default();
+        let (tx, rx) = sink();
+        terminals.open(home(), &path, SIZE, sh(&dir), tx).unwrap();
+        terminals.write(&path, b"echo on-screen-$((40+2))\n").unwrap();
+        read_until(&rx, "on-screen-42");
+        let screens = terminals.screens();
+        assert_eq!(screens.len(), 1);
+        assert_eq!(screens[0].path, path);
+        assert!(screens[0].text.contains("on-screen-42"), "{:?}", screens[0].text);
+        terminals.close(&path);
     }
 
     #[test]

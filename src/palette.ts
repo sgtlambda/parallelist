@@ -3,8 +3,10 @@ import { api, type BranchInfo, type Overview, type Workspace } from './api'
 import { basename } from './format'
 import { fuzzyMatch } from './fuzzy'
 import { branchesOf, knownOverview, projectId, state } from './store'
+import { screenHits } from './screenSearch'
 import { normalizePath } from './tasks'
 import { byTerminalRank, terminalRank, TIER, type TerminalRank, type Tier } from './terminalState'
+import type { ScreenHit } from './api'
 
 /**
  * The command palette: every branch of every project, fuzzy-searched.
@@ -50,6 +52,15 @@ const TERMINAL_BONUS: Record<Tier, number> = {
  *  than in the branch name itself, counts for less. */
 const SECONDARY_WEIGHT = 0.75
 
+/**
+ * What a terminal's screen matching the query is worth, per query character,
+ * at full relevance (`ScreenHit.relevance`): like the query found in a
+ * workspace's directory name. So a screen that matches outright competes
+ * with a branch whose name does, without beating a whole name typed out,
+ * and a screen hit lifts a branch whose name matches only loosely.
+ */
+const SCREEN_WEIGHT = 0.75
+
 /** A peek younger than this is not repeated on reopening. */
 const FRESH_MS = 30_000
 
@@ -68,6 +79,9 @@ export interface Result {
   /** Matched characters, for highlighting. */
   branchHits: number[]
   projectHits: number[]
+  /** What one of its terminals shows that matched the query, when screen
+   *  search is on. */
+  screen: ScreenHit | null
 }
 
 const peeked = reactive(new Map<string, { overview: Overview; at: number }>())
@@ -138,27 +152,31 @@ function weighted(score: number): number {
 /**
  * The best `limit` branches for `query`. Each space-separated word must
  * match the branch name, the project name or a workspace directory, so
- * `app header` narrows to project `app`. Ties go to the terminal active
- * most recently, then the newer commit.
+ * `app header` narrows to project `app`; or else one of its terminals must
+ * show something that matches the query (`screenSearch.ts`). Ties go to the
+ * terminal active most recently, then the newer commit.
  */
 export function searchPalette(query: string, limit: number): Result[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   // The same for every branch of a project, so worked out once per search.
   const projectMatches = new Map<string, ReturnType<typeof fuzzyMatch>>()
+  const screens = screenHits(query)
+  const screenWorth = SCREEN_WEIGHT * words.join('').length
 
   const results: Result[] = []
   for (const entry of entries.value) {
     // Here rather than in `entries`, which is cached: activity is read as
     // it stands, so it has to be read on every search.
     const rank = terminalRank(entry.workspaces.map((w) => w.path))
-    let score =
+    const bonus =
       rank.tier !== TIER.none
         ? TERMINAL_BONUS[rank.tier]
         : entry.current
           ? CURRENT_PROJECT_BONUS
           : 0
-    const branchHits: number[] = []
-    const projectHits: number[] = []
+    let score = bonus
+    let branchHits: number[] = []
+    let projectHits: number[] = []
     let matched = true
 
     for (const word of words) {
@@ -190,7 +208,21 @@ export function searchPalette(query: string, limit: number): Result[] {
       best.hits?.push(...best.positions)
     }
 
-    if (matched) results.push({ entry, rank, score, branchHits, projectHits })
+    let screen: ScreenHit | null = null
+    for (const w of entry.workspaces) {
+      const hit = screens.get(normalizePath(w.path))
+      if (hit && (!screen || hit.relevance > screen.relevance)) screen = hit
+    }
+    if (!matched) {
+      if (!screen) continue
+      // Found by its screen alone: the name's partial match counts for
+      // nothing, and highlights nothing.
+      score = bonus
+      branchHits = []
+      projectHits = []
+    }
+    if (screen) score += screen.relevance * screenWorth
+    results.push({ entry, rank, score, branchHits, projectHits, screen })
   }
 
   results.sort(

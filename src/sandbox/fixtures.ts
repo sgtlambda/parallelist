@@ -67,6 +67,8 @@ export const config = (overrides: Partial<AppConfig> = {}): AppConfig => ({
   detailWidth: 640,
   terminalFontSize: 13,
   theme: 'graphite',
+  screenSearch: false,
+  screenSearchModel: 'minilm-l6',
   ...overrides,
 })
 

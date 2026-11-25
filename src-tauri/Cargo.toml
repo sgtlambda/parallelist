@@ -23,6 +23,13 @@ uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
 portable-pty = "0.9.0"
 base64 = "0.22"
+# Screen search (`screen_search.rs`): a terminal's screen rebuilt from its
+# backlog, and a local embedding model to search it by meaning. ONNX Runtime
+# is downloaded and linked statically at build time; the model itself is
+# downloaded by the app when the setting is turned on. `fancy-regex` rather
+# than the default `onig`, which compiles a C library for nothing.
+vt100 = "0.18.1"
+fastembed = { version = "7.8.0", default-features = false, features = ["onnx", "ort-download-binaries-native-tls", "hf-hub-native-tls", "fancy-regex"] }
 
 # The Dock icon's blinking cursor (`dock.rs`). Tauri already builds these.
 [target.'cfg(target_os = "macos")'.dependencies]

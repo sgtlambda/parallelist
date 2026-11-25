@@ -23,6 +23,7 @@ import { setHomeDirectory } from './format'
 import { runCreateTargets } from './openIn'
 import { paletteOpen } from './palette'
 import { startTaskSync } from './tasks'
+import { startScreenSearchSync } from './screenSearch'
 import { enterTerminal, syncTerminals, terminalShown, zoomTerminals } from './terminal'
 import {
   DETAIL_MIN,
@@ -214,6 +215,7 @@ let stopSettingsMenu: (() => void) | null = null
 let stopCreateMenu: (() => void) | null = null
 let stopTerminalsMenu: (() => void) | null = null
 let stopConfirmQuit: (() => void) | null = null
+let stopScreenSearchSync: (() => void) | null = null
 const quitAsk = ref<{ running: number; waiting: number; persistent: boolean } | null>(null)
 /** The build whose older relay holds this build's terminals, if any. */
 const outdatedRelay = ref<string | null>(null)
@@ -245,6 +247,7 @@ onMounted(async () => {
     quitAsk.value = { running, waiting, persistent }
   })
   outdatedRelay.value = await api.relayOutdated().catch(() => null)
+  stopScreenSearchSync = await startScreenSearchSync()
   await loadConfig()
   // Open on the terminal that was on screen when the last app quit and left
   // it running. In another project, switching there refreshes it.
@@ -262,6 +265,7 @@ onUnmounted(() => {
   stopCreateMenu?.()
   stopTerminalsMenu?.()
   stopConfirmQuit?.()
+  stopScreenSearchSync?.()
   stopBackgroundSync()
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('contextmenu', onContextMenu)

@@ -2219,6 +2219,24 @@ p.set-overridden,
   width: 260px;
 }
 
+.settings select.set-select {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 62%;
+  border-radius: 6px;
+  padding: 5px 8px;
+  background: var(--bg);
+}
+
+/* A choice that applies only once the switch above it is on. */
+.set-row.set-disabled {
+  opacity: 0.5;
+}
+
+.set-row-text p.set-error {
+  color: var(--red);
+}
+
 .set-row.stacked .set-input {
   width: 100%;
 }
@@ -2844,6 +2862,28 @@ p.set-overridden,
   color: var(--accent);
 }
 
+/* What a terminal shows that matched, on a line of its own under the
+   row's. */
+.palette-item.with-screen {
+  flex-wrap: wrap;
+  row-gap: 3px;
+}
+
+.palette-screen {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.palette-screen .icon {
+  color: var(--text-faint);
+}
+
 .palette-project {
   flex: 0 1 auto;
   max-width: 30%;
@@ -2867,6 +2907,16 @@ p.set-overridden,
   padding: 7px 14px;
   border-top: 1px solid var(--border-soft);
   font-size: 11px;
+}
+
+/* Where the search model is, while it isn't ready. */
+.palette-note {
+  margin-left: auto;
+  min-width: 0;
+}
+
+.palette-note.err {
+  color: var(--red);
 }
 
 .palette-footer kbd {

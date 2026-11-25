@@ -314,6 +314,8 @@ export const config: AppConfig = {
   detailWidth: 360,
   terminalFontSize: 12,
   theme: 'graphite',
+  screenSearch: false,
+  screenSearchModel: 'minilm-l6',
 }
 
 /** What the frontend receives is always a copy, so its reactive proxies never

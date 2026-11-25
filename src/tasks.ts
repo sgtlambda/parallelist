@@ -129,7 +129,8 @@ async function resync(id: string) {
  * card is then not on screen asks for attention — the box's "Ready" notice.
  */
 async function settle(task: LiveTask) {
-  if (task.kind === 'refresh') return
+  // Neither changes what is on disk in a project.
+  if (task.kind === 'refresh' || task.kind === 'download') return
   const created = task.kind === 'create' && task.status === 'done'
   if (created) {
     checking.add(task.id)

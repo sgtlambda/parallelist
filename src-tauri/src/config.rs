@@ -160,10 +160,21 @@ pub struct AppConfig {
     /// know falls back to its default, so this isn't checked here.
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Whether the palette also searches what the terminals show
+    /// (`screen_search.rs`). Off by default: it downloads a model.
+    #[serde(default)]
+    pub screen_search: bool,
+    /// Which model it uses, by `screen_search::Model::id`.
+    #[serde(default = "default_screen_search_model")]
+    pub screen_search_model: String,
 }
 
 pub fn default_theme() -> String {
     "graphite".into()
+}
+
+fn default_screen_search_model() -> String {
+    crate::screen_search::DEFAULT_MODEL.to_string()
 }
 
 fn default_sidebar_width() -> f64 {
@@ -204,6 +215,8 @@ impl Default for AppConfig {
             detail_width: default_detail_width(),
             terminal_font_size: default_terminal_font_size(),
             theme: default_theme(),
+            screen_search: false,
+            screen_search_model: default_screen_search_model(),
         }
     }
 }

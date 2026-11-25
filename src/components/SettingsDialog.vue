@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { api, type AppConfig, type ProjectFile } from '../api'
+import { api, type AppConfig, type ProjectFile, type ScreenSearchModel } from '../api'
 import { shortPath, templatePath } from '../format'
+import { modelNote as noteFor, screenStatus } from '../screenSearch'
 import { refresh, saveConfig, state } from '../store'
 import { THEMES, showTheme, type Palette, type Scheme } from '../themes'
 import { useEscape } from '../useEscape'
@@ -17,6 +18,7 @@ const draft = ref<AppConfig | null>(null)
 /** The draft as it was opened, to tell whether anything changed. */
 const baseline = ref('')
 const files = ref<Record<string, ProjectFile>>({})
+const models = ref<ScreenSearchModel[]>([])
 const saving = ref(false)
 const error = ref<string | null>(null)
 /** Times Esc or the scrim was refused over unsaved changes; replays the notice. */
@@ -53,8 +55,32 @@ watch(
       (found) => (files.value = found),
       () => (files.value = {}),
     )
+    if (!models.value.length) {
+      api.screenSearchModels().then(
+        (found) => (models.value = found),
+        () => {},
+      )
+    }
   },
 )
+
+/** The model picked in the draft: its name, and the memory it takes. */
+const modelDetail = computed(() => {
+  const m = models.value.find((m) => m.id === draft.value?.screenSearchModel)
+  if (!m) return null
+  const memory = m.memoryMb >= 1000 ? `${(m.memoryMb / 1000).toFixed(1)} GB` : `${m.memoryMb} MB`
+  return `${m.name}, about ${memory} of memory while searching`
+})
+
+/** What the saved model is doing, worth saying: getting ready, or failed.
+ *  Only for the model saved, not one picked in the draft and not saved. */
+const modelNote = computed(() => {
+  const status = screenStatus.value
+  const saved = state.config
+  if (!saved?.screenSearch || !draft.value?.screenSearch) return null
+  if (draft.value.screenSearchModel !== saved.screenSearchModel) return null
+  return noteFor(status)
+})
 
 // A theme picked is shown at once, and kept only if the settings are saved.
 watch(
@@ -187,6 +213,15 @@ function onKey(event: KeyboardEvent) {
           <Icon name="launch" :size="14" />
           Open in
         </button>
+        <button
+          type="button"
+          class="settings-nav-item"
+          :class="{ active: section === 'screens' }"
+          @click="section = 'screens'"
+        >
+          <Icon name="search" :size="14" />
+          Screen search
+        </button>
 
         <div class="settings-nav-heading">Projects</div>
         <div class="settings-nav-projects">
@@ -211,6 +246,7 @@ function onKey(event: KeyboardEvent) {
           <div class="settings-head-text" data-tauri-drag-region>
             <h2 v-if="section === 'general'" data-tauri-drag-region>General</h2>
             <h2 v-else-if="section === 'targets'" data-tauri-drag-region>Open in</h2>
+            <h2 v-else-if="section === 'screens'" data-tauri-drag-region>Screen search</h2>
             <template v-else-if="project">
               <h2 class="truncate" data-tauri-drag-region>{{ project.name || 'Untitled' }}</h2>
               <p class="mono truncate selectable">{{ shortPath(project.path) }}</p>
@@ -336,6 +372,44 @@ function onKey(event: KeyboardEvent) {
                 <code>{branch}</code> are filled in, shell-quoted.
               </p>
             </div>
+          </template>
+
+          <!-- Screen search -->
+          <template v-else-if="section === 'screens'">
+            <div class="set-group">
+              <div class="set-card">
+                <label class="set-row clickable">
+                  <div class="set-row-text">
+                    <span class="set-label">Search what terminals show</span>
+                    <p>
+                      The palette matches each terminal's screen by its words and by meaning, with a
+                      model that runs on this machine.
+                    </p>
+                  </div>
+                  <input v-model="draft.screenSearch" type="checkbox" class="switch" />
+                </label>
+                <div class="set-row" :class="{ 'set-disabled': !draft.screenSearch }">
+                  <div class="set-row-text">
+                    <label for="set-model">Model</label>
+                    <p v-if="modelDetail">{{ modelDetail }}</p>
+                    <p v-if="modelNote" :class="{ 'set-error': modelNote.error }">
+                      {{ modelNote.text }}
+                    </p>
+                  </div>
+                  <select
+                    id="set-model"
+                    v-model="draft.screenSearchModel"
+                    class="set-select"
+                    :disabled="!draft.screenSearch"
+                  >
+                    <option v-for="m in models" :key="m.id" :value="m.id">
+                      {{ m.label }} · {{ m.downloadMb }} MB download
+                    </option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
           </template>
 
           <!-- A project -->
