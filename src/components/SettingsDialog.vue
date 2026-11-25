@@ -199,6 +199,15 @@ function onKey(event: KeyboardEvent) {
           <Icon name="launch" :size="14" />
           Open in
         </button>
+        <button
+          type="button"
+          class="settings-nav-item"
+          :class="{ active: section === 'screens' }"
+          @click="section = 'screens'"
+        >
+          <Icon name="search" :size="14" />
+          Screen search
+        </button>
 
         <div class="settings-nav-heading">Projects</div>
         <div class="settings-nav-projects">
@@ -223,6 +232,7 @@ function onKey(event: KeyboardEvent) {
           <div class="settings-head-text" data-tauri-drag-region>
             <h2 v-if="section === 'general'" data-tauri-drag-region>General</h2>
             <h2 v-else-if="section === 'targets'" data-tauri-drag-region>Open in</h2>
+            <h2 v-else-if="section === 'screens'" data-tauri-drag-region>Screen search</h2>
             <template v-else-if="project">
               <h2 class="truncate" data-tauri-drag-region>{{ project.name || 'Untitled' }}</h2>
               <p class="mono truncate selectable">{{ shortPath(project.path) }}</p>
@@ -281,36 +291,6 @@ function onKey(event: KeyboardEvent) {
             </div>
 
             <div class="set-group">
-              <h3>Command palette</h3>
-              <div class="set-card">
-                <label class="set-row clickable">
-                  <div class="set-row-text">
-                    <span class="set-label">Search what terminals show</span>
-                    <p>
-                      Matches each terminal's screen by its words and by meaning, with a model that
-                      runs on this machine.
-                    </p>
-                  </div>
-                  <input v-model="draft.screenSearch" type="checkbox" class="switch" />
-                </label>
-                <div v-if="draft.screenSearch" class="set-row">
-                  <div class="set-row-text">
-                    <label for="set-model">Model</label>
-                    <p v-if="modelDetail">{{ modelDetail }}</p>
-                    <p v-if="modelNote" :class="{ 'set-error': modelNote.error }">
-                      {{ modelNote.text }}
-                    </p>
-                  </div>
-                  <select id="set-model" v-model="draft.screenSearchModel" class="set-select">
-                    <option v-for="m in models" :key="m.id" :value="m.id">
-                      {{ m.label }} · {{ m.downloadMb }} MB download
-                    </option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div class="set-group">
               <h3>Branch list</h3>
               <div class="set-card">
                 <div class="set-row">
@@ -347,6 +327,44 @@ function onKey(event: KeyboardEvent) {
                 <code>{branch}</code> are filled in, shell-quoted.
               </p>
             </div>
+          </template>
+
+          <!-- Screen search -->
+          <template v-else-if="section === 'screens'">
+            <div class="set-group">
+              <div class="set-card">
+                <label class="set-row clickable">
+                  <div class="set-row-text">
+                    <span class="set-label">Search what terminals show</span>
+                    <p>
+                      The palette matches each terminal's screen by its words and by meaning, with a
+                      model that runs on this machine.
+                    </p>
+                  </div>
+                  <input v-model="draft.screenSearch" type="checkbox" class="switch" />
+                </label>
+                <div class="set-row" :class="{ 'set-disabled': !draft.screenSearch }">
+                  <div class="set-row-text">
+                    <label for="set-model">Model</label>
+                    <p v-if="modelDetail">{{ modelDetail }}</p>
+                    <p v-if="modelNote" :class="{ 'set-error': modelNote.error }">
+                      {{ modelNote.text }}
+                    </p>
+                  </div>
+                  <select
+                    id="set-model"
+                    v-model="draft.screenSearchModel"
+                    class="set-select"
+                    :disabled="!draft.screenSearch"
+                  >
+                    <option v-for="m in models" :key="m.id" :value="m.id">
+                      {{ m.label }} · {{ m.downloadMb }} MB download
+                    </option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
           </template>
 
           <!-- A project -->

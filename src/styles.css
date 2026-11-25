@@ -2044,6 +2044,11 @@ p.set-overridden,
   background: var(--bg);
 }
 
+/* A choice that applies only once the switch above it is on. */
+.set-row.set-disabled {
+  opacity: 0.5;
+}
+
 .set-row-text p.set-error {
   color: var(--red);
 }

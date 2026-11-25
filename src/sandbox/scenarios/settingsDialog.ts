@@ -143,7 +143,7 @@ export default defineGroup('Settings', [
     note: 'The model picked, and what it is doing while it gets ready. A failure says why in red.',
     component: SettingsDialog,
     props: { open: true },
-    setup: () => open('app', {}, 'General', { status: { state: 'loading', model: 'minilm-l6' } }),
+    setup: () => open('app', {}, 'Screen search', { status: { state: 'loading', model: 'minilm-l6' } }),
   },
   {
     id: 'screen-search-failed',
@@ -151,9 +151,17 @@ export default defineGroup('Settings', [
     component: SettingsDialog,
     props: { open: true },
     setup: () =>
-      open('app', {}, 'General', {
+      open('app', {}, 'Screen search', {
         status: { state: 'failed', model: 'minilm-l6', error: 'Failed to retrieve model.onnx: network unreachable' },
       }),
+  },
+  {
+    id: 'screen-search-off',
+    title: 'Screen search, off',
+    note: 'The model can be seen, greyed out, until the switch is on.',
+    component: SettingsDialog,
+    props: { open: true },
+    setup: () => open('app', {}, 'Screen search'),
   },
   {
     id: 'targets',
