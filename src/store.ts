@@ -9,6 +9,7 @@ import {
   type Overview,
   type PullRequest,
 } from './api'
+import { showTheme } from './themes'
 import { createTasksFor, hasCard, hasPendingCreate, normalizePath } from './tasks'
 import { byTerminalRank, latestShown, running, shown, terminalRank } from './terminalState'
 
@@ -378,6 +379,14 @@ export async function loadConfig() {
   state.config = config
 }
 
+// The saved theme is shown whichever way the config arrives or changes.
+// Settings shows its draft's on top while open (`showTheme`), and puts this
+// one back when it closes.
+watch(
+  () => state.config?.theme,
+  (theme) => state.config && showTheme(theme),
+)
+
 export async function saveConfig(next: AppConfig) {
   // Cloned to a plain object: the IPC layer structured-clones its payload and
   // chokes on a reactive proxy.
@@ -735,6 +744,8 @@ export async function copyToClipboard(text: string, what: string) {
 }
 
 export const settingsOpen = ref(false)
+/** The Terminals dialog: every running terminal, to end any of them. */
+export const terminalsOpen = ref(false)
 export const cleanupOpen = ref(false)
 
 /** What the open Cleanup dialog is working on. Snapshots, not live lists: the

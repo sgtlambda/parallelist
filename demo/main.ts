@@ -2,6 +2,7 @@ import { createApp, watch } from 'vue'
 import App from '../src/App.vue'
 import '../src/styles.css'
 import './demo.css'
+import { installThemes } from '../src/themes'
 import { startStory } from './backend'
 import { selectBranch, state } from '../src/store'
 import { showTerminal } from '../src/terminal'
@@ -28,6 +29,7 @@ HTMLElement.prototype.focus = function (this: HTMLElement, options?: FocusOption
   focus.call(this, options)
 }
 
+installThemes()
 createApp(App).mount('#app')
 
 // Open on the branch whose terminal is blocked on a question.

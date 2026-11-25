@@ -217,7 +217,7 @@ h1 {
 }
 
 .then b.ready {
-  color: var(--accent);
+  color: var(--ready);
 }
 
 kbd {

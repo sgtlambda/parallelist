@@ -7,6 +7,7 @@ import { computed, nextTick, watch } from 'vue'
 import { api, onTerminalExit, onTerminalStatus, type TerminalMessage } from './api'
 import { goToWorkspace, saveConfig, state } from './store'
 import { normalizePath } from './tasks'
+import { shownTheme } from './themes'
 import { activeAt, homeOf, running, setStatus, shown, statuses } from './terminalState'
 
 /**
@@ -79,9 +80,18 @@ const sessions = new Map<string, Session>()
 
 const dark = window.matchMedia('(prefers-color-scheme: dark)')
 
+/** `#rrggbb` at an opacity, for xterm, which can't take `color-mix`. */
+function withAlpha(hex: string, alpha: number): string | undefined {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex)
+  if (!m) return undefined
+  const [r, g, b] = m.slice(1).map((h) => parseInt(h, 16))
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 /** The pane's own colours, read from the stylesheet so the terminal sits in
- *  it rather than on it. ANSI colours are VS Code's: its light palette is one
- *  of few where yellow and white stay readable on white. */
+ *  it rather than on it, in whichever theme is shown. ANSI colours are VS
+ *  Code's: its light palette is one of few where yellow and white stay
+ *  readable on white. */
 function theme(): ITheme {
   const css = getComputedStyle(document.documentElement)
   const v = (name: string) => css.getPropertyValue(name).trim()
@@ -94,7 +104,7 @@ function theme(): ITheme {
   return dark.matches
     ? {
         ...base,
-        selectionBackground: 'rgba(75, 139, 255, 0.35)',
+        selectionBackground: withAlpha(v('--accent'), 0.35) ?? 'rgba(75, 139, 255, 0.35)',
         black: '#000000', red: '#cd3131', green: '#0dbc79', yellow: '#e5e510',
         blue: '#2472c8', magenta: '#bc3fbc', cyan: '#11a8cd', white: '#e5e5e5',
         brightBlack: '#666666', brightRed: '#f14c4c', brightGreen: '#23d18b',
@@ -103,7 +113,7 @@ function theme(): ITheme {
       }
     : {
         ...base,
-        selectionBackground: 'rgba(47, 111, 237, 0.25)',
+        selectionBackground: withAlpha(v('--accent'), 0.25) ?? 'rgba(47, 111, 237, 0.25)',
         black: '#000000', red: '#cd3131', green: '#00bc00', yellow: '#949800',
         blue: '#0451a5', magenta: '#bc05bc', cyan: '#0598bc', white: '#555555',
         brightBlack: '#666666', brightRed: '#cd3131', brightGreen: '#14ce14',
@@ -148,9 +158,14 @@ watch(fontSize, (size) => {
   }
 })
 
-dark.addEventListener('change', () => {
+function retheme() {
   for (const s of sessions.values()) s.term.options.theme = theme()
-})
+}
+
+dark.addEventListener('change', retheme)
+// `showTheme` sets the root's `data-theme` before this runs, so the
+// stylesheet already answers with the new theme's colours.
+watch(shownTheme, retheme)
 
 /**
  * ⌘-clicking a link follows it: an OSC 8 one (Claude Code's `[Image #1]`,
@@ -270,7 +285,8 @@ async function start(s: Session) {
   channel.onmessage = (message) => {
     if (s.disposed) return
     if (message instanceof ArrayBuffer) s.term.write(new Uint8Array(message))
-    else ended(s, message.exit)
+    else if ('exit' in message) ended(s, message.exit)
+    else ended(s, null, message.ended)
   }
   const at = startOn.get(s.path) ?? running.get(s.path)
   let opened
@@ -292,13 +308,23 @@ async function start(s: Session) {
   send(s, '', false)
 }
 
-function ended(s: Session, code: number | null) {
+/** The shell is gone: with `code`, or, without one, with the relay or to
+ *  another window of this build, which keeps it from here on. */
+function ended(s: Session, code: number | null, how?: 'relay' | 'moved') {
   s.state = 'exited'
   s.pending = ''
   running.delete(s.path)
   statuses.delete(s.path)
-  const why = code === null ? 'No shell' : `Shell exited${code ? ` with ${code}` : ''}`
-  s.term.write(`\r\n\x1b[2m${why}. Press Return to start a new one.\x1b[0m\r\n`)
+  const why =
+    how === 'moved'
+      ? 'This terminal is open in another parallelist window'
+      : how === 'relay'
+        ? 'The terminal relay stopped, and this shell with it'
+        : code === null
+          ? 'No shell'
+          : `Shell exited${code ? ` with ${code}` : ''}`
+  const next = how === 'moved' ? '' : ' Press Return to start a new one.'
+  s.term.write(`\r\n\x1b[2m${why}.${next}\x1b[0m\r\n`)
 }
 
 /** Put a workspace's terminal into `host`, starting its shell the first time,
@@ -445,7 +471,13 @@ export async function syncTerminals(): Promise<() => void> {
       // An attached session hears it on its own channel, with the exit code.
       if (!sessions.has(key)) running.delete(key)
     }),
-    onTerminalStatus(setStatus),
+    onTerminalStatus((t) => {
+      // One taken in from the relay after a reconnect is heard of this way
+      // first.
+      const key = normalizePath(t.path)
+      if (!running.has(key)) running.set(key, homeOf(t))
+      setStatus(t)
+    }),
   ])
   // What a previous webview reported viewing is gone with it.
   viewingSent = undefined

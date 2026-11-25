@@ -121,10 +121,17 @@ export interface TerminalMark {
 export function terminalMark(paths: string[]): TerminalMark | null {
   const keys = paths.map(normalizePath).filter((p) => running.has(p))
   if (!keys.length) return null
-  const working = keys.some((k) => statuses.get(k)?.status === 'working')
   const waiting = keys.map(waitingOn)
-  const blocked = waiting.includes('blocked')
-  const ready = waiting.includes('ready')
+  return markOf({
+    working: keys.some((k) => statuses.get(k)?.status === 'working'),
+    blocked: waiting.includes('blocked'),
+    ready: waiting.includes('ready'),
+  })
+}
+
+/** The mark for terminals in these states, combined: also drawn for a
+ *  terminal this window doesn't hold, from the state reported for it. */
+export function markOf({ working, blocked, ready }: { working: boolean; blocked: boolean; ready: boolean }): TerminalMark {
   const title = [
     blocked && 'Blocked — waiting for your answer',
     ready && 'Ready — finished, waiting for your reply',

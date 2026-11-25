@@ -1,30 +1,5 @@
 :root {
-  --bg: #f6f6f7;
-  --bg-raised: #ffffff;
-  --bg-sidebar: #ececee;
-  --bg-hover: rgba(0, 0, 0, 0.045);
-  --bg-active: rgba(0, 0, 0, 0.075);
-  --border: rgba(0, 0, 0, 0.11);
-  --border-soft: rgba(0, 0, 0, 0.06);
-  --text: #1c1c1e;
-  --text-dim: #6d6d72;
-  --text-faint: #96969c;
-  --accent: #2f6fed;
-  --accent-fg: #ffffff;
-  --green: #1a7f37;
-  --red: #c93c37;
-  --danger-bg: #c93c37;
-  --danger-fg: #ffffff;
-  --amber: #9a6700;
-  --orange: #d0630e;
-  --purple: #7b47c4;
-  --skeleton: rgba(0, 0, 0, 0.07);
-  --skeleton-hi: rgba(0, 0, 0, 0.13);
-  /* Behind a label laid over other content: away from the text colour. */
-  --label-scrim: rgba(255, 255, 255, 0.6);
-  /* The chosen segment of a segmented control, raised off its track. */
-  --control-on: #ffffff;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  /* Colours are the theme's, in `themes.ts`. */
   --radius: 7px;
   --titlebar-h: 44px;
   /* The line the build's branch name takes under the title bar (App.vue). */
@@ -37,37 +12,6 @@
      into whatever space is laid out against the window's edge. */
   --window-edge: 1px;
   --sidebar-w: 216px;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1c1c1e;
-    --bg-raised: #262629;
-    --bg-sidebar: #202022;
-    --bg-hover: rgba(255, 255, 255, 0.055);
-    --bg-active: rgba(255, 255, 255, 0.09);
-    --border: rgba(255, 255, 255, 0.12);
-    --border-soft: rgba(255, 255, 255, 0.07);
-    --text: #f2f2f4;
-    --text-dim: #9e9ea5;
-    --text-faint: #6f6f77;
-    --accent: #4b8bff;
-    --accent-fg: #ffffff;
-    --green: #4ac26b;
-    --red: #f2695f;
-    --danger-bg: #c4423a;
-    --danger-fg: #ffffff;
-    --amber: #d4a72c;
-    --orange: #f0883e;
-    --purple: #b585f5;
-    --skeleton: rgba(255, 255, 255, 0.07);
-    --skeleton-hi: rgba(255, 255, 255, 0.15);
-    --label-scrim: rgba(0, 0, 0, 0.2);
-    --control-on: #4a4a4f;
-    --shadow: 0 12px 34px rgba(0, 0, 0, 0.5);
-    color-scheme: dark;
-  }
 }
 
 * {
@@ -441,15 +385,15 @@ code,
 
 /* No border: a wash of the state's colour is all that marks a card out,
    so the ones that need the user are the only ones with colour behind
-   them. Blocked is the mark's orange, ready the accent's blue, mixed over
+   them. Blocked is the mark's orange, ready its blue, mixed over
    the strip's own colour so a card is opaque where the task box's backdrop
    fades over it. */
 .attention-card.ready {
-  background: color-mix(in srgb, var(--accent) 12%, var(--bg-sidebar));
+  background: color-mix(in srgb, var(--ready) 12%, var(--bg-sidebar));
 }
 
 .attention-card.ready:hover {
-  background: color-mix(in srgb, var(--accent) 18%, var(--bg-sidebar));
+  background: color-mix(in srgb, var(--ready) 18%, var(--bg-sidebar));
 }
 
 .attention-card.blocked {
@@ -1171,7 +1115,8 @@ code,
    in the colour of what it sits on. Blue when a turn finished out of sight,
    orange when it is blocked on an answer. The negative margin keeps the
    box from making its row taller than the bare glyph does. On a selected
-   row, whose background is the accent, the blue box inverts once more. */
+   row, whose background is the accent, the box inverts: the accent's
+   foreground, with the glyph knocked out of it in the accent. */
 .terminal-mark.ready,
 .terminal-mark.blocked {
   padding: 1px;
@@ -1181,7 +1126,7 @@ code,
 }
 
 .terminal-mark.ready {
-  background: var(--accent);
+  background: var(--ready);
 }
 
 .terminal-mark.blocked {
@@ -1634,57 +1579,167 @@ code,
 
 /* ---------- modal ---------- */
 
+/* Dialogs are macOS sheets: dropped from under the title bar rather than
+   floating in the middle, over a window dimmed only a little, with no
+   header or footer rules. The title is the content's first line and the
+   buttons sit at the bottom right on the same background. Chosen in the
+   sandbox over a translucent alert-style panel and a Spotlight-style one
+   (`src/sandbox/dialogDesigns.css`). */
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: rgba(0, 0, 0, 0.12);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 40px 24px;
+  padding: calc(var(--titlebar-h) - 8px) 24px 24px;
   z-index: 40;
+  /* `backwards`, not `both`: an opacity left on after it ends would make
+     the scrim a backdrop root, and a translucent menu inside would blur
+     nothing behind the dialog. */
+  animation: fade-in 0.18s ease backwards;
 }
 
 .modal {
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 11px;
-  box-shadow: var(--shadow);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.32),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.1),
+    0 14px 44px rgba(0, 0, 0, 0.3);
   width: 100%;
   max-width: 620px;
   max-height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: sheet-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(-24px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+/* A form or a question is a narrow sheet. */
+:is(form.modal:not(.wide), .modal[role='alertdialog']) {
+  max-width: 500px;
 }
 
 .modal.wide {
   max-width: 820px;
 }
 
+/* A form's branch menu hangs past the bottom of the sheet, as a native menu
+   does, rather than being cut off by it. */
+form.modal:not(.wide),
+form.modal:not(.wide) .modal-body {
+  overflow: visible;
+}
+
 .modal-header {
-  padding: 13px 16px;
-  border-bottom: 1px solid var(--border-soft);
-  font-weight: 600;
+  padding: 20px 20px 2px;
+  font-size: 13px;
+  font-weight: 700;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 .modal-body {
-  padding: 16px;
+  padding: 12px 20px 6px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
+}
+
+/* The body's gap spaces its paragraphs; their own margins would push a
+   question's text a line away from its title. */
+.modal-body > p {
+  margin: 0;
 }
 
 .modal-footer {
-  padding: 11px 16px;
-  border-top: 1px solid var(--border-soft);
+  padding: 14px 20px 20px;
   display: flex;
-  gap: 8px;
+  gap: 12px;
   align-items: center;
+}
+
+/* AppKit push buttons: no border, a half-point ring and a soft drop, in the
+   raised control colour the segmented control uses; the default one in the
+   accent with a faint light at its top. Only the footer's: buttons inside a
+   dialog's content keep the app's own. */
+.modal-footer .btn {
+  border: none;
+  border-radius: 6px;
+  padding: 3px 12px;
+  min-width: 72px;
+  background: var(--control-on);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.22),
+    0 0.5px 1.5px rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+}
+
+.modal-footer .btn:hover {
+  background: var(--control-on);
+  filter: brightness(0.97);
+}
+
+.modal-footer .btn:active {
+  filter: brightness(0.9);
+}
+
+.modal-footer .btn.primary {
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 86%, white), var(--accent));
+  color: var(--accent-fg);
+  box-shadow:
+    0 0 0 0.5px color-mix(in srgb, var(--accent) 70%, black),
+    0 0.5px 1.5px rgba(0, 0, 0, 0.2);
+}
+
+.modal-footer .btn.primary.danger {
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--danger-bg) 86%, white), var(--danger-bg));
+  color: var(--danger-fg);
+  box-shadow:
+    0 0 0 0.5px color-mix(in srgb, var(--danger-bg) 70%, black),
+    0 0.5px 1.5px rgba(0, 0, 0, 0.2);
+}
+
+.modal-footer .btn.primary:hover {
+  filter: brightness(1.06);
+}
+
+/* Text fields in a dialog: a hairline inset and the wide, soft focus ring.
+   The branch picker's border is its field's, so the input inside stays bare. */
+.modal-body :is(input:not([type='checkbox']), .picker-field) {
+  border: none;
+  border-radius: 5px;
+  background: var(--bg-raised);
+  box-shadow:
+    inset 0 0 0 0.5px color-mix(in srgb, var(--text) 30%, transparent),
+    inset 0 1px 1px color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.modal-body :is(input:not([type='checkbox']):focus, .picker-field:focus-within) {
+  outline: 3.5px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 0;
+}
+
+.modal-body .picker-field input,
+.modal-body .picker-field input:focus {
+  box-shadow: none;
+  background: none;
+  outline: none;
 }
 
 .field {
@@ -1704,12 +1759,48 @@ code,
   color: var(--text-faint);
 }
 
+/* In a dialog a field is an AppKit form row: its label to the left of the
+   control, right-aligned with a colon, and anything else under the control.
+   Checkboxes and their labels at body size. */
+.modal:not(.wide) .field {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 7px;
+  align-items: center;
+}
+
+.modal:not(.wide) .field > * {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.modal:not(.wide) .field > :first-child {
+  grid-column: 1;
+  text-align: right;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+}
+
+.modal:not(.wide) .field > :first-child::after {
+  content: ':';
+}
+
+.modal .field > label.check {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+}
+
 /* ---------- settings ---------- */
 
 /* A window of its own over the app, the size of a settings window whatever
    the section, so moving between sections never resizes it. Sections are
    listed on its left as in System Settings, every project among them. */
 .settings-scrim {
+  align-items: center;
+  padding: 40px 24px;
   background: rgba(0, 0, 0, 0.3);
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
@@ -1965,6 +2056,99 @@ code,
 .set-foot {
   margin: 0 2px;
   color: var(--text-faint);
+}
+
+/* The theme picker: a tile per theme, its light palette beside its dark
+   one, each drawn by setting the palette's tokens on its half. */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 10px;
+}
+
+.theme-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.theme-tile input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.theme-preview {
+  display: flex;
+  height: 56px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+
+.theme-tile:hover .theme-preview {
+  outline-color: var(--border);
+}
+
+.theme-tile.on .theme-preview {
+  outline-color: var(--accent);
+}
+
+.theme-tile input:focus-visible + .theme-preview {
+  outline-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.theme-half {
+  display: flex;
+  flex: 1;
+  background: var(--bg-raised);
+}
+
+.theme-side {
+  flex: none;
+  width: 30%;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-soft);
+}
+
+.theme-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 6px;
+}
+
+.theme-line {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--text-faint);
+  opacity: 0.6;
+}
+
+.theme-line.accent {
+  height: 6px;
+  background: var(--accent);
+  opacity: 1;
+}
+
+.theme-line.short {
+  width: 60%;
+}
+
+.theme-name {
+  padding-left: 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.theme-tile.on .theme-name {
+  color: var(--text);
+  font-weight: 550;
 }
 
 .set-card,
@@ -2668,7 +2852,8 @@ p.set-overridden,
 }
 
 .palette-item.active {
-  background: var(--bg-active);
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 
 /* Matched characters. Colour alone, no weight: bolding them changes the
@@ -2868,7 +3053,9 @@ p.set-overridden,
   }
 
   .settings,
-  .settings-scrim {
+  .settings-scrim,
+  .scrim,
+  .modal {
     animation: none;
   }
 }
@@ -2989,11 +3176,17 @@ table.list .detail-row td {
   z-index: 5;
   max-height: 320px;
   overflow-y: auto;
-  padding: 4px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  /* A native menu: the material over what is behind it, and the row under
+     the keyboard in the accent, as in the palette. */
+  padding: 5px;
+  background: color-mix(in srgb, var(--bg-raised) 74%, transparent);
+  -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  backdrop-filter: blur(30px) saturate(1.8);
+  border-radius: 9px;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.14),
+    0 10px 32px rgba(0, 0, 0, 0.24);
 }
 
 .picker-heading {
@@ -3027,7 +3220,8 @@ table.list .detail-row td {
 }
 
 .picker-item.active {
-  background: var(--bg-active);
+  background: var(--accent);
+  color: var(--accent-fg);
 }
 
 /* As in the palette: colour alone, so the row doesn't jitter as you type. */
@@ -3054,4 +3248,12 @@ table.list .detail-row td {
 .picker-note {
   padding: 5px 8px 6px 29px;
   font-size: 11.5px;
+}
+
+/* Everything in the selected row of a menu or the palette is in the accent's
+   foreground, as in an AppKit menu: the matched characters, the dim
+   metadata and the icons too. */
+.picker-list .picker-item.active *,
+.palette-list .palette-item.active * {
+  color: var(--accent-fg);
 }

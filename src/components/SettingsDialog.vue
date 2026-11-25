@@ -4,6 +4,7 @@ import { api, type AppConfig, type ProjectFile, type ScreenSearchModel } from '.
 import { shortPath, templatePath } from '../format'
 import { modelNote as noteFor, screenStatus } from '../screenSearch'
 import { refresh, saveConfig, state } from '../store'
+import { THEMES, showTheme, type Palette, type Scheme } from '../themes'
 import { useEscape } from '../useEscape'
 import Icon from './Icon.vue'
 import OpenTargetList from './OpenTargetList.vue'
@@ -43,7 +44,8 @@ watch(
     baseline.value = draft.value ? JSON.stringify(draft.value) : ''
     error.value = null
     nudge.value = 0
-    if (!draft.value) return
+    // Closed, saved or not: the saved theme, in place of the one previewed.
+    if (!draft.value) return showTheme(state.config?.theme)
     // Opens on the project on screen: "Project settings…" and the gear both
     // mean the one being looked at.
     const current = draft.value.selectedProjectId
@@ -79,6 +81,20 @@ const modelNote = computed(() => {
   if (draft.value.screenSearchModel !== saved.screenSearchModel) return null
   return noteFor(status)
 })
+
+// A theme picked is shown at once, and kept only if the settings are saved.
+watch(
+  () => draft.value?.theme,
+  (theme) => draft.value && showTheme(theme),
+)
+
+const SCHEMES: Scheme[] = ['light', 'dark']
+
+/** A palette's tokens set on its preview, so the preview's own styles draw it
+ *  in that palette whatever the window shows. */
+function paletteStyle(palette: Palette): Record<string, string> {
+  return Object.fromEntries(Object.entries(palette).map(([name, value]) => [`--${name}`, value]))
+}
 
 watch(section, () => {
   if (body.value) body.value.scrollTop = 0
@@ -244,6 +260,37 @@ function onKey(event: KeyboardEvent) {
         <div ref="body" class="settings-body">
           <!-- General -->
           <template v-if="section === 'general'">
+            <div class="set-group">
+              <h3 id="set-theme">Theme</h3>
+              <div class="theme-grid" role="radiogroup" aria-labelledby="set-theme">
+                <label
+                  v-for="t in THEMES"
+                  :key="t.id"
+                  class="theme-tile"
+                  :class="{ on: draft.theme === t.id }"
+                  title="Light or dark follows the system appearance"
+                >
+                  <input v-model="draft.theme" type="radio" name="theme" :value="t.id" />
+                  <span class="theme-preview" aria-hidden="true">
+                    <span
+                      v-for="scheme in SCHEMES"
+                      :key="scheme"
+                      class="theme-half"
+                      :style="paletteStyle(t[scheme])"
+                    >
+                      <span class="theme-side" />
+                      <span class="theme-body">
+                        <span class="theme-line accent" />
+                        <span class="theme-line" />
+                        <span class="theme-line short" />
+                      </span>
+                    </span>
+                  </span>
+                  <span class="theme-name">{{ t.name }}</span>
+                </label>
+              </div>
+            </div>
+
             <div class="set-group">
               <h3>Background refresh</h3>
               <div class="set-card">

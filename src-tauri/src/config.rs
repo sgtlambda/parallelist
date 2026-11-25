@@ -155,6 +155,11 @@ pub struct AppConfig {
     /// Shared by every terminal, so zooming one zooms them all.
     #[serde(default = "default_terminal_font_size")]
     pub terminal_font_size: f64,
+    /// The colour theme's id (`src/themes.ts`). Each theme has a light and a
+    /// dark palette, picked by the OS appearance. An id the frontend doesn't
+    /// know falls back to its default, so this isn't checked here.
+    #[serde(default = "default_theme")]
+    pub theme: String,
     /// Whether the palette also searches what the terminals show
     /// (`screen_search.rs`). Off by default: it downloads a model.
     #[serde(default)]
@@ -162,6 +167,10 @@ pub struct AppConfig {
     /// Which model it uses, by `screen_search::Model::id`.
     #[serde(default = "default_screen_search_model")]
     pub screen_search_model: String,
+}
+
+pub fn default_theme() -> String {
+    "graphite".into()
 }
 
 fn default_screen_search_model() -> String {
@@ -205,6 +214,7 @@ impl Default for AppConfig {
             list_width: None,
             detail_width: default_detail_width(),
             terminal_font_size: default_terminal_font_size(),
+            theme: default_theme(),
             screen_search: false,
             screen_search_model: default_screen_search_model(),
         }

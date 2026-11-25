@@ -6,6 +6,7 @@ import BranchList from './components/BranchList.vue'
 import CleanupDialog from './components/CleanupDialog.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import ConfirmQuitDialog from './components/ConfirmQuitDialog.vue'
+import OutdatedRelayDialog from './components/OutdatedRelayDialog.vue'
 import CreateDialog from './components/CreateDialog.vue'
 import DetailPane from './components/DetailPane.vue'
 import DropTargets from './components/DropTargets.vue'
@@ -15,14 +16,15 @@ import ProjectSidebar from './components/ProjectSidebar.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
 import TaskBox from './components/TaskBox.vue'
 import TasksDialog from './components/TasksDialog.vue'
-import { api, onConfirmQuit, onOpenCreate, onOpenSettings } from './api'
+import TerminalsDialog from './components/TerminalsDialog.vue'
+import { api, onConfirmQuit, onOpenCreate, onOpenSettings, onOpenTerminals } from './api'
 import { goToNextWaiting, snoozeShown } from './attention'
 import { setHomeDirectory } from './format'
 import { runCreateTargets } from './openIn'
 import { paletteOpen } from './palette'
 import { startTaskSync } from './tasks'
 import { startScreenSearchSync } from './screenSearch'
-import { syncTerminals, terminalShown, zoomTerminals } from './terminal'
+import { enterTerminal, syncTerminals, terminalShown, zoomTerminals } from './terminal'
 import {
   DETAIL_MIN,
   LIST_MIN,
@@ -44,6 +46,7 @@ import {
   startBackgroundSync,
   state,
   stopBackgroundSync,
+  terminalsOpen,
 } from './store'
 
 /** No project yet: an introduction takes the place of the three columns and
@@ -210,9 +213,12 @@ let stopTaskSync: (() => void) | null = null
 let stopTerminalSync: (() => void) | null = null
 let stopSettingsMenu: (() => void) | null = null
 let stopCreateMenu: (() => void) | null = null
+let stopTerminalsMenu: (() => void) | null = null
 let stopConfirmQuit: (() => void) | null = null
 let stopScreenSearchSync: (() => void) | null = null
-const quitAsk = ref<{ running: number; waiting: number } | null>(null)
+const quitAsk = ref<{ running: number; waiting: number; persistent: boolean } | null>(null)
+/** The build whose older relay holds this build's terminals, if any. */
+const outdatedRelay = ref<string | null>(null)
 
 onMounted(async () => {
   // Before anything awaited: the first refresh waits on a fetch, and the
@@ -234,12 +240,21 @@ onMounted(async () => {
     settingsOpen.value = true
   })
   stopCreateMenu = await onOpenCreate(newFromShortcut)
-  stopConfirmQuit = await onConfirmQuit((running, waiting) => {
-    quitAsk.value = { running, waiting }
+  stopTerminalsMenu = await onOpenTerminals(() => {
+    terminalsOpen.value = true
   })
+  stopConfirmQuit = await onConfirmQuit((running, waiting, persistent) => {
+    quitAsk.value = { running, waiting, persistent }
+  })
+  outdatedRelay.value = await api.relayOutdated().catch(() => null)
   stopScreenSearchSync = await startScreenSearchSync()
   await loadConfig()
-  await refresh({ fetch: true })
+  // Open on the terminal that was on screen when the last app quit and left
+  // it running. In another project, switching there refreshes it.
+  const view = await api.terminalRestoredView().catch(() => null)
+  const known = view && state.config?.projects.some((p) => p.id === view.projectId)
+  if (view && known) enterTerminal(view.projectId, view.branch, view.path)
+  if (!view || !known || view.projectId === projectId.value) await refresh({ fetch: true })
   startBackgroundSync()
 })
 
@@ -248,6 +263,7 @@ onUnmounted(() => {
   stopTerminalSync?.()
   stopSettingsMenu?.()
   stopCreateMenu?.()
+  stopTerminalsMenu?.()
   stopConfirmQuit?.()
   stopScreenSearchSync?.()
   stopBackgroundSync()
@@ -321,7 +337,9 @@ onUnmounted(() => {
       @close="cleanupOpen = false"
     />
     <SettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
+    <TerminalsDialog :open="terminalsOpen" @close="terminalsOpen = false" />
     <ConfirmQuitDialog :ask="quitAsk" @close="quitAsk = null" />
+    <OutdatedRelayDialog :build="outdatedRelay" @close="outdatedRelay = null" />
     <TasksDialog @error="state.error = $event" />
     <CommandPalette />
 

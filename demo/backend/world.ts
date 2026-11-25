@@ -313,6 +313,7 @@ export const config: AppConfig = {
   listWidth: 262,
   detailWidth: 360,
   terminalFontSize: 12,
+  theme: 'graphite',
   screenSearch: false,
   screenSearchModel: 'minilm-l6',
 }

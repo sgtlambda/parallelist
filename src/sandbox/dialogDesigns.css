@@ -1,0 +1,381 @@
+/*
+ * The looks the app's dialogs were chosen over, to look at in the sandbox.
+ * The sheet was chosen and is the app's own style now (`.scrim`, `.modal`
+ * and its parts in `styles.css`); these two are kept for comparison. Each is
+ * a class on the root element (`dlg-<name>`, set by `DialogStage.vue`) that
+ * restyles what the dialogs already render, on top of the sheet, so each
+ * first undoes what of the sheet it doesn't share; none of them touches a
+ * component. Colours are mixed from the app's own tokens so light and dark
+ * follow without a block of their own. Only the sandbox loads this file.
+ */
+
+/* ---------- both: undo the sheet's form rows ---------- */
+
+:is(.dlg-alert, .dlg-float) .modal:not(.wide) .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: stretch;
+}
+
+:is(.dlg-alert, .dlg-float) .modal:not(.wide) .field > :first-child {
+  text-align: left;
+}
+
+:is(.dlg-alert, .dlg-float) .modal:not(.wide) .field > :first-child::after {
+  content: none;
+}
+
+/* ---------- 2. alert: a vibrant panel, and NSAlert for questions ----------
+   Floating in the middle as now, but in the system's translucent material
+   rather than a flat card, and with nothing dimmed behind it. A question
+   (`role="alertdialog"`: quit, an outdated relay) takes the shape of a
+   macOS alert: narrow, the app's icon on top, the title and text centred,
+   and the buttons stacked full width with the default first. A form keeps
+   its labels above its fields but loses its rules, and its title is
+   centred like a panel's. */
+.dlg-alert .scrim {
+  align-items: center;
+  padding: 40px 24px;
+  background: rgba(0, 0, 0, 0.06);
+  animation: fade-in 0.12s ease backwards;
+}
+
+.dlg-alert .modal {
+  max-width: 540px;
+  border: none;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  backdrop-filter: blur(40px) saturate(1.8);
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.26),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.18),
+    0 22px 70px rgba(0, 0, 0, 0.32);
+  animation: dlg-alert-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards;
+}
+
+.dlg-alert .modal.wide {
+  max-width: 820px;
+}
+
+@keyframes dlg-alert-in {
+  from {
+    transform: scale(1.06);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.dlg-alert .modal-header {
+  justify-content: center;
+  padding: 16px 20px 4px;
+  border: none;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* The project name beside the title would pull it off centre. */
+.dlg-alert .modal-header .spacer,
+.dlg-alert .modal-header .faint {
+  display: none;
+}
+
+.dlg-alert .modal-body {
+  padding: 12px 20px 8px;
+  gap: 12px;
+}
+
+.dlg-alert .field label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.dlg-alert .modal-footer {
+  padding: 12px 16px 16px;
+  border: none;
+  gap: 10px;
+}
+
+.dlg-alert .segmented {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+.dlg-alert .modal[role='alertdialog'] {
+  max-width: 272px;
+  text-align: center;
+}
+
+.dlg-alert .modal[role='alertdialog']::before {
+  content: '';
+  align-self: center;
+  width: 64px;
+  height: 64px;
+  margin-top: 20px;
+  background: url('../../src-tauri/icons/icon.svg') center / contain no-repeat;
+}
+
+.dlg-alert .modal[role='alertdialog'] .modal-header {
+  padding-top: 12px;
+}
+
+.dlg-alert .modal[role='alertdialog'] .modal-body {
+  padding: 4px 18px 6px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.dlg-alert .modal[role='alertdialog'] .modal-footer {
+  flex-direction: column-reverse;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 16px 16px;
+}
+
+.dlg-alert .modal[role='alertdialog'] .modal-footer .spacer {
+  display: none;
+}
+
+.dlg-alert .modal[role='alertdialog'] .btn {
+  height: 28px;
+  border-radius: 7px;
+}
+
+/* ---------- 3. float: a keyboard-first panel, as Spotlight ----------
+   Not AppKit's dialogs but the panels Mac apps of the last few years float
+   over a window: a thick material with a soft inner light, a large radius,
+   everything sitting high in the window where the palette already sits, so
+   every dialog opens in the same place. Fields are filled rather than
+   outlined. The footer is a toolbar strip whose buttons say their keys,
+   so Return and Esc are visible without a legend. Menus share the material,
+   and the row under the keyboard is a tint, not the accent. */
+.dlg-float .scrim {
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.1);
+  animation: fade-in 0.12s ease backwards;
+}
+
+.dlg-float .modal {
+  max-width: 560px;
+  border: 1px solid color-mix(in srgb, var(--text) 9%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--bg-raised) 86%, transparent);
+  -webkit-backdrop-filter: blur(50px) saturate(1.6);
+  backdrop-filter: blur(50px) saturate(1.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 0.5px rgba(0, 0, 0, 0.3),
+    0 30px 90px rgba(0, 0, 0, 0.34);
+  animation: dlg-float-in 0.16s ease-out backwards;
+}
+
+.dlg-float .modal.wide {
+  max-width: 820px;
+}
+
+@keyframes dlg-float-in {
+  from {
+    transform: scale(0.97);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.dlg-float .modal-header {
+  padding: 18px 20px 4px;
+  border: none;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* The project as a chip beside the title. */
+.dlg-float .modal-header .faint {
+  padding: 1px 8px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  font-size: 11.5px;
+}
+
+.dlg-float .modal-header .spacer {
+  display: none;
+}
+
+.dlg-float .modal-body {
+  padding: 12px 20px 20px;
+  gap: 14px;
+}
+
+.dlg-float .field label:not(.check) {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+
+.dlg-float .modal :is(input:not([type='checkbox']), .picker-field) {
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.dlg-float .modal .picker .picker-field {
+  padding: 0 8px 0 0;
+}
+
+.dlg-float .modal .picker-field input {
+  border: none;
+  background: none;
+}
+
+.dlg-float .modal :is(input:not([type='checkbox']):focus, .picker-field:focus-within) {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.dlg-float .modal .picker-field input:focus {
+  border: none;
+}
+
+.dlg-float .segmented {
+  border-radius: 9px;
+  padding: 3px;
+}
+
+.dlg-float .segmented button {
+  border-radius: 6px;
+  padding: 4px 12px;
+}
+
+.dlg-float .field > label.check {
+  font-weight: 400;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.dlg-float .modal-footer {
+  padding: 9px 12px 9px 20px;
+  border-top: 1px solid color-mix(in srgb, var(--text) 7%, transparent);
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  gap: 4px;
+}
+
+.dlg-float .modal .modal-footer .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  border-radius: 7px;
+  padding: 4px 8px 4px 10px;
+  background: transparent;
+  font-weight: 500;
+}
+
+.dlg-float .modal .modal-footer .btn:hover {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.dlg-float .modal .modal-footer .btn.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.dlg-float .modal .modal-footer .btn.primary.danger {
+  background: var(--danger-bg);
+}
+
+.dlg-float .modal .modal-footer .btn.danger:not(.primary) {
+  color: var(--red);
+}
+
+/* The keys, drawn after the label: Return on the default, Esc on Cancel. */
+.dlg-float .modal-footer .btn.primary::after,
+.dlg-float .modal-footer .btn:not(.primary, .danger)::after {
+  content: '↵';
+  padding: 0 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.dlg-float .modal-footer .btn:not(.primary, .danger)::after {
+  content: 'esc';
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text-dim);
+}
+
+.dlg-float .modal[role='alertdialog'] .modal-body {
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.dlg-float .picker-list {
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 9%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-raised) 82%, transparent);
+  -webkit-backdrop-filter: blur(40px) saturate(1.6);
+  backdrop-filter: blur(40px) saturate(1.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 16px 48px rgba(0, 0, 0, 0.3);
+}
+
+.dlg-float .picker-item {
+  border-radius: 8px;
+}
+
+html.dlg-float :is(.picker-item, .palette-item).active {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+.dlg-float .palette-item {
+  border-radius: 9px;
+}
+
+/* The sheet's controls, which the float's own replace. */
+.dlg-float .modal :is(input:not([type='checkbox']), .picker-field) {
+  box-shadow: none;
+}
+
+.dlg-float .modal .modal-footer .btn {
+  min-width: 0;
+  box-shadow: none;
+  filter: none;
+}
+
+.dlg-float .modal:not(.wide, .palette) .modal-footer {
+  border-radius: 0 0 15px 15px;
+}
+
+/* The field's fill is the picker's own; the input inside stays bare. */
+.dlg-float .modal .picker-field input:focus {
+  border: none;
+  background: none;
+}
+
+/* A tint for the selected row keeps its text as it was. */
+html.dlg-float :is(.picker-list .picker-item, .palette-list .palette-item).active {
+  color: var(--text);
+}
+
+html.dlg-float :is(.picker-list .picker-item, .palette-list .palette-item).active * {
+  color: inherit;
+}
+
+/* The palette's search is the panel's top line, not a field in it. */
+html.dlg-float .modal.palette .palette-search input {
+  border: none;
+  background: none;
+  box-shadow: none;
+  outline: none;
+  padding: 13px 0;
+}
